@@ -9,7 +9,7 @@ use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, Icon, Size, Sizable as _, Theme, button::ButtonVariants as _, h_flex, v_flex};
 use gpui_kit::{
-    AnimationExt as _, AnyElement, App, BoxShadow, Bounds, Corners, Div, ElementId, FontWeight, Hsla, IntoElement, ObjectFit,
+    AnimationExt as _, AnyElement, App, BoxShadow, Bounds, Corners, Div, ElementId, FocusHandle, FontWeight, Hsla, IntoElement, ObjectFit,
     ParentElement, PathBuilder, Pixels, SharedString, Stateful, Styled, assets::IconName, canvas, div, linear_color_stop,
     linear_gradient, point, prelude::*, px, relative, rems, size,
 };
@@ -250,11 +250,14 @@ fn rise_in(index: usize, id: String, card: AnyElement) -> AnyElement {
 fn grid_card(it: Item, loading: bool, on_play: &FileAction) -> AnyElement {
     let on_play = on_play.clone();
     let hover_id = ElementId::Name(format!("ep-card-hover:{}", it.key).into());
-    hover_anim(hover_id, CARD_HOVER, move |t, _, cx| {
+    hover_anim(hover_id, CARD_HOVER, move |t, window, cx| {
         let e = ease_out_cubic(t);
         let theme = cx.theme().clone();
         let radii = petal_corners(e);
-        let actions = actions(&it, &on_play, cx);
+        // Focado pelo teclado, o ▶ "Assistir" fica inteiro mesmo no hover.
+        let play_focus = window.use_keyed_state("ep-play-focus", cx, |_, cx| cx.focus_handle()).read(cx).clone();
+        let play_opacity = if play_focus.is_focused(window) { 1. } else { 1. - e };
+        let actions = actions(&it, &on_play, play_opacity, Some(&play_focus), cx);
         let image = still(&it, loading, radii, lerp(1., GRID_ZOOM, e), cx);
         let (act, f) = (on_play.clone(), it.file.clone());
         let name = it.key.clone();
@@ -278,8 +281,8 @@ fn grid_card(it: Item, loading: bool, on_play: &FileAction) -> AnyElement {
                     linear_color_stop(theme.primary.opacity(0.33 * e), 1.),
                 )))
             })
-            .when(t > 0., |d| d.child(petal(t, &theme)))
             .children(it.seen.filter(|&f| f > 0.).map(|f| progress_strip(f, radii, &theme)))
+            .when(t > 0., |d| d.child(petal(t, radii.bottom_right, &theme)))
             .child(ring(radii, theme.border.opacity(1. - e), theme.primary.opacity(0.55 * e)));
 
         let meta: Vec<AnyElement> = [
@@ -341,35 +344,56 @@ fn grid_card(it: Item, loading: bool, on_play: &FileAction) -> AnyElement {
     .into_any_element()
 }
 
-/// Pétala com ▶ no canto de baixo à direita da miniatura, com a ponta virada
-/// para o centro da imagem. `t` é o hover linear: cresce passando um pouco do
-/// tamanho e volta, enquanto aparece. Só decora: o ▶ "Assistir" do card é o
-/// caminho pelo teclado.
-fn petal(t: f32, theme: &Theme) -> Div {
+/// Pétala com ▶ no canto de baixo à direita da miniatura: uma bolha redonda
+/// centrada `PETAL_INSET` para dentro do canto, da qual só se vê o pedaço de
+/// dentro. `t` é o hover linear: cresce passando um pouco do tamanho e volta,
+/// enquanto aparece. Só decora: o ▶ "Assistir" do card é o caminho pelo teclado.
+///
+/// O recorte do GPUI é reto, então a bolha é pintada já cortada (ver
+/// [`bubble`]) e o canto dela no canto da miniatura usa o raio de lá (`corner`),
+/// para não sobrar um quadrado vermelho fora da curva.
+fn petal(t: f32, corner: Pixels, theme: &Theme) -> Div {
     let scale = lerp(0.2, 1., ease_out_back(t));
-    let side = PETAL_SIZE * scale;
-    let round = px(side / 2.);
-    let offset = px(PETAL_INSET - side / 2.);
+    let b = bubble(PETAL_SIZE / 2. * scale);
     let icon = 16. * scale;
-    // ▶ no meio da parte que fica à vista (o quarto de cima à esquerda).
-    let at = px(side * (35. / 90.) - icon / 2.);
+    // ▶ como no mockup: 14 px acima do centro da bolha (na escala dela).
+    let (right, bottom) = (PETAL_INSET - b.offset - icon / 2., PETAL_INSET + 14. * scale - b.offset - icon / 2.);
     div()
         .absolute()
-        .right(offset)
-        .bottom(offset)
-        .size(px(side))
-        .rounded_tr(round)
-        .rounded_br(round)
-        .rounded_bl(round)
+        .right(px(b.offset))
+        .bottom(px(b.offset))
+        .size(px(b.side))
+        .rounded_tl(px(b.arc))
+        .rounded_tr(px(b.rest))
+        .rounded_bl(px(b.rest))
+        .rounded_br(if b.offset > 0. { px(b.arc) } else { corner })
         .opacity((t * 1.5).min(1.))
         .bg(linear_gradient(135., linear_color_stop(theme.primary_hover, 0.), linear_color_stop(theme.primary_active, 1.)))
         .child(
             div()
                 .absolute()
-                .left(at)
-                .top(at)
+                .right(px(right))
+                .bottom(px(bottom))
                 .child(Icon::new(IconName::Play).with_size(Size::Size(px(icon))).text_color(theme.primary_foreground)),
         )
+}
+
+/// A parte visível da bolha de raio `radius` centrada `PETAL_INSET` para dentro
+/// do canto: uma caixa presa ao canto (`offset` dele), de lado `side`, com o arco
+/// do círculo em cima à esquerda (`arc`) e `rest` nos outros cantos. Bolha
+/// pequena cabe inteira: vira um círculo afastado do canto.
+#[derive(Debug, PartialEq)]
+struct Bubble {
+    offset: f32,
+    side: f32,
+    arc: f32,
+    rest: f32,
+}
+
+fn bubble(radius: f32) -> Bubble {
+    let radius = radius.max(0.);
+    let offset = (PETAL_INSET - radius).max(0.);
+    Bubble { offset, side: PETAL_INSET + radius - offset, arc: radius, rest: if offset > 0. { radius } else { 0. } }
 }
 
 /// Contorno de 1 px que troca de cor no hover (as duas cores se cruzam).
@@ -402,7 +426,7 @@ fn list_card(it: Item, loading: bool, on_play: &FileAction) -> AnyElement {
         let card_radii = Corners::all(r);
         let zero = px(0.);
         let thumb_radii = Corners { top_left: r, top_right: zero, bottom_right: zero, bottom_left: r };
-        let actions = actions(&it, &on_play, cx);
+        let actions = actions(&it, &on_play, 1., None, cx);
         let image = still(&it, loading, thumb_radii, lerp(1., LIST_ZOOM, e), cx);
         let bleed = (e > 0.).then(|| bleed(&it, card_radii, e, cx)).flatten();
         let (act, f) = (on_play.clone(), it.file.clone());
@@ -536,7 +560,11 @@ fn cut_triangle(b: Bounds<Pixels>, amount: f32) -> Option<[gpui_kit::Point<Pixel
 /// Botões do card/linha: "Assistir" (o caminho pelo teclado até um episódio:
 /// o `Button` do kit é parada de Tab e responde a Enter/Espaço) e o download.
 /// A área para o clique, para baixar não tocar o episódio.
-fn actions(it: &Item, on_play: &FileAction, cx: &mut App) -> Stateful<Div> {
+///
+/// `play_opacity` esmaece o ▶ (a grade troca por ele a pétala no hover); o
+/// botão continua no lugar e na ordem do Tab. `focus` é o foco dele, para
+/// quem chama saber quando ele está focado.
+fn actions(it: &Item, on_play: &FileAction, play_opacity: f32, focus: Option<&FocusHandle>, cx: &mut App) -> Stateful<Div> {
     let (act, f) = (on_play.clone(), it.file.clone());
     let dl = download_button(ElementId::Name(format!("ep-dl:{}", it.key).into()), &it.path, cx);
     stop_click(
@@ -545,12 +573,15 @@ fn actions(it: &Item, on_play: &FileAction, cx: &mut App) -> Stateful<Div> {
             .flex_none()
             .gap_1()
             .child(
-                Button::new(ElementId::Name(format!("ep-play:{}", it.key).into()))
-                    .ghost()
-                    .small()
-                    .icon(IconName::Play)
-                    .tooltip("Assistir")
-                    .on_click(move |_, w, cx| act(&f, w, cx)),
+                div().opacity(play_opacity).child(
+                    Button::new(ElementId::Name(format!("ep-play:{}", it.key).into()))
+                        .ghost()
+                        .small()
+                        .icon(IconName::Play)
+                        .tooltip("Assistir")
+                        .when_some(focus, |b, h| b.track_focus(h))
+                        .on_click(move |_, w, cx| act(&f, w, cx)),
+                ),
             )
             .child(dl),
     )
@@ -798,6 +829,20 @@ mod tests {
         assert_eq!((rest.top_left, rest.top_right, rest.bottom_right, rest.bottom_left), (px(4.), px(22.), px(4.), px(22.)));
         assert_eq!((hover.top_left, hover.top_right, hover.bottom_right, hover.bottom_left), (px(22.), px(4.), px(22.), px(4.)));
         assert_eq!(petal_corners(0.5).top_left, px(13.), "no meio, os dois cantos se encontram");
+    }
+
+    #[test]
+    fn open_bubble_is_cut_by_the_corner() {
+        // Aberta (raio 45, centro a 15 px do canto): caixa de 60 px presa ao
+        // canto, arco de 45 px em cima à esquerda, os outros cantos retos.
+        assert_eq!(bubble(45.), Bubble { offset: 0., side: 60., arc: 45., rest: 0. });
+    }
+
+    #[test]
+    fn small_bubble_is_a_whole_circle() {
+        // Começando (raio 9): cabe inteira, um círculo a 6 px do canto.
+        assert_eq!(bubble(9.), Bubble { offset: 6., side: 18., arc: 9., rest: 9. });
+        assert_eq!(bubble(-1.), Bubble { offset: 15., side: 0., arc: 0., rest: 0. });
     }
 
     #[test]

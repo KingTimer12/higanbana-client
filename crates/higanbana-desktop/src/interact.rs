@@ -10,7 +10,7 @@
 use std::{cell::Cell, panic::Location, rc::Rc, time::{Duration, Instant}};
 
 use gpui_kit::{
-    AnyElement, App, Background, BorderStyle, Bounds, ClickEvent, Corners, CursorStyle, DispatchPhase, Element,
+    AnyElement, App, Background, BorderStyle, Bounds, ClickEvent, Corners, CursorStyle, DispatchPhase, Element, FocusHandle,
     ElementId, GlobalElementId, Hitbox, HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId,
     MouseMoveEvent, Pixels, SharedString, StyleRefinement, Styled, Window, px, quad, transparent_black,
 };
@@ -117,6 +117,11 @@ impl Button {
 
     pub fn dropdown_caret(self, caret: bool) -> Self {
         self.map(|b| b.dropdown_caret(caret))
+    }
+
+    /// Foco guardado por quem chama (para saber quando o botão está focado).
+    pub fn track_focus(self, focus: &FocusHandle) -> Self {
+        self.map(|b| b.track_focus(focus))
     }
 
 
