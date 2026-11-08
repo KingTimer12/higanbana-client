@@ -10,15 +10,15 @@ use std::{
 
 use gpui_kit::{Context, Task};
 use higanbana_core::{
-    anilist::{MediaType, types::MediaSummary},
+    anilist::{MediaType, Priority, types::MediaSummary},
     anime_index::{IndexEntry, LETTERS},
     catalog_filter::{Filters, Sort},
 };
 
 use crate::state::AppState;
 
-/// Nomes enfileirados em `want_lookup` a cada rodada.
-const CRAWL_BATCH: usize = 40;
+/// Nomes enfileirados a cada rodada: um lote, uma requisição do AniList.
+const CRAWL_BATCH: usize = 18;
 const CRAWL_EVERY: Duration = Duration::from_secs(3);
 const PROGRESS_EVERY: Duration = Duration::from_millis(500);
 /// Espera antes de retomar a indexação depois de uma falha.
@@ -201,7 +201,7 @@ impl AppState {
         self.core.cloud().backing_off_until()
     }
 
-    /// Enfileira aos poucos os nomes das letras que chegam (40 a cada 3 s); não roda com vídeo.
+    /// Enfileira aos poucos os nomes das letras que chegam (um lote de 18 por vez, em segundo plano); não roda com vídeo.
     pub fn start_metadata_crawl(&mut self, cx: &mut Context<Self>) {
         if self.cat.crawl_task.is_some() {
             return;
@@ -233,7 +233,7 @@ impl AppState {
             }
         }
         for name in next_crawl_batch(&mut self.cat.pending, CRAWL_BATCH) {
-            if self.want_lookup(&name, MediaType::Anime, cx) {
+            if self.want_lookup_with(&name, MediaType::Anime, Priority::Background, cx) {
                 self.cat.crawl_sent.insert(name);
             }
         }

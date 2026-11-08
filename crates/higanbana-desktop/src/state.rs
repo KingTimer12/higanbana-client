@@ -4,13 +4,13 @@
 use std::{
     collections::HashMap,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use gpui_kit::{App, AppContext, Context, Entity, EventEmitter, Global, ImageFormat, Task};
 use higanbana_core::{
     Core,
-    anilist::{Lookup, LookupRequest, MediaType, types::MediaSummary},
+    anilist::{Lookup, LookupRequest, MediaType, Priority, types::MediaSummary},
     auth::Session,
     nuvem::download::DownloadProgress,
     player::store::PlayerData,
@@ -19,9 +19,14 @@ use higanbana_core::{
 use crate::video::PlayTarget;
 
 const LOOKUP_DELAY: Duration = Duration::from_millis(60);
-const LOOKUP_MAX: usize = 40;
+/// Nomes por lote do que a pessoa está vendo (duas requisições de 18 no AniList).
+const LOOKUP_MAX: usize = 36;
+/// Nomes por lote do rastreio (uma requisição).
+const LOOKUP_MAX_BACKGROUND: usize = 18;
 /// Espera antes de repetir buscas adiadas (fallback MAL com limite de requisições).
 const LOOKUP_RETRY: Duration = Duration::from_secs(3);
+/// Pausa mínima depois de um lote que falhou (rede ou limite do AniList).
+const LOOKUP_COOLDOWN: Duration = Duration::from_secs(30);
 const MAX_DOWNLOADS: usize = 2;
 
 #[derive(Clone, Debug)]
@@ -100,10 +105,15 @@ pub struct AppState {
     lookups: HashMap<(MediaType, String), Option<Option<MediaSummary>>>,
     /// Muda a cada lote de respostas do AniList (nomes resolvidos).
     lookups_gen: u64,
+    /// Fila do que a pessoa está vendo (cards, título, franquia, busca).
     lookup_queue: Vec<(MediaType, String)>,
+    /// Fila do rastreio: só sai com `lookup_queue` vazia.
+    lookup_background: Vec<(MediaType, String)>,
     lookup_task: Option<Task<()>>,
     /// Lotes enviados ao AniList ainda sem resposta.
     lookups_inflight: usize,
+    /// Um lote falhou: nada sai até aqui.
+    lookups_cooldown_until: Option<Instant>,
     catalog: HashMap<i64, Option<Option<String>>>,
     pub downloads: Vec<Download>,
     next_download: u64,
@@ -136,8 +146,10 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             lookups: HashMap::new(),
             lookups_gen: 0,
             lookup_queue: Vec::new(),
+            lookup_background: Vec::new(),
             lookup_task: None,
             lookups_inflight: 0,
+            lookups_cooldown_until: None,
             catalog: HashMap::new(),
             downloads: Vec::new(),
             next_download: 1,
@@ -163,6 +175,23 @@ pub fn sniff(bytes: &[u8]) -> Option<ImageFormat> {
         [b'B', b'M', ..] => ImageFormat::Bmp,
         _ => return None,
     })
+}
+
+/// Qual faixa da fila sai agora e quantos nomes: o que a pessoa está vendo
+/// primeiro; o rastreio só quando não há mais nada dela esperando.
+pub(crate) fn next_lane(interactive: usize, background: usize) -> Option<(Priority, usize)> {
+    if interactive > 0 {
+        Some((Priority::Interactive, interactive.min(LOOKUP_MAX)))
+    } else if background > 0 {
+        Some((Priority::Background, background.min(LOOKUP_MAX_BACKGROUND)))
+    } else {
+        None
+    }
+}
+
+/// Fim da pausa depois de um lote que falhou: a nossa espera mínima ou a pedida pelo AniList, a mais longa.
+pub(crate) fn cooldown_end(now: Instant, anilist_paused: Option<Instant>) -> Instant {
+    (now + LOOKUP_COOLDOWN).max(anilist_paused.unwrap_or(now))
 }
 
 impl AppState {
@@ -307,45 +336,80 @@ impl AppState {
         self.lookups.get(&(media, name.to_owned())).and_then(Option::as_ref).map(Option::as_ref)
     }
 
-    /// Há buscas na fila, prestes a sair ou esperando resposta (o rastreio espera).
-    pub(crate) fn lookups_busy(&self) -> bool {
-        !self.lookup_queue.is_empty() || self.lookup_task.is_some() || self.lookups_inflight > 0
+    /// Até quando as buscas no AniList estão paradas: pausa nossa depois de um lote
+    /// que falhou ou pausa pedida ao cliente pelo AniList (429).
+    pub(crate) fn anilist_paused_until(&self) -> Option<Instant> {
+        let now = Instant::now();
+        self.lookups_cooldown_until.filter(|t| *t > now).max(self.core.anilist().paused_until())
     }
 
-    /// Pede a busca (junta pedidos próximos numa requisição só). `false` se o nome já
-    /// estava pedido ou respondido.
+    /// Há buscas na fila, prestes a sair, esperando resposta ou em pausa (o rastreio espera).
+    pub(crate) fn lookups_busy(&self) -> bool {
+        !self.lookup_queue.is_empty()
+            || !self.lookup_background.is_empty()
+            || self.lookup_task.is_some()
+            || self.lookups_inflight > 0
+            || self.anilist_paused_until().is_some()
+    }
+
+    /// Pede a busca do que a pessoa está vendo (junta pedidos próximos numa requisição só).
+    /// `false` se o nome já estava pedido ou respondido.
     pub fn want_lookup(&mut self, name: &str, media: MediaType, cx: &mut Context<Self>) -> bool {
+        self.want_lookup_with(name, media, Priority::Interactive, cx)
+    }
+
+    /// Como `want_lookup`, na faixa da prioridade dada (`Background` = rastreio).
+    pub(crate) fn want_lookup_with(&mut self, name: &str, media: MediaType, priority: Priority, cx: &mut Context<Self>) -> bool {
         let key = (media, name.to_owned());
         if self.lookups.contains_key(&key) {
+            // Esperava na fila do rastreio e agora a pessoa está vendo: passa para a frente.
+            if priority == Priority::Interactive
+                && let Some(pos) = self.lookup_background.iter().position(|k| *k == key)
+            {
+                let key = self.lookup_background.remove(pos);
+                self.lookup_queue.push(key);
+                self.schedule_flush(LOOKUP_DELAY, cx);
+            }
             return false;
         }
         self.lookups.insert(key.clone(), None);
-        self.lookup_queue.push(key);
+        self.lane(priority).push(key);
+        self.schedule_flush(LOOKUP_DELAY, cx);
+        true
+    }
+
+    fn lane(&mut self, priority: Priority) -> &mut Vec<(MediaType, String)> {
+        match priority {
+            Priority::Interactive => &mut self.lookup_queue,
+            Priority::Background => &mut self.lookup_background,
+        }
+    }
+
+    /// Agenda a próxima saída da fila, se ainda não houver uma agendada.
+    fn schedule_flush(&mut self, after: Duration, cx: &mut Context<Self>) {
         if self.lookup_task.is_none() {
             self.lookup_task = Some(cx.spawn(async move |this, cx| {
-                cx.background_executor().timer(LOOKUP_DELAY).await;
+                cx.background_executor().timer(after).await;
                 let _ = this.update(cx, |s, cx| s.flush_lookups(cx));
             }));
         }
-        true
     }
 
     fn flush_lookups(&mut self, cx: &mut Context<Self>) {
         self.lookup_task = None;
-        let n = self.lookup_queue.len().min(LOOKUP_MAX);
-        let batch: Vec<(MediaType, String)> = self.lookup_queue.drain(..n).collect();
-        if !self.lookup_queue.is_empty() {
-            self.lookup_task = Some(cx.spawn(async move |this, cx| {
-                cx.background_executor().timer(LOOKUP_DELAY).await;
-                let _ = this.update(cx, |s, cx| s.flush_lookups(cx));
-            }));
-        }
-        if batch.is_empty() {
+        let Some((priority, n)) = next_lane(self.lookup_queue.len(), self.lookup_background.len()) else { return };
+        // Em pausa: nada sai; a fila espera o fim dela.
+        if let Some(until) = self.anilist_paused_until() {
+            self.schedule_flush(until.saturating_duration_since(Instant::now()), cx);
             return;
+        }
+        let batch: Vec<(MediaType, String)> = self.lane(priority).drain(..n).collect();
+        if !self.lookup_queue.is_empty() || !self.lookup_background.is_empty() {
+            self.schedule_flush(LOOKUP_DELAY, cx);
         }
         let core = self.core.clone();
         let items: Vec<LookupRequest> = batch.iter().map(|(m, n)| LookupRequest { name: n.clone(), media_type: *m }).collect();
-        let task = self.core.spawn(async move { core.anilist().lookup(&items).await });
+        let task = self.core.spawn(async move { core.anilist().lookup_with(&items, priority).await });
         self.lookups_inflight += 1;
         cx.spawn(async move |this, cx| {
             let result = task.await.ok().and_then(Result::ok);
@@ -368,7 +432,7 @@ impl AppState {
                                 Lookup::NotFound => {
                                     s.lookups.insert(key, Some(None));
                                 }
-                                // Fallback MAL adiado: continua "buscando" e volta à fila depois.
+                                // Fallback MAL adiado: continua "buscando" e volta à mesma faixa depois.
                                 Lookup::Pending => retry.push(key),
                             }
                         }
@@ -376,7 +440,7 @@ impl AppState {
                             cx.spawn(async move |this, cx| {
                                 cx.background_executor().timer(LOOKUP_RETRY).await;
                                 let _ = this.update(cx, |s, cx| {
-                                    s.lookup_queue.extend(retry);
+                                    s.lane(priority).extend(retry);
                                     if s.lookup_task.is_none() {
                                         s.flush_lookups(cx);
                                     }
@@ -386,8 +450,10 @@ impl AppState {
                         }
                         s.crawl_lookups_done(&answered, false);
                     }
-                    // Falha de rede/limite: libera para tentar de novo depois (o rastreio pede de novo os dele).
+                    // Falha de rede/limite: libera os nomes e pausa a fila (sem isso os cards
+                    // visíveis pediriam de novo no quadro seguinte). O rastreio pede de novo os dele.
                     None => {
+                        s.lookups_cooldown_until = Some(cooldown_end(Instant::now(), s.core.anilist().paused_until()));
                         let failed: Vec<String> = batch.iter().filter_map(anime).collect();
                         for key in batch {
                             s.lookups.remove(&key);
@@ -544,5 +610,28 @@ impl AppState {
     pub fn refresh_player_data(&mut self, cx: &mut Context<Self>) {
         self.player_data = self.core.player().data();
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interactive_lane_goes_first() {
+        assert_eq!(next_lane(0, 0), None);
+        assert_eq!(next_lane(5, 100), Some((Priority::Interactive, 5)));
+        assert_eq!(next_lane(50, 0), Some((Priority::Interactive, 36)));
+        // O rastreio só sai com a faixa da pessoa vazia, um lote de uma requisição.
+        assert_eq!(next_lane(0, 7), Some((Priority::Background, 7)));
+        assert_eq!(next_lane(0, 100), Some((Priority::Background, 18)));
+    }
+
+    #[test]
+    fn cooldown_takes_the_longest_pause() {
+        let now = Instant::now();
+        assert_eq!(cooldown_end(now, None), now + Duration::from_secs(30));
+        assert_eq!(cooldown_end(now, Some(now + Duration::from_secs(5))), now + Duration::from_secs(30));
+        assert_eq!(cooldown_end(now, Some(now + Duration::from_secs(61))), now + Duration::from_secs(61));
     }
 }
