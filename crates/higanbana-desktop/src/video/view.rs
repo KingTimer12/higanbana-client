@@ -90,8 +90,9 @@ enum Drag {
 }
 
 /// Opções fixas: nada da interface do próprio mpv, cache só em RAM.
-fn base_options(wid: usize, cache_mib: u32) -> Vec<(&'static str, String)> {
+fn base_options(wid: usize, cache_mib: u32, decode_threads: u8) -> Vec<(&'static str, String)> {
     vec![
+        ("vd-lavc-threads", decode_threads.to_string()),
         ("wid", wid.to_string()),
         ("vo", "gpu-next".into()),
         ("hwdec", "auto-safe".into()),
@@ -255,7 +256,7 @@ impl PlayerView {
             _events: None,
             _subs: subs,
         };
-        match Mpv::new(&base_options(this.surface.wid(), this.data.settings.cache_mib), &OBSERVED) {
+        match Mpv::new(&base_options(this.surface.wid(), this.data.settings.cache_mib, this.data.settings.decode_threads), &OBSERVED) {
             Ok((mpv, mut rx)) => {
                 this.mpv = Some(mpv);
                 this._events = Some(cx.spawn_in(window, async move |this, cx| {
@@ -372,37 +373,44 @@ impl PlayerView {
 
     /// Pede a miniatura do tempo `t`, abrindo o gerador no primeiro pedido do arquivo.
     fn want_thumb(&mut self, t: f64, cx: &mut Context<Self>) {
-        if !self.loaded || self.broken.is_some() {
-            return;
-        }
-        if self.thumbs.is_none() {
-            let seq = self.load_seq;
-            let url = self.core.player().stream_url(&self.playing_path, self.file().size);
-            let dir = std::env::temp_dir().join("higanbana-thumbs").join(format!("{}-{seq}", std::process::id()));
-            let Ok((thumbs, mut rx)) = Thumbs::open(&url, dir) else { return };
-            self.thumbs = Some(thumbs);
-            self._thumb_events = Some(cx.spawn(async move |this, cx| {
-                while let Some(e) = rx.next().await {
-                    let Ok(shot) = this.update(cx, |v, _| v.thumbs.as_mut().filter(|_| v.load_seq == seq).and_then(|t| t.on_event(e))) else { break };
-                    let Some(shot) = shot else { continue };
-                    let bucket = shot.bucket;
-                    // Gravar o JPEG bloqueia: fora da thread da interface.
-                    let ok = cx.background_executor().spawn(async move { shot.run() }).await;
-                    let r = this.update(cx, |v, cx| {
-                        if let Some(t) = v.thumbs.as_mut().filter(|_| v.load_seq == seq) {
-                            t.finish(bucket, ok);
-                            cx.notify();
-                        }
-                    });
-                    if r.is_err() {
-                        break;
-                    }
-                }
-            }));
-        }
+        self.ensure_thumbs(cx);
         if let Some(th) = &mut self.thumbs {
+            th.set_len(self.dur);
             th.want(thumbs::bucket(t));
         }
+    }
+
+    /// Abre o gerador de miniaturas do arquivo atual, se estiver ligado nas
+    /// configurações e ainda não aberto. Abrir custa uma ida à nuvem, por isso
+    /// acontece assim que o mouse se mexe no player, antes do hover na barra.
+    fn ensure_thumbs(&mut self, cx: &mut Context<Self>) {
+        // Só depois do primeiro quadro: não disputa a rede com a abertura do vídeo.
+        if !self.settings().thumbnails || !self.playing || self.broken.is_some() || self.thumbs.is_some() {
+            return;
+        }
+        let seq = self.load_seq;
+        let url = self.core.player().preview_url(&self.playing_path, self.file().size);
+        let dir = std::env::temp_dir().join("higanbana-thumbs").join(format!("{}-{seq}", std::process::id()));
+        let Ok((thumbs, mut rx)) = Thumbs::open(&url, dir) else { return };
+        self.thumbs = Some(thumbs);
+        self._thumb_events = Some(cx.spawn(async move |this, cx| {
+            while let Some(e) = rx.next().await {
+                let Ok(shot) = this.update(cx, |v, _| v.thumbs.as_mut().filter(|_| v.load_seq == seq).and_then(|t| t.on_event(e))) else { break };
+                let Some(shot) = shot else { continue };
+                let bucket = shot.bucket;
+                // Gravar o JPEG bloqueia: fora da thread da interface.
+                let ok = cx.background_executor().spawn(async move { shot.run() }).await;
+                let r = this.update(cx, |v, cx| {
+                    if let Some(t) = v.thumbs.as_mut().filter(|_| v.load_seq == seq) {
+                        t.finish(bucket, ok);
+                        cx.notify();
+                    }
+                });
+                if r.is_err() {
+                    break;
+                }
+            }
+        }));
     }
 
     /// Falhou: tenta de novo na mesma posição, esperando cada vez mais, e desiste depois de 5.
@@ -684,6 +692,16 @@ impl PlayerView {
         {
             let _ = m.set("demuxer-max-bytes", &format!("{}MiB", s.cache_mib));
         }
+        if s.decode_threads != self.data.settings.decode_threads
+            && let Some(m) = &self.mpv
+        {
+            // Vale a partir do próximo arquivo aberto: o decodificador atual segue como está.
+            let _ = m.set("vd-lavc-threads", &s.decode_threads.to_string());
+        }
+        if !s.thumbnails {
+            self.thumbs = None;
+            self._thumb_events = None;
+        }
         self.data.settings = s.clone();
         self.core.player().save_settings(s);
     }
@@ -697,6 +715,7 @@ impl PlayerView {
 
     /// Mostra os controles e esconde de novo com o mouse parado.
     fn poke(&mut self, cx: &mut Context<Self>) {
+        self.ensure_thumbs(cx);
         if self.idle {
             self.idle = false;
             cx.notify();
@@ -808,6 +827,8 @@ fn menu_heading(text: &'static str, cx: &App) -> Div {
 const LANGS: [(&str, &str); 5] = [("por", "Português"), ("eng", "Inglês"), ("jpn", "Japonês"), ("kor", "Coreano"), ("spa", "Espanhol")];
 const COUNTDOWNS: [u8; 3] = [5, 10, 15];
 const CACHES: [u32; 4] = [100, 150, 300, 500];
+/// Núcleos do decodificador: 0 = o mpv escolhe.
+const THREADS: [u8; 4] = [0, 4, 2, 1];
 
 impl PlayerView {
     fn track_label(t: &Track) -> String {
@@ -892,6 +913,21 @@ impl PlayerView {
             .child(lang_group("sub-lang", "Legenda preferida", &s.sub_lang, true, cx))
             .child(lang_group("audio-lang", "Áudio preferido", &s.audio_lang, false, cx))
             .child(Divider::horizontal())
+            .child(Switch::new("thumbnails").cursor_pointer().label("Miniatura ao passar o mouse na barra").checked(s.thumbnails).on_change(cx.listener(|v, on: &bool, _, cx| {
+                v.change_settings(|s| s.thumbnails = *on);
+                cx.notify();
+            })))
+            .child(
+                v_flex().gap_1().child(menu_heading("Processador (vale no próximo episódio)", cx)).child(
+                    RadioGroup::horizontal("threads")
+                        .children(radios(THREADS.map(|n| if n == 0 { "Automático".to_owned() } else { format!("{n} núcleos").replace("1 núcleos", "1 núcleo") })))
+                        .selected_index(THREADS.iter().position(|n| *n == s.decode_threads))
+                        .on_change(cx.listener(|v, ix: &usize, _, cx| {
+                            v.change_settings(|s| s.decode_threads = THREADS[*ix]);
+                            cx.notify();
+                        })),
+                ),
+            )
             .child(
                 v_flex().gap_1().child(menu_heading("Memória à frente", cx)).child(
                     RadioGroup::horizontal("cache")
