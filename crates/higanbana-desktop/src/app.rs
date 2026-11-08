@@ -114,13 +114,17 @@ impl AppView {
         let _ = core.music().command("pause");
         let surface = self.surface.clone();
         crate::theme::set_video_backdrop(true, window, cx);
+        self.state.update(cx, |s, cx| s.set_playing(true, cx));
         let player = cx.new(|cx| PlayerView::new(core, target, surface, window, cx));
         let sub = cx.subscribe_in(&player, window, |this, _, e: &PlayerEvent, window, cx| match e {
             PlayerEvent::Close => {
                 crate::theme::set_video_backdrop(false, window, cx);
                 this.player = None;
                 window.focus(&this.focus, cx);
-                this.state.update(cx, |s, cx| s.refresh_player_data(cx));
+                this.state.update(cx, |s, cx| {
+                    s.set_playing(false, cx);
+                    s.refresh_player_data(cx);
+                });
                 cx.notify();
             }
         });

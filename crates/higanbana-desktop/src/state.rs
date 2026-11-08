@@ -106,6 +106,7 @@ pub struct AppState {
     pub player_data: PlayerData,
     pub music: Option<higanbana_core::music::engine::PlayerState>,
     pub music_session: crate::music::session::MusicSession,
+    pub(crate) cat: crate::catalog_state::CatalogState,
 }
 
 struct GlobalState(Entity<AppState>);
@@ -137,6 +138,7 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             player_data,
             music: None,
             music_session: Default::default(),
+            cat: Default::default(),
         };
         s.load_session(cx);
         s
