@@ -98,12 +98,17 @@ fn parse_rate_headers(headers: &HeaderMap, now_epoch: u64) -> RateHeaders {
 ///
 /// Nunca antes do bloqueio de um 429; respeita o intervalo mínimo desde o último pedido; e, se o
 /// que sobra na janela já chegou na reserva da prioridade, espera a janela recomeçar.
-/// `Background` reserva um terço do limite para o que a pessoa está vendo.
+/// `Background` reserva um terço do limite para o que a pessoa está vendo, também no intervalo
+/// (`60 s / (limite - reserva)`), para valer mesmo sem saber quando a janela recomeça.
 fn send_at(state: &LimitState, now: Instant, priority: Priority) -> Instant {
     let limit = state.limit.max(1);
     let (gap, reserve) = match priority {
         Priority::Interactive => (INTERACTIVE_GAP, 1),
-        Priority::Background => (Duration::from_secs(60) / limit, limit / 3),
+        // O ritmo já deixa a reserva livre: o AniList quase nunca manda `X-RateLimit-Reset` fora do 429.
+        Priority::Background => {
+            let reserve = limit / 3;
+            (Duration::from_secs(60) / (limit - reserve).max(1), reserve)
+        }
     };
     let mut at = now;
     if let Some(until) = state.blocked_until {
@@ -316,10 +321,14 @@ mod tests {
         let now = Instant::now();
         let st = LimitState { last_sent: Some(now), ..Default::default() };
         assert_eq!(send_at(&st, now, Priority::Interactive), now + Duration::from_millis(700));
-        assert_eq!(send_at(&st, now, Priority::Background), now + 2 * SEC);
-        // Limite maior, ritmo de fundo mais rápido.
+        // Fundo: 60 s / (limite - reserva) = 60 / 20 = 3 s, deixando ~10/min para o Interactive.
+        assert_eq!(send_at(&st, now, Priority::Background), now + 3 * SEC);
+        // Limite maior, ritmo de fundo mais rápido: 60 / (90 - 30) = 1 s.
         let st = LimitState { limit: 90, last_sent: Some(now), ..Default::default() };
-        assert_eq!(send_at(&st, now, Priority::Background), now + SEC * 60 / 90);
+        assert_eq!(send_at(&st, now, Priority::Background), now + SEC);
+        // Limite minúsculo não divide por zero.
+        let st = LimitState { limit: 1, last_sent: Some(now), ..Default::default() };
+        assert_eq!(send_at(&st, now, Priority::Background), now + 60 * SEC);
         // Intervalo já passado: sai na hora.
         let st = LimitState { last_sent: Some(now), ..Default::default() };
         assert_eq!(send_at(&st, now + 3 * SEC, Priority::Background), now + 3 * SEC);
@@ -341,6 +350,15 @@ mod tests {
         // Reset já passou: o `remaining` antigo não vale mais.
         let st = LimitState { remaining: Some(0), reset_at: Some(now), ..Default::default() };
         assert_eq!(send_at(&st, now + SEC, Priority::Background), now + SEC);
+    }
+
+    #[test]
+    fn background_keeps_headroom_without_reset() {
+        let now = Instant::now();
+        // O AniList quase nunca manda `X-RateLimit-Reset` fora do 429: sem ele, o intervalo segura a folga.
+        let st = LimitState { remaining: Some(5), reset_at: None, last_sent: Some(now), ..Default::default() };
+        assert!(send_at(&st, now, Priority::Background) >= now + 3 * SEC);
+        assert_eq!(send_at(&st, now, Priority::Interactive), now + Duration::from_millis(700));
     }
 
     #[test]
