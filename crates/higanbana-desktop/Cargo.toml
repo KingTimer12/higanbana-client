@@ -10,15 +10,15 @@ name = "higanbana"
 path = "src/main.rs"
 
 [dependencies]
-higanbana-core = { path = "../higanbana-core" }
-gpui-kit = "0.9"
-raw-window-handle = "0.6"
-futures = "0.3"
-libloading = "0.8"
-serde_json = "1"
-base64 = "0.22"
-image = "0.25"
-serde = { version = "1", features = ["derive"] }
+higanbana-core.workspace = true
+gpui-kit.workspace = true
+raw-window-handle.workspace = true
+futures.workspace = true
+libloading.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+image.workspace = true
+serde.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
