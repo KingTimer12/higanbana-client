@@ -27,6 +27,7 @@ const FORMAT_NODE_MAP: c_int = 8;
 const EVENT_SHUTDOWN: c_int = 1;
 const EVENT_END_FILE: c_int = 7;
 const EVENT_FILE_LOADED: c_int = 8;
+const EVENT_PLAYBACK_RESTART: c_int = 21;
 const EVENT_PROPERTY_CHANGE: c_int = 22;
 
 #[repr(C)]
@@ -144,6 +145,8 @@ pub enum MpvEvent {
     Prop(String, Value),
     FileLoaded,
     EndFile(EndReason),
+    /// Quadro pronto depois de abrir ou de um `seek` (`playback-restart`).
+    Restart,
 }
 
 struct Inner {
@@ -304,6 +307,7 @@ fn event_loop(api: &'static Api, inner: Arc<Inner>, tx: UnboundedSender<MpvEvent
         let out = match ev.event_id {
             EVENT_SHUTDOWN => break,
             EVENT_FILE_LOADED => Some(MpvEvent::FileLoaded),
+            EVENT_PLAYBACK_RESTART => Some(MpvEvent::Restart),
             EVENT_END_FILE if !ev.data.is_null() => {
                 let end = unsafe { &*(ev.data as *const RawEndFile) };
                 Some(MpvEvent::EndFile(match end.reason {
