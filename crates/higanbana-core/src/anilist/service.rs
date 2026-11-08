@@ -12,6 +12,7 @@ use super::{
     client::AniListClient,
     error::{AniListError, AniListResult},
     jikan::JikanClient,
+    mal_site::MalSiteClient,
     matcher::{self, ParsedName},
     queries::{self, MediaType},
 };
@@ -21,7 +22,7 @@ const BATCH_SIZE: usize = 10;
 const CANDIDATES_PER_SEARCH: u32 = 6;
 const MATCH_TTL: i64 = 7 * 24 * 3600;
 const DETAIL_TTL: i64 = 24 * 3600;
-/// Buscas na MAL por chamada de `lookup` (a Jikan aceita 1 req/s; o resto fica `Pending`).
+/// Buscas na MAL por chamada de `lookup` (a busca do site vai a ~1 req/s; o resto fica `Pending`).
 const MAL_PER_CALL: usize = 4;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -57,12 +58,12 @@ pub(crate) fn split_mal<T>(mut misses: Vec<T>, cap: usize) -> (Vec<T>, Vec<T>) {
     (misses, later)
 }
 
-/// Para cada busca sem match no AniList: o melhor candidato Jikan (formato AniList) ou None.
+/// Para cada busca sem match no AniList: o melhor candidato da MAL (formato AniList) ou None.
 pub(crate) fn pick_mal(candidates: &[Value], wanted: &ParsedName) -> Option<Value> {
     matcher::pick_best(candidates, wanted).map(|idx| candidates[idx].clone())
 }
 
-/// Junta resultado do AniList-por-idMal com o candidato Jikan: AniList vence; senão Jikan.
+/// Junta resultado do AniList-por-idMal com o candidato da MAL: AniList vence; senão MAL.
 pub(crate) fn merge_mal(anilist: Option<Value>, jikan: Value) -> Value {
     anilist.unwrap_or(jikan)
 }
@@ -70,7 +71,10 @@ pub(crate) fn merge_mal(anilist: Option<Value>, jikan: Value) -> Value {
 /// Metadados do AniList com cache em disco.
 pub struct AniList {
     client: AniListClient,
+    /// Detalhe das obras só-MAL.
     jikan: JikanClient,
+    /// Busca da MAL (site), para o fallback quando o AniList não acha.
+    mal_site: MalSiteClient,
     /// chave de busca → resumo da mídia casada (ou `null` se nada casou).
     matches: DiskCache<Option<Value>>,
     /// id → detalhe.
@@ -84,6 +88,7 @@ impl AniList {
         Self {
             client: AniListClient::new(),
             jikan: JikanClient::new(),
+            mal_site: MalSiteClient::new(),
             matches: DiskCache::open(dir.join(MATCHES_FILE), MATCH_TTL),
             details: DiskCache::open(dir.join("anilist-details.json"), DETAIL_TTL),
             anilist_missed: Mutex::new(HashSet::new()),
@@ -152,7 +157,7 @@ impl AniList {
             }
         }
 
-        // A Jikan limita a 1 req/s: só uma parte dos misses por chamada, o resto volta `Pending`.
+        // A busca da MAL vai a ~1 req/s: só uma parte dos misses por chamada, o resto volta `Pending`.
         let (now, _later) = split_mal(misses, MAL_PER_CALL);
         for (key, value, cache) in self.mal_fallback(&now, &mut last_error).await {
             if cache {
@@ -182,7 +187,7 @@ impl AniList {
             .collect())
     }
 
-    /// Procura na MAL (Jikan) as obras que o AniList não achou e tenta ligá-las ao AniList por `idMal`.
+    /// Procura na MAL (busca do site) as obras que o AniList não achou e tenta ligá-las ao AniList por `idMal`.
     /// Devolve `(chave, resultado, gravar_no_cache)`; `None` = nem AniList nem MAL acharam.
     /// Falhas de rede ficam de fora (viram `Pending`) e vão para `last_error`.
     async fn mal_fallback(
@@ -193,7 +198,7 @@ impl AniList {
         let mut decided = Vec::new();
         let mut hits: Vec<(&str, Value)> = Vec::new();
         for (key, parsed, _) in misses.iter().copied() {
-            match self.jikan.search(&parsed.title).await {
+            match self.mal_site.search(&parsed.title).await {
                 Ok(candidates) => match pick_mal(&candidates, parsed) {
                     Some(jk) => hits.push((key, jk)),
                     None => decided.push((key.clone(), None, true)),

@@ -98,7 +98,7 @@ fn names(item: &Value, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn format_of(kind: &str) -> Option<&'static str> {
+pub(crate) fn format_of(kind: &str) -> Option<&'static str> {
     Some(match kind {
         "TV" => "TV",
         "Movie" => "MOVIE",

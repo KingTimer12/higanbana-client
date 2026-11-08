@@ -8,6 +8,7 @@ pub(crate) mod cache;
 mod client;
 mod error;
 pub mod jikan;
+pub mod mal_site;
 mod matcher;
 mod queries;
 mod service;
