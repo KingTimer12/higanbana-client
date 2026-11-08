@@ -162,7 +162,9 @@ fn send_at(state: &LimitState, now: Instant, priority: Priority) -> Instant {
             // Reset já passou: o `remaining` é de uma janela antiga.
             Some(_) => {}
             // Sem reset: vale até o envio mais antigo do último minuto sair da janela
-            // (sem envio no último minuto, a janela já recomeçou).
+            // (sem envio no último minuto, a janela já recomeçou). Só para a tela: o fundo
+            // já para no teto do registro (limite - reserva) e esperar aqui o travava ~60 s.
+            None if priority == Priority::Background => {}
             None => {
                 if let Some(&oldest) = window.first() {
                     at = at.max(oldest + WINDOW);
@@ -435,6 +437,25 @@ mod tests {
         // Nenhum envio no último minuto: o `remaining` é velho, a janela já recomeçou.
         let st = LimitState { remaining: Some(0), ..Default::default() };
         assert_eq!(send_at(&st, base, Priority::Interactive), base);
+    }
+
+    #[test]
+    fn background_without_reset_is_gated_by_log_and_gap() {
+        let base = Instant::now();
+        // `remaining` na reserva sem reset: o fundo não espera a janela esvaziar;
+        // o registro de envios (teto 20) e o intervalo já seguram o limite.
+        let mut st = with_sends(base, 10);
+        st.remaining = Some(10);
+        let last = base + 9 * SEC;
+        assert_eq!(send_at(&st, base + 10 * SEC, Priority::Background), last + WINDOW / 20);
+        // Registro cheio: espera pelo teto, não pelo envio mais antigo.
+        let mut st = with_sends(base, 20);
+        st.remaining = Some(10);
+        assert_eq!(send_at(&st, base + 20 * SEC, Priority::Background), base + WINDOW);
+        // A tela continua esperando a janela esvaziar.
+        let mut st = with_sends(base, 10);
+        st.remaining = Some(1);
+        assert_eq!(send_at(&st, base + 10 * SEC, Priority::Interactive), base + WINDOW);
     }
 
     #[test]
