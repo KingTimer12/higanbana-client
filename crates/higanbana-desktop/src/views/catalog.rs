@@ -34,7 +34,7 @@ use crate::{
     state::{AppState, state},
     ui::empty_state,
     views::catalog_filters::{
-        EmptyNotice, FilterBar, FiltersChanged, Work, collections_menu, empty_notice, filtered_works, franchise_results, sort_menu, status_line,
+        EmptyNotice, FilterBar, FiltersChanged, Work, anilist_pause_line, collections_menu, empty_notice, filtered_works, franchise_results, sort_menu, status_line,
     },
 };
 
@@ -171,6 +171,8 @@ pub struct CatalogView {
     retry: Option<Task<()>>,
     /// Redesenho agendado para o fim da pausa pedida pela nuvem (429).
     pause_end: Option<Task<()>>,
+    /// Redesenho a cada segundo enquanto o AniList está em pausa (contagem do aviso).
+    anilist_tick: Option<Task<()>>,
     _subs: Vec<Subscription>,
 }
 
@@ -219,6 +221,7 @@ impl CatalogView {
             jumped: false,
             retry: None,
             pause_end: None,
+            anilist_tick: None,
             _subs: subs,
         };
         // Com letra na rota, já rolada até ela; sem, volta aonde estava (ou ao topo).
@@ -560,8 +563,23 @@ impl Render for CatalogView {
             }));
         }
 
+        // Pausa do AniList (429 ou lote que falhou): contagem no contador de metadados até acabar.
+        let anilist_left = self.state.read(cx).anilist_paused_until().map(|until| until.saturating_duration_since(std::time::Instant::now()));
+        if let Some(left) = anilist_left
+            && self.anilist_tick.is_none()
+        {
+            self.anilist_tick = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(left.min(Duration::from_secs(1))).await;
+                let _ = this.update(cx, |v, cx| {
+                    v.anilist_tick = None;
+                    cx.notify();
+                });
+            }));
+        }
+
         let mut children: Vec<gpui_kit::AnyElement> = Vec::with_capacity(sections.len() + 2);
-        children.push(self.render_header(&query, width, (indexed, total), flat_status, (cols, card_w), paused_until.is_some(), cx));
+        let pauses = (paused_until.is_some(), anilist_left);
+        children.push(self.render_header(&query, width, (indexed, total), flat_status, (cols, card_w), pauses, cx));
         for (pos, section) in sections.into_iter().enumerate() {
             let same = self.shown.get(pos) == Some(&keys[pos]);
             match measured.get(pos).copied().flatten() {
@@ -644,7 +662,7 @@ impl CatalogView {
         (indexed, total): (usize, usize),
         flat_status: Option<(usize, (usize, usize))>,
         (cols, card_w): (usize, Pixels),
-        cloud_paused: bool,
+        (cloud_paused, anilist_left): (bool, Option<Duration>),
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let theme = cx.theme().clone();
@@ -675,6 +693,7 @@ impl CatalogView {
                 .text_color(theme.muted_foreground)
                 .when(pending, |d| d.child(div().size_1p5().rounded_full().bg(theme.primary)))
                 .child(status_line(works, (resolved, all), (indexed, total)))
+                .children(anilist_left.map(|left| format!("· {}", anilist_pause_line(left))))
         });
         v_flex()
             .w(px(width))

@@ -4,7 +4,7 @@
 //! A barra guarda os filtros escolhidos; o texto da busca continua na tela do
 //! catálogo, que junta os dois para montar a lista.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 use gpui_kit::{
     Anchor, AnyElement, App, Context, ElementId, Entity, EventEmitter, IntoElement, ParentElement, Render, Styled,
@@ -146,6 +146,11 @@ pub fn status_line(works: usize, (resolved, total): (usize, usize), (indexed, le
         line += &format!(" · índice {indexed} / {letters}");
     }
     line
+}
+
+/// Aviso no contador de metadados enquanto o AniList está em pausa (segundos arredondados para cima).
+pub fn anilist_pause_line(left: Duration) -> String {
+    format!("AniList pediu uma pausa — continua em {} s", left.as_millis().div_ceil(1000).max(1))
 }
 
 /// Aviso de lista vazia.
@@ -596,6 +601,14 @@ mod tests {
         // Enquanto indexa, o índice aparece para o filtro não esconder obras em silêncio.
         assert_eq!(status_line(5, (10, 10), (3, 27)), "5 obras · índice 3 / 27");
         assert_eq!(status_line(5, (8, 10), (3, 27)), "5 obras · metadados 8 / 10 · índice 3 / 27");
+    }
+
+    #[test]
+    fn pause_notice() {
+        assert_eq!(anilist_pause_line(Duration::from_secs(11)), "AniList pediu uma pausa — continua em 11 s");
+        assert_eq!(anilist_pause_line(Duration::from_millis(10_200)), "AniList pediu uma pausa — continua em 11 s");
+        // Quase acabando: nunca "0 s".
+        assert_eq!(anilist_pause_line(Duration::from_millis(5)), "AniList pediu uma pausa — continua em 1 s");
     }
 
     #[test]
