@@ -71,7 +71,8 @@ fn normalize(s: &str) -> String {
     s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
 }
 
-/// Chave de cache da obra (e do mapa no desktop): títulos normalizados, ano, início e tipo.
+/// Chave de cache da obra (e do mapa no desktop): títulos normalizados, ano, início
+/// (só ano e mês quando o dia não é conhecido) e tipo.
 pub fn work_key(q: &WorkQuery) -> String {
     let titles: Vec<String> = q.titles.iter().map(|t| normalize(t)).filter(|t| !t.is_empty()).collect();
     let kind = match q.kind {
@@ -79,7 +80,11 @@ pub fn work_key(q: &WorkQuery) -> String {
         WorkKind::Special => "special",
     };
     let year = q.year.map(|y| y.to_string()).unwrap_or_default();
-    let start = q.start.map(|s| format!("{}-{:02}-{:02}", s.y, s.m, s.d)).unwrap_or_default();
+    let start = match q.start {
+        Some(s) if q.start_day_known => format!("{}-{:02}-{:02}", s.y, s.m, s.d),
+        Some(s) => format!("{}-{:02}", s.y, s.m),
+        None => String::new(),
+    };
     format!("{}|{year}|{start}|{kind}", titles.join("|"))
 }
 
@@ -219,7 +224,7 @@ fn wanted_seasons(show: &TvShow, kind: WorkKind) -> Vec<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tmdb::types::SeasonInfo;
+    use crate::tmdb::{matching::Ymd, types::SeasonInfo};
 
     fn view(season: u32, number: u32) -> EpisodeView {
         EpisodeView {
@@ -289,6 +294,7 @@ mod tests {
             titles: titles.iter().map(|t| (*t).into()).collect(),
             year: Some(2014),
             start: None,
+            start_day_known: false,
             kind: WorkKind::Series,
         };
         assert_eq!(work_key(&q(&["Happiness Charge Precure!"])), work_key(&q(&["HappinessCharge PRECURE"])));
@@ -296,6 +302,14 @@ mod tests {
         let mut special = q(&["A"]);
         special.kind = WorkKind::Special;
         assert_ne!(work_key(&q(&["A"])), work_key(&special));
+        // Início sem o dia não divide a chave com o dia 1 de verdade.
+        let mut day_one = q(&["A"]);
+        day_one.start = Some(Ymd { y: 2014, m: 2, d: 1 });
+        day_one.start_day_known = true;
+        let mut no_day = day_one.clone();
+        no_day.start_day_known = false;
+        assert_ne!(work_key(&day_one), work_key(&no_day));
+        assert!(work_key(&no_day).contains("|2014-02|"));
     }
 
     #[tokio::test]
@@ -307,6 +321,7 @@ mod tests {
             titles: vec!["HappinessCharge Precure!".into()],
             year: Some(2014),
             start: None,
+            start_day_known: false,
             kind: WorkKind::Series,
         };
         let w = tmdb.work_episodes(&q).await.unwrap().expect("obra");

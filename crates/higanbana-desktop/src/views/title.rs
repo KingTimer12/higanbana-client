@@ -130,7 +130,7 @@ pub(crate) fn default_version(versions: &[FileEntry], remembered: Option<&str>, 
 }
 
 /// O que pedir ao TMDB sobre a obra: títulos do AniList e da pasta, ano, data de
-/// início completa (sem dia → dia 1; sem mês → nenhuma) e tipo. Filme (e música) fica fora.
+/// início (sem dia → dia 1 e `start_day_known` falso; sem mês → nenhuma) e tipo. Filme (e música) fica fora.
 pub(crate) fn work_query(detail: &MediaSummary, folder_name: &str) -> Option<WorkQuery> {
     let kind = match detail.format.as_deref() {
         Some("MOVIE" | "MUSIC") => return None,
@@ -151,7 +151,8 @@ pub(crate) fn work_query(detail: &MediaSummary, folder_name: &str) -> Option<Wor
         }
     }
     let start = detail.start_date.and_then(|d| Some(Ymd { y: d.year?, m: d.month?, d: d.day.unwrap_or(1) }));
-    Some(WorkQuery { titles, year: detail.year(), start, kind })
+    let start_day_known = detail.start_date.is_some_and(|d| d.day.is_some());
+    Some(WorkQuery { titles, year: detail.year(), start, start_day_known, kind })
 }
 
 /// O detalhe `detail_id` é da obra aberta: foi o pedido por último e casa com o resumo atual.
@@ -1142,6 +1143,7 @@ mod tests {
         assert_eq!(q.kind, WorkKind::Series);
         assert_eq!(q.year, Some(2023));
         assert_eq!(q.start, Some(Ymd { y: 2023, m: 9, d: 29 }));
+        assert!(q.start_day_known);
         for t in ["Sousou no Frieren", "Frieren: Beyond Journey's End", "葬送のフリーレン", "Frieren", "Frieren e a Jornada"] {
             assert!(q.titles.iter().any(|q| q == t), "faltou {t}: {:?}", q.titles);
         }
@@ -1150,7 +1152,9 @@ mod tests {
     #[test]
     fn work_query_start_without_day_or_month() {
         let m = media(r#"{"id":4,"format":"TV","title":{"romaji":"X"},"startDate":{"year":2020,"month":4}}"#);
-        assert_eq!(work_query(&m, "X").unwrap().start, Some(Ymd { y: 2020, m: 4, d: 1 }));
+        let q = work_query(&m, "X").unwrap();
+        assert_eq!(q.start, Some(Ymd { y: 2020, m: 4, d: 1 }));
+        assert!(!q.start_day_known);
         let m = media(r#"{"id":5,"format":"TV","title":{"romaji":"X"},"startDate":{"year":2020}}"#);
         assert_eq!(work_query(&m, "X").unwrap().start, None);
     }
