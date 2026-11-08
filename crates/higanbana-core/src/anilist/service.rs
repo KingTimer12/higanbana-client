@@ -10,7 +10,7 @@ use serde_json::{Map, Value, json};
 
 use super::{
     cache::DiskCache,
-    client::AniListClient,
+    client::{AniListClient, Priority},
     error::{AniListError, AniListResult},
     jikan::{self, JikanClient},
     mal_site::MalSiteClient,
@@ -18,8 +18,12 @@ use super::{
     queries::{self, MediaType},
 };
 
-/// Buscas por requisição (aliases). Mantém a complexidade da query baixa.
-const BATCH_SIZE: usize = 10;
+/// Pontos de complexidade que cada alias de busca custa no AniList (medido).
+const ALIAS_COMPLEXITY: usize = 27;
+/// Teto de complexidade por query do AniList ("Max query complexity should be 500").
+const MAX_COMPLEXITY: usize = 500;
+/// Buscas por requisição (aliases): o máximo que cabe no teto de complexidade.
+const BATCH_SIZE: usize = MAX_COMPLEXITY / ALIAS_COMPLEXITY;
 const CANDIDATES_PER_SEARCH: u32 = 6;
 const MATCH_TTL: i64 = 7 * 24 * 3600;
 const DETAIL_TTL: i64 = 24 * 3600;
@@ -101,9 +105,15 @@ impl AniList {
         self.client.paused_until()
     }
 
+    /// [`Self::lookup_with`] com prioridade `Interactive`.
+    pub async fn lookup(&self, items: &[LookupRequest]) -> AniListResult<Vec<Lookup>> {
+        self.lookup_with(items, Priority::Interactive).await
+    }
+
     /// Casa nomes de pasta com mídias do AniList. Resultado na mesma ordem da entrada.
     /// `Pending`: ainda sem resposta (falha de rede ou fallback MAL adiado); não entra no cache.
-    pub async fn lookup(&self, items: &[LookupRequest]) -> AniListResult<Vec<Lookup>> {
+    /// `priority` vale para as buscas no AniList (inclusive a ligação por `idMal` do fallback MAL).
+    pub async fn lookup_with(&self, items: &[LookupRequest], priority: Priority) -> AniListResult<Vec<Lookup>> {
         let keyed: Vec<(String, ParsedName, MediaType)> = items
             .iter()
             .map(|it| {
@@ -143,7 +153,7 @@ impl AniList {
             }
         }
         for chunk in to_search.chunks(BATCH_SIZE) {
-            match self.search_batch(chunk).await {
+            match self.search_batch(chunk, priority).await {
                 Ok(found) => {
                     for (key, value) in found {
                         let item = chunk.iter().find(|c| c.0 == key).copied();
@@ -165,7 +175,7 @@ impl AniList {
 
         // A busca da MAL vai a ~1 req/s: só uma parte dos misses por chamada, o resto volta `Pending`.
         let (now, _later) = split_mal(misses, MAL_PER_CALL);
-        for (key, value, cache) in self.mal_fallback(&now, &mut last_error).await {
+        for (key, value, cache) in self.mal_fallback(&now, priority, &mut last_error).await {
             if cache {
                 self.matches.insert(key.clone(), value.clone());
                 self.anilist_missed.lock().unwrap().remove(&key);
@@ -199,6 +209,7 @@ impl AniList {
     async fn mal_fallback(
         &self,
         misses: &[&(String, ParsedName, MediaType)],
+        priority: Priority,
         last_error: &mut Option<AniListError>,
     ) -> Vec<(String, Option<Value>, bool)> {
         let mut decided = Vec::new();
@@ -220,7 +231,8 @@ impl AniList {
                 variables.insert(format!("i{i}"), jk["idMal"].clone());
             }
             // Falha do AniList não descarta o achado da MAL: responde com ele, sem cachear.
-            let (data, cache) = match self.client.query(&queries::idmal_batch_query(chunk.len()), Value::Object(variables)).await {
+            let query = queries::idmal_batch_query(chunk.len());
+            let (data, cache) = match self.client.query_with(priority, &query, Value::Object(variables)).await {
                 Ok(data) => (data, true),
                 // Nenhum idMal existe no AniList: todos ficam só-MAL.
                 Err(AniListError::NotFound) => (Value::Null, true),
@@ -240,6 +252,7 @@ impl AniList {
     async fn search_batch(
         &self,
         chunk: &[&(String, ParsedName, MediaType)],
+        priority: Priority,
     ) -> AniListResult<Vec<(String, Option<Value>)>> {
         let types: Vec<MediaType> = chunk.iter().map(|c| c.2).collect();
         let query = queries::batch_search_query(&types, CANDIDATES_PER_SEARCH);
@@ -248,7 +261,7 @@ impl AniList {
             variables.insert(format!("s{i}"), Value::String(c.1.title.clone()));
         }
 
-        let data = self.client.query(&query, Value::Object(variables)).await?;
+        let data = self.client.query_with(priority, &query, Value::Object(variables)).await?;
 
         Ok(chunk
             .iter()
@@ -347,6 +360,14 @@ mod tests {
         assert_eq!((now, later), (vec![0, 1, 2, 3], vec![4, 5, 6]));
         let (now, later) = split_mal(vec![1, 2], MAL_PER_CALL);
         assert_eq!((now, later), (vec![1, 2], Vec::<i32>::new()));
+    }
+
+    #[test]
+    fn batch_fits_complexity() {
+        assert_eq!(BATCH_SIZE, 18);
+        assert!(BATCH_SIZE * ALIAS_COMPLEXITY <= MAX_COMPLEXITY);
+        // Um alias a mais estoura o teto (20 deu 540 no teste ao vivo).
+        assert!((BATCH_SIZE + 1) * ALIAS_COMPLEXITY > MAX_COMPLEXITY);
     }
 
     #[test]
