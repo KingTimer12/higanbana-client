@@ -182,7 +182,18 @@ pub fn folder_title(name: &str) -> String {
 }
 
 re!(LEADING_GROUP, r"^\s*\[([^\]]+)\]");
-re!(TRAILING_GROUP, r"-([A-Za-z0-9]+)$");
+// `-Grupo` no fim: depois de marca técnica (`H.264-TupaC`) ou em nome sem espaços com pontos.
+re!(
+    TRAILING_GROUP_TECH,
+    r"(?i)(?:\b\d{3,4}p|\bx26[45]|\bH\.?26[45]|\bAAC\d*(?:\.\d)?|\b(?:AVC|HEVC|FLAC|DL|BD|CR|NF|AMZN|Dual))-([A-Za-z0-9]+)$"
+);
+re!(TRAILING_GROUP_SCENE, r"^\S*\.\S*-([A-Za-z0-9]+)$");
+re!(SRC_CR, r"(?i)(?:^|[^A-Za-z0-9])CR(?:[^A-Za-z0-9]|$)");
+re!(SRC_NF, r"(?i)(?:^|[^A-Za-z0-9])NF(?:[^A-Za-z0-9]|$)");
+re!(SRC_AMZN, r"(?i)(?:^|[^A-Za-z0-9])AMZN(?:[^A-Za-z0-9]|$)");
+re!(SRC_BD, r"(?i)(?:^|[^A-Za-z0-9])BD(?:[^A-Za-z0-9]|$)");
+re!(SRC_WEB_DL, r"(?i)(?:^|[^A-Za-z0-9])WEB-DL(?:[^A-Za-z0-9]|$)");
+re!(SRC_WEB, r"(?i)(?:^|[^A-Za-z0-9])WEB(?:[^A-Za-z0-9]|$)");
 re!(RES_P, r"(?i)\b(\d{3,4})p\b");
 re!(RES_WXH, r"\b\d{3,4}x(\d{3,4})\b");
 re!(AUDIO, r"(?i)\b(Multi-Audio|Dual|Dublado|Dub)\b");
@@ -204,22 +215,35 @@ pub struct VersionLabel {
 }
 
 fn words(s: &str) -> Vec<String> {
-    s.split(|c: char| !c.is_alphanumeric()).map(norm).filter(|w| w.len() >= 3).collect()
+    s.split(|c: char| !c.is_alphanumeric()).map(norm).filter(|w| w.chars().filter(|c| c.is_alphabetic()).count() >= 3).collect()
+}
+
+/// Pasta sem colchetes e sem `_`, sobre a qual o grupo final é detectado e removido.
+fn trailing_group(cleaned: &str) -> Option<(usize, String)> {
+    let c = TRAILING_GROUP_TECH.captures(cleaned).or_else(|| TRAILING_GROUP_SCENE.captures(cleaned))?;
+    let g = c.get(1)?;
+    (!g.as_str().eq_ignore_ascii_case("DL") && !g.as_str().eq_ignore_ascii_case("Audio"))
+        .then(|| (g.start() - 1, g.as_str().to_owned()))
 }
 
 pub fn version_label(folder: &str, work_title: &str) -> VersionLabel {
-    let group = LEADING_GROUP
-        .captures(folder)
-        .map(|c| c[1].trim().to_owned())
-        .or_else(|| TRAILING_GROUP.captures(folder.trim()).map(|c| c[1].to_owned()));
+    let mut base = BRACKETS.replace_all(folder, " ").replace('_', " ").trim().to_owned();
+    let leading = LEADING_GROUP.captures(folder).map(|c| c[1].trim().to_owned());
+    let trailing = if leading.is_none() { trailing_group(&base) } else { None };
+    let group = leading.or_else(|| trailing.as_ref().map(|t| t.1.clone()));
     let resolution = RES_P
         .captures(folder)
         .map(|c| format!("{}p", &c[1]))
         .or_else(|| RES_WXH.captures(folder).map(|c| format!("{}p", &c[1])));
-    let source = ["CR", "NF", "AMZN", "BD", "WEB-DL", "WEB"].into_iter().find(|s| {
-        let pat = format!(r"(?i)(?:^|[^A-Za-z0-9]){}(?:[^A-Za-z0-9]|$)", regex::escape(s));
-        Regex::new(&pat).unwrap().is_match(folder)
-    });
+    let sources: [(&str, &Regex); 6] = [
+        ("CR", &SRC_CR),
+        ("NF", &SRC_NF),
+        ("AMZN", &SRC_AMZN),
+        ("BD", &SRC_BD),
+        ("WEB-DL", &SRC_WEB_DL),
+        ("WEB", &SRC_WEB),
+    ];
+    let source = sources.into_iter().find(|(_, r)| r.is_match(folder)).map(|(n, _)| n);
     let audio = AUDIO.captures(folder).map(|c| match c[1].to_ascii_lowercase().as_str() {
         "multi-audio" => "Multi-Audio",
         "dual" => "Dual",
@@ -228,9 +252,8 @@ pub fn version_label(folder: &str, work_title: &str) -> VersionLabel {
     });
 
     // Nome sem colchetes nem marcas técnicas.
-    let mut base = BRACKETS.replace_all(folder, " ").replace('_', " ");
-    if let Some(m) = TRAILING_GROUP.find(base.trim_end()) {
-        base.truncate(m.start());
+    if let Some((at, _)) = trailing {
+        base.truncate(at);
     }
     let base = TECH.replace_all(&base, " ").replace('.', " ");
     let base = SPACES.replace_all(&base, " ");
@@ -360,6 +383,23 @@ pub fn norm(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn version_label_group_and_title_are_consistent() {
+        let v = version_label("Re-Zero [1080p]", "Something Else");
+        assert_eq!(v.group, None);
+        assert!(v.name.contains("Re-Zero") || v.name.contains("Re Zero"), "{}", v.name);
+        let v = version_label("[Grp] Spider-Man [1080p]", "Other");
+        assert!(v.name.contains("Spider") && v.name.contains("Man"), "{}", v.name);
+        let v = version_label("Show Name WEB-DL x264-Grp", "Another");
+        assert_eq!(v.group.as_deref(), Some("Grp"));
+        assert_eq!(v.name, "Show Name");
+        // Sem grupo e com título relacionado à obra: usa o título limpo.
+        let v = version_label("Smile Precure 1080p", "Smile Precure!");
+        assert_eq!((v.group, v.name.as_str()), (None, "Smile Precure"));
+        // Sem grupo nem texto útil: cai em folder_title.
+        assert_eq!(version_label("(1080p)", "x").name, "(1080p)");
+    }
 
     #[test]
     fn version_labels() {
