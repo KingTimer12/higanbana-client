@@ -9,6 +9,7 @@ pub mod anilist;
 pub mod anime_index;
 pub mod auth;
 pub mod catalog;
+pub mod catalog_filter;
 mod cloud;
 mod core;
 pub mod events;
