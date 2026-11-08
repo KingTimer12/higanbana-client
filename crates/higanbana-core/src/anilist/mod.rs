@@ -16,4 +16,4 @@ pub mod types;
 
 pub use error::{AniListError, AniListResult};
 pub use queries::{MediaType, idmal_batch_query, season_at};
-pub use service::{AniList, LookupRequest};
+pub use service::{AniList, Lookup, LookupRequest};

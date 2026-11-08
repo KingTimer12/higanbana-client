@@ -1,4 +1,8 @@
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    sync::Mutex,
+};
 
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -17,6 +21,8 @@ const BATCH_SIZE: usize = 10;
 const CANDIDATES_PER_SEARCH: u32 = 6;
 const MATCH_TTL: i64 = 7 * 24 * 3600;
 const DETAIL_TTL: i64 = 24 * 3600;
+/// Buscas na MAL por chamada de `lookup` (a Jikan aceita 1 req/s; o resto fica `Pending`).
+const MAL_PER_CALL: usize = 4;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LookupRequest {
@@ -28,6 +34,28 @@ pub struct LookupRequest {
 
 /// Arquivo do cache de matches. `-v2`: os `null` da versão anterior (sem fallback MAL) não valem mais.
 const MATCHES_FILE: &str = "anilist-matches-v2.json";
+
+/// Resultado de casar uma pasta com uma mídia.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Lookup {
+    Found(Value),
+    /// Nem AniList nem MAL acharam (resultado cacheado).
+    NotFound,
+    /// Sem resposta ainda (erro ou fallback MAL adiado); vale tentar de novo depois.
+    Pending,
+}
+
+impl Lookup {
+    fn from_cached(v: Option<Value>) -> Self {
+        v.map_or(Self::NotFound, Self::Found)
+    }
+}
+
+/// Separa os misses em (rodam agora, adiados) conforme o limite por chamada.
+pub(crate) fn split_mal<T>(mut misses: Vec<T>, cap: usize) -> (Vec<T>, Vec<T>) {
+    let later = misses.split_off(cap.min(misses.len()));
+    (misses, later)
+}
 
 /// Para cada busca sem match no AniList: o melhor candidato Jikan (formato AniList) ou None.
 pub(crate) fn pick_mal(candidates: &[Value], wanted: &ParsedName) -> Option<Value> {
@@ -47,6 +75,8 @@ pub struct AniList {
     matches: DiskCache<Option<Value>>,
     /// id → detalhe.
     details: DiskCache<Value>,
+    /// Chaves sem match no AniList cujo fallback MAL ainda não foi decidido.
+    anilist_missed: Mutex<HashSet<String>>,
 }
 
 impl AniList {
@@ -56,12 +86,13 @@ impl AniList {
             jikan: JikanClient::new(),
             matches: DiskCache::open(dir.join(MATCHES_FILE), MATCH_TTL),
             details: DiskCache::open(dir.join("anilist-details.json"), DETAIL_TTL),
+            anilist_missed: Mutex::new(HashSet::new()),
         }
     }
 
     /// Casa nomes de pasta com mídias do AniList. Resultado na mesma ordem da entrada.
-    /// Itens que falharam por rede/limite voltam `None` e não entram no cache.
-    pub async fn lookup(&self, items: &[LookupRequest]) -> AniListResult<Vec<Option<Value>>> {
+    /// `Pending`: ainda sem resposta (falha de rede ou fallback MAL adiado); não entra no cache.
+    pub async fn lookup(&self, items: &[LookupRequest]) -> AniListResult<Vec<Lookup>> {
         let keyed: Vec<(String, ParsedName, MediaType)> = items
             .iter()
             .map(|it| {
@@ -84,20 +115,35 @@ impl AniList {
             }
         }
 
-        let mut fresh: HashMap<String, Option<Value>> = HashMap::new();
+        let mut fresh: HashMap<String, Lookup> = HashMap::new();
         let mut last_error = None;
-        // Animes sem match no AniList: candidatos a fallback na MAL.
+        // Animes sem match no AniList: candidatos a fallback na MAL. Os que já falharam no
+        // AniList numa chamada anterior (adiados) pulam direto para a MAL.
         let mut misses: Vec<&(String, ParsedName, MediaType)> = Vec::new();
-        for chunk in pending.chunks(BATCH_SIZE) {
+        let mut to_search: Vec<&(String, ParsedName, MediaType)> = Vec::new();
+        {
+            let missed = self.anilist_missed.lock().unwrap();
+            for item in &pending {
+                if missed.contains(&item.0) {
+                    misses.push(item);
+                } else {
+                    to_search.push(item);
+                }
+            }
+        }
+        for chunk in to_search.chunks(BATCH_SIZE) {
             match self.search_batch(chunk).await {
                 Ok(found) => {
                     for (key, value) in found {
                         let item = chunk.iter().find(|c| c.0 == key).copied();
                         match item {
-                            Some(item) if value.is_none() && item.2 == MediaType::Anime => misses.push(item),
+                            Some(item) if value.is_none() && item.2 == MediaType::Anime => {
+                                self.anilist_missed.lock().unwrap().insert(key);
+                                misses.push(item);
+                            }
                             _ => {
                                 self.matches.insert(key.clone(), value.clone());
-                                fresh.insert(key, value);
+                                fresh.insert(key, Lookup::from_cached(value));
                             }
                         }
                     }
@@ -106,9 +152,14 @@ impl AniList {
             }
         }
 
-        for (key, value) in self.mal_fallback(&misses, &mut last_error).await {
-            self.matches.insert(key.clone(), value.clone());
-            fresh.insert(key, value);
+        // A Jikan limita a 1 req/s: só uma parte dos misses por chamada, o resto volta `Pending`.
+        let (now, _later) = split_mal(misses, MAL_PER_CALL);
+        for (key, value, cache) in self.mal_fallback(&now, &mut last_error).await {
+            if cache {
+                self.matches.insert(key.clone(), value.clone());
+                self.anilist_missed.lock().unwrap().remove(&key);
+            }
+            fresh.insert(key, Lookup::from_cached(value));
         }
         if !pending.is_empty() {
             self.matches.flush();
@@ -124,27 +175,30 @@ impl AniList {
 
         Ok(keyed
             .iter()
-            .map(|(key, _, _)| fresh.get(key).cloned().flatten().or_else(|| self.matches.get(key).flatten()))
+            .map(|(key, _, _)| match fresh.get(key) {
+                Some(l) => l.clone(),
+                None => self.matches.get(key).map_or(Lookup::Pending, Lookup::from_cached),
+            })
             .collect())
     }
 
     /// Procura na MAL (Jikan) as obras que o AniList não achou e tenta ligá-las ao AniList por `idMal`.
-    /// Devolve só os itens decididos: `None` quando nem AniList nem MAL acharam. Falhas de rede
-    /// ficam de fora (nada é cacheado) e vão para `last_error`.
+    /// Devolve `(chave, resultado, gravar_no_cache)`; `None` = nem AniList nem MAL acharam.
+    /// Falhas de rede ficam de fora (viram `Pending`) e vão para `last_error`.
     async fn mal_fallback(
         &self,
         misses: &[&(String, ParsedName, MediaType)],
         last_error: &mut Option<AniListError>,
-    ) -> Vec<(String, Option<Value>)> {
+    ) -> Vec<(String, Option<Value>, bool)> {
         let mut decided = Vec::new();
         let mut hits: Vec<(&str, Value)> = Vec::new();
         for (key, parsed, _) in misses.iter().copied() {
             match self.jikan.search(&parsed.title).await {
                 Ok(candidates) => match pick_mal(&candidates, parsed) {
                     Some(jk) => hits.push((key, jk)),
-                    None => decided.push((key.clone(), None)),
+                    None => decided.push((key.clone(), None, true)),
                 },
-                Err(AniListError::NotFound) => decided.push((key.clone(), None)),
+                Err(AniListError::NotFound) => decided.push((key.clone(), None, true)),
                 Err(e) => *last_error = Some(e),
             }
         }
@@ -154,18 +208,19 @@ impl AniList {
             for (i, (_, jk)) in chunk.iter().enumerate() {
                 variables.insert(format!("i{i}"), jk["idMal"].clone());
             }
-            let data = match self.client.query(&queries::idmal_batch_query(chunk.len()), Value::Object(variables)).await {
-                Ok(data) => data,
+            // Falha do AniList não descarta o achado da MAL: responde com ele, sem cachear.
+            let (data, cache) = match self.client.query(&queries::idmal_batch_query(chunk.len()), Value::Object(variables)).await {
+                Ok(data) => (data, true),
                 // Nenhum idMal existe no AniList: todos ficam só-MAL.
-                Err(AniListError::NotFound) => Value::Null,
+                Err(AniListError::NotFound) => (Value::Null, true),
                 Err(e) => {
                     *last_error = Some(e);
-                    continue;
+                    (Value::Null, false)
                 }
             };
             for (i, (key, jk)) in chunk.iter().enumerate() {
                 let on_anilist = data.get(format!("m{i}")).filter(|m| !m.is_null()).cloned();
-                decided.push((key.to_string(), Some(merge_mal(on_anilist, jk.clone()))));
+                decided.push((key.to_string(), Some(merge_mal(on_anilist, jk.clone())), cache));
             }
         }
         decided
@@ -255,6 +310,21 @@ mod tests {
         assert_eq!(pick_mal(&[jk.clone()], &wanted).unwrap()["id"], -1531);
         assert_eq!(merge_mal(None, jk.clone())["id"], -1531);
         assert_eq!(merge_mal(Some(json!({"id": 777})), jk)["id"], 777);
+    }
+
+    #[test]
+    fn mal_rejects_dissimilar() {
+        let jk = json!({"id": -9, "idMal": 9, "title": {"romaji": "Hyouge Mono"}, "synonyms": [], "seasonYear": 2011});
+        let wanted = matcher::parse_folder_name("Howl no Ugoku Shiro");
+        assert!(pick_mal(&[jk], &wanted).is_none());
+    }
+
+    #[test]
+    fn mal_calls_are_capped() {
+        let (now, later) = split_mal((0..7).collect::<Vec<_>>(), MAL_PER_CALL);
+        assert_eq!((now, later), (vec![0, 1, 2, 3], vec![4, 5, 6]));
+        let (now, later) = split_mal(vec![1, 2], MAL_PER_CALL);
+        assert_eq!((now, later), (vec![1, 2], Vec::<i32>::new()));
     }
 
     #[test]

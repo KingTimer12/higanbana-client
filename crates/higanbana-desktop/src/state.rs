@@ -10,7 +10,7 @@ use std::{
 use gpui_kit::{App, AppContext, Context, Entity, EventEmitter, Global, ImageFormat, Task};
 use higanbana_core::{
     Core,
-    anilist::{LookupRequest, MediaType, types::MediaSummary},
+    anilist::{Lookup, LookupRequest, MediaType, types::MediaSummary},
     auth::Session,
     nuvem::download::DownloadProgress,
     player::store::PlayerData,
@@ -20,6 +20,8 @@ use crate::video::PlayTarget;
 
 const LOOKUP_DELAY: Duration = Duration::from_millis(60);
 const LOOKUP_MAX: usize = 40;
+/// Espera antes de repetir buscas adiadas (fallback MAL com limite de requisições).
+const LOOKUP_RETRY: Duration = Duration::from_secs(3);
 const MAX_DOWNLOADS: usize = 2;
 
 #[derive(Clone, Debug)]
@@ -324,9 +326,30 @@ impl AppState {
             let _ = this.update(cx, |s, cx| {
                 match result {
                     Some(list) => {
+                        let mut retry = Vec::new();
                         for (key, v) in batch.into_iter().zip(list) {
-                            let m = v.and_then(|v| serde_json::from_value::<MediaSummary>(v).ok());
-                            s.lookups.insert(key, Some(m));
+                            match v {
+                                Lookup::Found(v) => {
+                                    s.lookups.insert(key, Some(serde_json::from_value::<MediaSummary>(v).ok()));
+                                }
+                                Lookup::NotFound => {
+                                    s.lookups.insert(key, Some(None));
+                                }
+                                // Fallback MAL adiado: continua "buscando" e volta à fila depois.
+                                Lookup::Pending => retry.push(key),
+                            }
+                        }
+                        if !retry.is_empty() {
+                            cx.spawn(async move |this, cx| {
+                                cx.background_executor().timer(LOOKUP_RETRY).await;
+                                let _ = this.update(cx, |s, cx| {
+                                    s.lookup_queue.extend(retry);
+                                    if s.lookup_task.is_none() {
+                                        s.flush_lookups(cx);
+                                    }
+                                });
+                            })
+                            .detach();
                         }
                     }
                     // Falha de rede/limite: libera para tentar de novo depois.

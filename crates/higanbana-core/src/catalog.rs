@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 
 use crate::{
-    anilist::{AniList, LookupRequest, MediaType, types::MediaSummary},
+    anilist::{AniList, Lookup, LookupRequest, MediaType, types::MediaSummary},
     anime_index::AnimeIndex,
     cloud::Cloud,
     library::{folder_title, norm},
@@ -114,7 +114,10 @@ impl Catalog {
                 .lookup(&[LookupRequest { name: name.clone(), media_type: MediaType::Anime }])
                 .await
                 .ok()
-                .and_then(|v| v.into_iter().next().flatten());
+                .and_then(|v| match v.into_iter().next() {
+                    Some(Lookup::Found(f)) => Some(f),
+                    _ => None,
+                });
             if found.and_then(|f| f.get("id").and_then(|v| v.as_i64())) == Some(m.id) {
                 return Ok(Some(path.clone()));
             }
