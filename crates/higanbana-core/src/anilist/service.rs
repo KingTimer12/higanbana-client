@@ -11,7 +11,7 @@ use super::{
     cache::DiskCache,
     client::AniListClient,
     error::{AniListError, AniListResult},
-    jikan::JikanClient,
+    jikan::{self, JikanClient},
     mal_site::MalSiteClient,
     matcher::{self, ParsedName},
     queries::{self, MediaType},
@@ -291,10 +291,21 @@ impl AniList {
             return Ok(v);
         }
         if id < 0 {
-            let media = self.jikan.anime(-id).await?;
-            self.details.insert(key, media.clone());
-            self.details.flush();
-            return Ok(media);
+            return match self.jikan.anime(-id).await {
+                Ok(media) => {
+                    self.details.insert(key, media.clone());
+                    self.details.flush();
+                    Ok(media)
+                }
+                // Jikan fora do ar ou inalcançável: a página abre com o resumo já casado
+                // (sem cachear, para tentar o detalhe completo de novo depois).
+                Err(e) => self
+                    .matches
+                    .find(|v| v.as_ref().and_then(|m| m.get("id")).and_then(Value::as_i64) == Some(id))
+                    .flatten()
+                    .map(|summary| jikan::detail_from_summary(&summary))
+                    .ok_or(e),
+            };
         }
         let data = self.client.query(queries::DETAIL_QUERY, json!({ "id": id })).await?;
         let media = data.get("Media").cloned().filter(|m| !m.is_null()).ok_or(AniListError::NotFound)?;

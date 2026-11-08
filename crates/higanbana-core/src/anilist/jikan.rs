@@ -16,6 +16,9 @@ const ENDPOINT: &str = "https://api.jikan.moe/v4";
 const MIN_INTERVAL: Duration = Duration::from_millis(1100);
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 const MAX_ATTEMPTS: usize = 3;
+/// Sem isso, uma rede que não alcança a Jikan deixa o pedido pendurado indefinidamente.
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const TOTAL_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Cliente da Jikan: no máximo 1 requisição por segundo; em `429` espera 2 s e tenta de novo.
 pub struct JikanClient {
@@ -34,6 +37,8 @@ impl JikanClient {
         Self {
             http: Client::builder()
                 .user_agent(concat!("higanbana-client/", env!("CARGO_PKG_VERSION")))
+                .connect_timeout(CONNECT_TIMEOUT)
+                .timeout(TOTAL_TIMEOUT)
                 .build()
                 .expect("falha ao criar cliente HTTP"),
             last_request: Mutex::new(None),
@@ -158,13 +163,27 @@ pub fn to_detail_shape(item: &Value) -> Value {
         .and_then(Value::as_array)
         .map(|a| a.iter().filter_map(|s| Some(json!({ "id": s.get("mal_id")?.as_i64()?, "name": str_of(s, "name")? }))).collect())
         .unwrap_or_default();
+    add_detail_fields(&mut shape, str_of(item, "synopsis"), str_of(item, "url"), studios);
+    shape
+}
+
+/// Completa um `Summary` com os campos de detalhe (elenco, equipe e relações vazios).
+fn add_detail_fields(shape: &mut Value, description: Option<&str>, site_url: Option<&str>, studios: Vec<Value>) {
     let obj: &mut Map<String, Value> = shape.as_object_mut().expect("summary é objeto");
-    obj.insert("description".into(), json!(str_of(item, "synopsis")));
-    obj.insert("siteUrl".into(), json!(str_of(item, "url")));
+    obj.insert("description".into(), json!(description));
+    obj.insert("siteUrl".into(), json!(site_url));
     obj.insert("studios".into(), json!({ "nodes": studios }));
     for key in ["characters", "staff", "relations"] {
         obj.insert(key.into(), json!({ "edges": [] }));
     }
+}
+
+/// Resumo só-MAL já casado (formato `Summary`) → detalhe mínimo, para a página da obra
+/// abrir quando a Jikan não responde: sem descrição, estúdio, elenco nem relações.
+pub fn detail_from_summary(summary: &Value) -> Value {
+    let mut shape = if summary.is_object() { summary.clone() } else { json!({}) };
+    let site_url = summary.get("idMal").and_then(Value::as_i64).map(|id| format!("https://myanimelist.net/anime/{id}"));
+    add_detail_fields(&mut shape, None, site_url.as_deref(), Vec::new());
     shape
 }
 
@@ -238,6 +257,24 @@ mod tests {
             f["type"] = json!(j);
             assert_eq!(to_summary_shape(&f)["format"], a);
         }
+    }
+
+    #[test]
+    fn detail_from_cached_summary() {
+        let d = detail_from_summary(&to_summary_shape(&fixture()));
+        assert!(d["description"].is_null());
+        assert_eq!(d["siteUrl"], "https://myanimelist.net/anime/1531");
+        let d: crate::anilist::types::MediaDetail = serde_json::from_value(d).unwrap();
+        assert_eq!(d.summary.id, -1531);
+        assert!(d.summary.cover().is_some());
+        assert!(d.studios.nodes.is_empty());
+        assert!(d.characters.edges.is_empty() && d.staff.edges.is_empty() && d.relations.edges.is_empty());
+    }
+
+    #[test]
+    fn client_has_timeouts() {
+        assert_eq!(CONNECT_TIMEOUT, Duration::from_secs(5));
+        assert_eq!(TOTAL_TIMEOUT, Duration::from_secs(10));
     }
 
     #[test]
