@@ -2,7 +2,7 @@
 //! lote, acervo da temporada, downloads e avisos. As telas observam e redesenham.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -128,6 +128,9 @@ pub struct AppState {
     catalog: HashMap<i64, Option<Option<String>>>,
     /// Episódios do TMDB por obra (`tmdb::work_key`): `None` = buscando; `Some(None)` = sem dados.
     episodes: HashMap<String, Option<Option<Arc<WorkEpisodes>>>>,
+    /// Obras cuja última busca no TMDB falhou (rede, 429): a tela mostra sem dados,
+    /// mas a chave sai de `episodes` para a próxima visita tentar de novo.
+    episodes_failed: HashSet<String>,
     pub downloads: Vec<Download>,
     next_download: u64,
     pub player_data: PlayerData,
@@ -168,6 +171,7 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             lookup_retries: HashMap::new(),
             catalog: HashMap::new(),
             episodes: HashMap::new(),
+            episodes_failed: HashSet::new(),
             downloads: Vec::new(),
             next_download: 1,
             player_data,
@@ -582,15 +586,21 @@ impl AppState {
 
     /// `None` = buscando ou não pedido; `Some(None)` = sem TMDB para a obra.
     pub fn episodes(&self, key: &str) -> Option<Option<Arc<WorkEpisodes>>> {
+        if self.episodes_failed.contains(key) {
+            return Some(None);
+        }
         self.episodes.get(key).cloned().flatten()
     }
 
-    /// Pede os episódios da obra uma vez por chave. Falha ou TMDB sem token
-    /// → `Some(None)` até o fim da sessão (sem repetir).
+    /// Pede os episódios da obra uma vez por chave. TMDB sem token ou sem a obra
+    /// → `Some(None)` até o fim da sessão. Falha passageira (rede, 429) não fica:
+    /// a obra aparece sem dados e o próximo pedido (outra visita à página; a tela
+    /// pede uma vez por visita) tenta de novo.
     pub fn want_episodes(&mut self, key: String, q: WorkQuery, cx: &mut Context<Self>) {
         if self.episodes.contains_key(&key) {
             return;
         }
+        self.episodes_failed.remove(&key);
         if !self.core.tmdb().configured() {
             self.episodes.insert(key, Some(None));
             cx.notify();
@@ -600,9 +610,17 @@ impl AppState {
         let core = self.core.clone();
         let task = self.core.spawn(async move { core.tmdb().work_episodes(&q).await });
         cx.spawn(async move |this, cx| {
-            let found = task.await.ok().and_then(Result::ok).flatten().map(Arc::new);
+            let outcome = episodes_outcome(task.await.ok());
             let _ = this.update(cx, |s, cx| {
-                s.episodes.insert(key, Some(found));
+                match outcome {
+                    Some(found) => {
+                        s.episodes.insert(key, Some(found));
+                    }
+                    None => {
+                        s.episodes.remove(&key);
+                        s.episodes_failed.insert(key);
+                    }
+                }
                 cx.notify();
             });
         })
@@ -737,6 +755,15 @@ impl AppState {
     }
 }
 
+/// Resultado da busca no TMDB para o mapa de episódios: achou ou não tem a obra
+/// → `Some`; erro (rede, 429) ou tarefa perdida → `None`, para não guardar.
+fn episodes_outcome<T, E>(r: Option<Result<Option<T>, E>>) -> Option<Option<Arc<T>>> {
+    match r {
+        Some(Ok(found)) => Some(found.map(Arc::new)),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -788,5 +815,15 @@ mod tests {
         assert_eq!(cooldown_end(now, None), now + Duration::from_secs(30));
         assert_eq!(cooldown_end(now, Some(now + Duration::from_secs(5))), now + Duration::from_secs(30));
         assert_eq!(cooldown_end(now, Some(now + Duration::from_secs(61))), now + Duration::from_secs(61));
+    }
+
+    #[test]
+    fn tmdb_failure_is_not_remembered() {
+        // Achou ou o TMDB não tem a obra: fica para a sessão.
+        assert_eq!(episodes_outcome(Some(Ok::<_, ()>(Some(7)))), Some(Some(Arc::new(7))));
+        assert_eq!(episodes_outcome(Some(Ok::<Option<u8>, ()>(None))), Some(None));
+        // Rede, 429 ou tarefa perdida: não guarda; a próxima visita tenta de novo.
+        assert_eq!(episodes_outcome(Some(Err::<Option<u8>, _>(()))), None);
+        assert_eq!(episodes_outcome(None::<Result<Option<u8>, ()>>), None);
     }
 }
