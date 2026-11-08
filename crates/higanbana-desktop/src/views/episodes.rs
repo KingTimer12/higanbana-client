@@ -23,16 +23,18 @@ use higanbana_core::{
 };
 
 use crate::{
-    components::{FileAction, download_button, file_list, format_bytes, rounded_image, stop_click, when_visible},
-    interact::{Button, hover_anim, hover_fade, hover_layer},
+    components::{FileAction, download_button, file_list, format_bytes, stop_click, when_visible},
+    interact::{Button, hover_anim},
     motion::{QUICK, ease_out_back, ease_out_cubic, enter},
     state::{Img, state},
-    theme,
+    theme::{self, ProductColors as _},
 };
 
 /// Tamanho do still pedido ao TMDB (grade e lista).
 const STILL_SIZE: &str = "w300";
-/// Hover dos cards (cantos, véu, pétala, traço, zoom): curto, desacelerando.
+/// Still minúsculo esticado por trás do card da lista: a ampliação o borra.
+const BLEED_SIZE: &str = "w92";
+/// Hover dos cards (cantos, véu, pétala, traço, zoom, corte): curto, desacelerando.
 const CARD_HOVER: Duration = Duration::from_millis(420);
 /// Cantos da miniatura da grade, estreito e largo alternados como uma pétala;
 /// no hover eles trocam de lugar.
@@ -42,12 +44,16 @@ const PETAL_WIDE: f32 = 22.;
 /// (o resto fica para fora, cortado).
 const PETAL_SIZE: f32 = 90.;
 const PETAL_INSET: f32 = 15.;
-/// Zoom da imagem no hover.
+/// Zoom da imagem no hover (grade e lista) e do fundo borrado da lista.
 const GRID_ZOOM: f32 = 1.06;
+const LIST_ZOOM: f32 = 1.07;
+const BLEED_ZOOM: f32 = 1.4;
+/// Opacidade do fundo borrado da lista no hover.
+const BLEED_ALPHA: f32 = 0.35;
+/// Corte diagonal da miniatura da lista: a borda direita termina embaixo a 86 %.
+const LIST_CUT: f32 = 0.14;
 /// Altura da barra de progresso.
 const BAR_HEIGHT: f32 = 3.;
-/// Grupo de hover do card: o ▶ aparece ao passar o mouse em qualquer parte dele.
-const CARD_GROUP: &str = "ep-card";
 
 /// Rótulo ("E1") e título do card. Sem episódio do TMDB: "Episódio N" quando o
 /// arquivo tem número; senão o nome do arquivo, sem rótulo. O número do rótulo
@@ -108,6 +114,8 @@ struct Item {
     /// Formato · tamanho (`MKV · 1,2 GB`), na lista.
     details: String,
     still: Option<String>,
+    /// Still minúsculo para o fundo borrado da lista.
+    bleed: Option<String>,
     score: Option<String>,
     date: Option<String>,
     overview: String,
@@ -172,6 +180,7 @@ pub fn episode_list(
                         .collect::<Vec<_>>()
                         .join(" · "),
                     still: ep.and_then(|e| e.still_path.as_deref()).map(|p| still_url(p, STILL_SIZE)),
+                    bleed: ep.and_then(|e| e.still_path.as_deref()).map(|p| still_url(p, BLEED_SIZE)),
                     score: ep.and_then(|e| ratings.episode(e)).map(|s| s.label()),
                     date: ep.and_then(|e| air_date(e.air_date.as_deref())),
                     overview: ep.map(|e| e.overview.clone()).unwrap_or_default(),
@@ -207,14 +216,12 @@ pub fn episode_list(
             .gap_y_6()
             .children(items.into_iter().map(|it| grid_card(it, loading, &on_play)))
             .into_any_element(),
-        EpisodeLayout::List => {
-            let border = cx.theme().border;
-            v_flex()
-                .children(items.into_iter().enumerate().map(|(i, it)| {
-                    div().when(i > 0, |d| d.border_t_1().border_color(border)).child(list_row(it, loading, &on_play, cx))
-                }))
-                .into_any_element()
-        }
+        EpisodeLayout::List => div()
+            .grid()
+            .grid_cols(list_columns(cols) as u16)
+            .gap_3()
+            .children(items.into_iter().map(|it| list_card(it, loading, &on_play)))
+            .into_any_element(),
     };
 
     v_flex()
@@ -369,46 +376,149 @@ fn watched(theme: &Theme) -> Div {
         .child("Visto")
 }
 
-/// Linha da lista: miniatura à esquerda; rótulo · data, título, nota e sinopse; download à direita.
-fn list_row(it: Item, loading: bool, on_play: &FileAction, cx: &mut App) -> AnyElement {
-    let theme = cx.theme().clone();
-    let (act, f) = (on_play.clone(), it.file.clone());
-    let actions = actions(&it, on_play, cx);
-    let thumb = thumbnail(&it, loading, cx);
-    let name = it.key.clone();
-    let meta = [Some(it.label.clone()).filter(|l| !l.is_empty()), it.date.clone(), Some(it.details.clone()).filter(|d| !d.is_empty())]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" · ");
-    let row = h_flex()
-        .id(ElementId::Name(format!("ep-row:{}", it.key).into()))
-        .group(CARD_GROUP)
-        .items_start()
-        .gap_4()
-        .p_2()
-        .cursor_pointer()
-        .tooltip(move |window, cx| Tooltip::new(name.clone()).build(window, cx))
-        .on_click(move |_, w, cx| act(&f, w, cx))
-        .child(div().w(rems(10.5)).flex_none().child(thumb))
-        .child(
-            v_flex()
-                .flex_1()
-                .min_w_0()
-                .gap_1()
-                .when(!meta.is_empty(), |d| d.child(div().text_xs().text_color(theme.muted_foreground).child(meta)))
-                .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).line_clamp(2).child(it.title.clone()))
-                .children(it.note.clone().map(|n| note(n, cx)))
-                .children(it.score.clone().map(|s| score(s, cx)))
-                .when(!it.overview.is_empty(), |d| {
-                    d.child(div().text_xs().text_color(theme.muted_foreground).line_height(relative(1.4)).line_clamp(3).child(it.overview.clone()))
-                }),
-        )
-        .child(actions);
-    hover_fade(ElementId::Name(format!("ep-row-hover:{}", it.key).into()), row)
-        .fill(theme.list_hover)
-        .radius(theme.radius_lg)
-        .into_any_element()
+/// Card da lista ("lista cinematográfica"): miniatura com corte diagonal à
+/// esquerda; episódio · data, título, nota, sinopse e detalhes à direita. No
+/// hover o corte se abre, a imagem dá zoom e a cor dela vaza, borrada, pelo
+/// fundo do card.
+fn list_card(it: Item, loading: bool, on_play: &FileAction) -> AnyElement {
+    let on_play = on_play.clone();
+    let hover_id = ElementId::Name(format!("ep-row-hover:{}", it.key).into());
+    hover_anim(hover_id, CARD_HOVER, move |t, _, cx| {
+        let e = ease_out_cubic(t);
+        let theme = cx.theme().clone();
+        let r = theme.radius_lg;
+        let card_radii = Corners::all(r);
+        let zero = px(0.);
+        let thumb_radii = Corners { top_left: r, top_right: zero, bottom_right: zero, bottom_left: r };
+        let actions = actions(&it, &on_play, cx);
+        let image = still(&it, loading, thumb_radii, lerp(1., LIST_ZOOM, e), cx);
+        let bleed = (e > 0.).then(|| bleed(&it, card_radii, e, cx)).flatten();
+        let (act, f) = (on_play.clone(), it.file.clone());
+        let name = it.key.clone();
+        let kicker = kicker(&it.label, it.date.as_deref());
+        let details = [it.minutes.map(|m| format!("{m} min")), Some(it.details.clone()).filter(|d| !d.is_empty())]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · ");
+
+        let thumb = div()
+            .relative()
+            .flex_none()
+            .w(rems(13.125))
+            .overflow_hidden()
+            .bg(theme.muted)
+            .rounded_tl(r)
+            .rounded_bl(r)
+            // Fora do fluxo: a miniatura estica até a altura do card.
+            .child(div().absolute().top_0().left_0().size_full().child(image))
+            .children(it.seen.filter(|&f| f > 0.).map(|f| progress_strip(f, thumb_radii, &theme)))
+            .child(diagonal_cut(1. - e, theme.popover));
+
+        let body = v_flex()
+            .flex_1()
+            .min_w_0()
+            .px_4()
+            .py_3()
+            .gap_1()
+            .when(!kicker.is_empty(), |d| {
+                d.child(div().text_xs().font_weight(FontWeight::BOLD).text_color(theme.primary_ink()).line_clamp(1).child(kicker))
+            })
+            .child(div().text_base().font_weight(FontWeight::SEMIBOLD).line_clamp(2).child(it.title.clone()))
+            .children(it.note.clone().map(|n| note(n, cx)))
+            .when(!it.overview.is_empty(), |d| {
+                d.child(div().text_xs().text_color(theme.muted_foreground).line_height(relative(1.4)).line_clamp(2).child(it.overview.clone()))
+            })
+            .child(
+                h_flex()
+                    .mt_auto()
+                    .pt_1()
+                    .gap_2p5()
+                    .text_xs()
+                    .children(it.score.clone().map(|s| score(s, cx)))
+                    .when(!details.is_empty(), |d| d.child(div().min_w_0().truncate().text_color(theme.muted_foreground).child(details)))
+                    .when(it.watched, |d| d.child(watched(&theme)))
+                    .child(div().flex_1())
+                    .child(actions),
+            );
+
+        div()
+            .id(ElementId::Name(format!("ep-row:{}", it.key).into()))
+            .relative()
+            .flex()
+            .min_w_0()
+            .min_h(rems(7.375))
+            .rounded(r)
+            .overflow_hidden()
+            .bg(theme.popover)
+            .cursor_pointer()
+            .tooltip(move |window, cx| Tooltip::new(name.clone()).build(window, cx))
+            .on_click(move |_, w, cx| act(&f, w, cx))
+            .children(bleed)
+            .child(thumb)
+            .child(body)
+            .child(ring(card_radii, theme.border.opacity(1. - e), theme.primary.opacity(0.47 * e)))
+    })
+    .into_any_element()
+}
+
+/// Fundo borrado do card da lista: o still minúsculo (`w92`) esticado sobre o
+/// card inteiro, fraco; a ampliação faz o papel do desfoque. Só é pedido no
+/// primeiro hover, porque só aparece nele.
+fn bleed(it: &Item, radii: Corners<Pixels>, e: f32, cx: &mut App) -> Option<AnyElement> {
+    let url = it.bleed.as_ref()?;
+    let image = match state(cx).read(cx).cached_image(url) {
+        Some(Img::Ready(image)) => image,
+        Some(_) => return None,
+        None => {
+            state(cx).update(cx, |s, cx| {
+                s.image(url, cx);
+            });
+            return None;
+        }
+    };
+    Some(
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .opacity(BLEED_ALPHA * e)
+            .child(zoomed_image(image, BLEED_ZOOM, radii))
+            .into_any_element(),
+    )
+}
+
+/// Triângulo na cor do fundo do card sobre a borda direita da miniatura: o
+/// corte diagonal (de cima à direita até 86 % embaixo). `amount` 1 = corte
+/// inteiro, 0 = aberto.
+fn diagonal_cut(amount: f32, color: Hsla) -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let Some(points) = cut_triangle(bounds, amount) else {
+                return;
+            };
+            let mut path = PathBuilder::fill();
+            path.add_polygon(&points, true);
+            if let Ok(path) = path.build() {
+                window.paint_path(path, color);
+            }
+        },
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
+}
+
+/// Pontos do corte diagonal em `b` com `amount` do corte (0 = nenhum).
+fn cut_triangle(b: Bounds<Pixels>, amount: f32) -> Option<[gpui_kit::Point<Pixels>; 3]> {
+    let cut = b.size.width * (LIST_CUT * amount.clamp(0., 1.));
+    (cut > px(0.)).then(|| {
+        let br = b.bottom_right();
+        [b.top_right(), br, point(br.x - cut, br.y)]
+    })
 }
 
 /// Botões do card/linha: "Assistir" (o caminho pelo teclado até um episódio:
@@ -463,6 +573,17 @@ fn corners<E: Styled>(e: E, r: Corners<Pixels>) -> E {
 fn petal_corners(t: f32) -> Corners<Pixels> {
     let (a, b) = (lerp(PETAL_TIGHT, PETAL_WIDE, t), lerp(PETAL_WIDE, PETAL_TIGHT, t));
     Corners { top_left: px(a), top_right: px(b), bottom_right: px(a), bottom_left: px(b) }
+}
+
+/// Colunas da lista: metade das da grade (um card da lista vale dois da grade).
+fn list_columns(grid_cols: usize) -> usize {
+    (grid_cols / 2).max(1)
+}
+
+/// Linha de cima do card da lista: "EPISÓDIO 1 · 29 SET 2023".
+fn kicker(label: &str, date: Option<&str>) -> String {
+    let ep = label.strip_prefix('E').filter(|n| !n.is_empty()).map(|n| format!("Episódio {n}"));
+    [ep, date.map(str::to_owned)].into_iter().flatten().collect::<Vec<_>>().join(" · ").to_uppercase()
 }
 
 /// Número grande do card da grade: "E1" vira "01". Sem número, nada.
@@ -578,104 +699,6 @@ fn progress_strip(fraction: f32, radii: Corners<Pixels>, theme: &Theme) -> impl 
     .top_0()
     .left_0()
     .size_full()
-}
-
-/// Miniatura 16:9: still do TMDB (carregado só quando aparece na tela), esqueleto
-/// enquanto o TMDB responde ou fundo neutro. Por cima: visto, duração, progresso e ▶ no hover.
-fn thumbnail(it: &Item, loading: bool, cx: &mut App) -> Div {
-    let theme = cx.theme().clone();
-    let radius = theme.radius_lg;
-    let image: AnyElement = match (&it.still, loading) {
-        (_, true) => Skeleton::new().size_full().rounded(radius).into_any_element(),
-        (None, false) => neutral(cx).into_any_element(),
-        (Some(url), false) => match state(cx).read(cx).cached_image(url) {
-            Some(Img::Ready(_)) => rounded_image(Some(url), Some(radius), cx),
-            Some(Img::Failed) => neutral(cx).into_any_element(),
-            Some(Img::Loading) => div().size_full().into_any_element(),
-            None => {
-                let url = url.clone();
-                div()
-                    .size_full()
-                    .child(when_visible(300., move |cx: &mut App| {
-                        state(cx).update(cx, |s, cx| {
-                            s.image(&url, cx);
-                        })
-                    }))
-                    .into_any_element()
-            }
-        },
-    };
-    div()
-        .relative()
-        .w_full()
-        .aspect_ratio(16. / 9.)
-        .rounded(radius)
-        .overflow_hidden()
-        .bg(theme.muted)
-        .child(image)
-        .when(it.watched, |d| {
-            d.child(
-                h_flex()
-                    .absolute()
-                    .top_2()
-                    .left_2()
-                    .gap_1()
-                    .px_1p5()
-                    .py_0p5()
-                    .rounded(theme.radius)
-                    .bg(theme::media_scrim(0.7))
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme::on_media())
-                    .child(Icon::new(IconName::Check).xsmall().text_color(theme.success_foreground))
-                    .child("Visto"),
-            )
-        })
-        .children(it.minutes.map(|m| {
-            div()
-                .absolute()
-                .bottom_2()
-                .right_2()
-                .px_1p5()
-                .py_0p5()
-                .rounded(theme.radius)
-                .bg(theme::media_scrim(0.7))
-                .text_xs()
-                .text_color(theme::on_media())
-                .child(format!("{m} min"))
-        }))
-        .children(it.seen.filter(|&f| f > 0.).map(|f| {
-            div()
-                .absolute()
-                .bottom_0()
-                .left_0()
-                .right_0()
-                .h(px(3.))
-                .bg(theme::media_track(0.3))
-                .child(div().h_full().w(relative(f)).bg(theme.primary))
-        }))
-        // ▶ ao passar o mouse no card (ou na linha) inteiro.
-        .child(
-            div()
-                .absolute()
-                .inset_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .opacity(0.)
-                .group_hover(CARD_GROUP, |s| s.opacity(1.))
-                .child(
-                    div()
-                        .size_10()
-                        .rounded_full()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .bg(theme::media_scrim(0.6))
-                        .child(Icon::new(IconName::Play).text_color(theme::on_media())),
-                ),
-        )
-        .child(hover_layer("thumb-ring").border(theme.ring).radius(radius))
 }
 
 /// Miniatura sem still: superfície do tema com o ícone de vídeo.
@@ -801,6 +824,31 @@ mod tests {
         let bottom_right = pts.iter().rev().find(|p| p.1 == 100.).unwrap();
         assert!((bottom_right.0 - 196.).abs() < 1e-3, "{bottom_right:?}");
         assert!(bottom_strip(200., 100., 22., 4., 3., 0.).is_empty(), "nada visto, nada pintado");
+    }
+
+    #[test]
+    fn list_has_half_the_grid_columns() {
+        assert_eq!(list_columns(4), 2);
+        assert_eq!(list_columns(5), 2);
+        assert_eq!(list_columns(1), 1);
+        assert_eq!(list_columns(0), 1);
+    }
+
+    #[test]
+    fn kicker_names_episode_and_date() {
+        assert_eq!(kicker("E1", Some("29 set 2023")), "EPISÓDIO 1 · 29 SET 2023");
+        assert_eq!(kicker("E7", None), "EPISÓDIO 7");
+        assert_eq!(kicker("", Some("29 set 2023")), "29 SET 2023");
+        assert_eq!(kicker("", None), "");
+    }
+
+    #[test]
+    fn diagonal_cut_opens_on_hover() {
+        let b = Bounds { origin: point(px(0.), px(0.)), size: size(px(200.), px(100.)) };
+        let [top, bottom, inner] = cut_triangle(b, 1.).unwrap();
+        assert_eq!((top, bottom), (point(px(200.), px(0.)), point(px(200.), px(100.))));
+        assert!((f32::from(inner.x) - 172.).abs() < 1e-3, "a borda termina a 86 % embaixo: {inner:?}");
+        assert!(cut_triangle(b, 0.).is_none(), "aberto no hover cheio");
     }
 
     #[test]
