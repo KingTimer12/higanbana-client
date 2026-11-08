@@ -20,7 +20,9 @@ pub mod nuvem;
 pub mod paths;
 pub mod player;
 pub mod prefs;
+pub mod ratings;
 pub mod reader;
+pub mod settings;
 pub mod tmdb;
 
 pub use cloud::Cloud;
