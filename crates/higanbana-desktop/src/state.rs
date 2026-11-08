@@ -506,9 +506,8 @@ impl AppState {
                                 cx.background_executor().timer(wait).await;
                                 let _ = this.update(cx, |s, cx| {
                                     s.lane(priority).splice(0..0, retry);
-                                    if s.lookup_task.is_none() {
-                                        s.flush_lookups(cx);
-                                    }
+                                    // Antecipa uma saída agendada para o fim da pausa do rastreio.
+                                    s.schedule_flush(LOOKUP_DELAY, cx);
                                 });
                             })
                             .detach();
