@@ -74,16 +74,17 @@ pub fn classify_chapters(chapters: &[Chapter], duration: f64) -> SkipTimes {
     SkipTimes { op: find(&OP_WORDS), ed: find(&ED_WORDS) }
 }
 
-static SE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)S\d+E(\d+)").unwrap());
+static SE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)S(\d+)E(\d+)").unwrap());
 // ` - 06 [1080p]`: o número logo antes das tags vence títulos como "100 Years Quest".
-static DASH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s-\s(\d{1,4})(?:v\d)?\s*(?:\[|$)").unwrap());
-static LOOSE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)[_\s.]-?[_\s.]?(\d{1,4})[_\s.]*(?:\[|$)").unwrap());
+// Marcador de fim opcional após o número (`49 FINAL`, `12 END`, `24 (Final)`, `[END]`).
+static DASH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s-\s(\d{1,4})(?:v\d)?\s*(?:(?:[\[(]\s*)?(?:final|end|fim)(?:\s*[\])])?[_\s.]*)?(?:\[|$)").unwrap());
+static LOOSE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)[_\s.]-?[_\s.]?(\d{1,4})[_\s.]*(?:(?:[\[(]\s*)?(?:final|end|fim)(?:\s*[\])])?[_\s.]*)?(?:\[|$)").unwrap());
 
 /// Número do episódio pelo nome do arquivo (`S01E03`, `Ep. 12`, ` - 06 [`, `_01_[`).
 pub fn episode_number(file_name: &str) -> Option<u32> {
     let base = strip_ext(file_name);
     if let Some(c) = SE.captures(base) {
-        return c[1].parse().ok();
+        return c[2].parse().ok();
     }
     if let Some(c) = DASH.captures(base) {
         return c[1].parse().ok();
@@ -93,6 +94,11 @@ pub fn episode_number(file_name: &str) -> Option<u32> {
             return Some(n.trunc() as u32);
         }
     LOOSE.captures(base).and_then(|c| c[1].parse().ok())
+}
+
+/// Temporada explícita no nome do arquivo (`S02E03` → 2); `None` sem o padrão `SxxEyy`.
+pub fn episode_season(file_name: &str) -> Option<u32> {
+    SE.captures(strip_ext(file_name)).and_then(|c| c[1].parse().ok())
 }
 
 pub fn is_video(f: &FileEntry) -> bool {
@@ -273,9 +279,24 @@ mod tests {
             ("Naruto Ep. 012.mkv", Some(12)),
             ("[Grupo] Filme [1080p].mkv", None),
             ("[Grupo] Titulo - 1080p.mkv", None),
+            ("[Aenianos]_Futari_wa_Pretty_Cure_49_FINAL_[960x720][579CE636].mkv", Some(49)),
+            ("[Aenianos]_Futari_wa_Pretty_Cure_48_[960x720][DEA33FC8].mkv", Some(48)),
+            ("[Grupo] Anime - 12 END [1080p].mkv", Some(12)),
+            ("[Grupo] Anime - 12 [END] [1080p].mkv", Some(12)),
+            ("[Grupo] Anime - 24 (Final) [1080p].mkv", Some(24)),
+            ("[Grupo] Anime - 24 (final).mkv", Some(24)),
+            ("Anime_13_Fim_[720p].mkv", Some(13)),
+            ("Final Fantasy - 03 [1080p].mkv", Some(3)),
+            ("[Grupo] Final Fantasy - 100 Years - 03 FINAL [1080p].mkv", Some(3)),
         ] {
             assert_eq!(episode_number(name), n, "{name}");
         }
+    }
+
+    #[test]
+    fn episode_seasons() {
+        assert_eq!(episode_season("[G] X S02E03 [1080p].mkv"), Some(2));
+        assert_eq!(episode_season("X - 03.mkv"), None);
     }
 
     fn file(name: &str, dir: bool) -> FileEntry {

@@ -10,22 +10,23 @@ use gpui_kit::component::{
     button::ButtonVariants as _,
     h_flex,
     progress::Progress,
+    tag::Tag,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _,
 };
 use gpui_kit::{
     assets::IconName, canvas, div, img, prelude::*, px, relative, Corners, AnimationExt as _, AnyElement, App,
-    Bounds, Div, ElementId, FontWeight, Hsla, IntoElement, ObjectFit, ParentElement, Pixels,
+    Bounds, Div, ElementId, FontWeight, Hsla, IntoElement, MouseButton, ObjectFit, ParentElement, Pixels,
     SharedString, Stateful, Styled, Window,
 };
 use higanbana_core::{
     anilist::{text, types::MediaSummary, MediaType},
-    library::{folder_title, folder_year, join_path, natural_cmp, parse_episode, split_path},
+    library::{folder_title, folder_year, join_path, natural_cmp, parse_episode, raw_path, split_path, VersionLabel},
     nuvem::FileEntry,
     player::logic::VIDEO_EXT,
 };
 
 use crate::{
-    interact::hover_fade,
+    interact::{hover_fade, hover_layer},
     state::{state, AppState, DlStatus, Img},
     theme::{self, ProductColors as _},
     ui::truncate,
@@ -175,6 +176,8 @@ pub struct PosterProps {
     pub width: Pixels,
     pub badge: bool,
     pub dimmed: bool,
+    /// Linha de baixo; `None` mostra formato · ano.
+    pub meta: Option<String>,
 }
 
 /// Card de pôster (capa + título + formato/ano). O clique vem de quem usa.
@@ -196,14 +199,16 @@ pub fn poster(p: PosterProps, cx: &mut App) -> Stateful<Div> {
     } else {
         cover(media, &p.name, Some(p.width), cx).into_any_element()
     };
-    let meta = [
-        format.filter(|f| !f.is_empty()),
-        year.map(|y| y.to_string()),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join(" · ");
+    let meta = p.meta.clone().unwrap_or_else(|| {
+        [
+            format.filter(|f| !f.is_empty()),
+            year.map(|y| y.to_string()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ")
+    });
     let theme = cx.theme().clone();
     v_flex()
         .id(p.id)
@@ -298,8 +303,19 @@ pub fn section_order(a: &str, b: &str) -> std::cmp::Ordering {
     pos(a).cmp(&pos(b)).then_with(|| natural_cmp(a, b))
 }
 
+/// Rota de uma subpasta: dentro de uma pasta aberta crua (`raw:`), continua crua.
+pub fn folder_link(dir: &str, name: &str, raw: bool) -> String {
+    let path = join_path(dir, name);
+    if raw { raw_path(&path) } else { path }
+}
+
 /// Migalhas: Início › Seção › ... › atual.
 pub fn breadcrumbs(path: &str, cx: &mut App) -> Breadcrumb {
+    breadcrumbs_in(path, false, cx)
+}
+
+/// Migalhas de uma pasta; com `raw`, cada pedaço abre cru (o Início não).
+pub fn breadcrumbs_in(path: &str, raw: bool, cx: &mut App) -> Breadcrumb {
     let segs: Vec<String> = split_path(path).into_iter().map(str::to_owned).collect();
     let s = state(cx);
     let go = |target: String| {
@@ -316,7 +332,7 @@ pub fn breadcrumbs(path: &str, cx: &mut App) -> Breadcrumb {
         } else {
             seg.clone()
         };
-        crumbs = crumbs.child(BreadcrumbItem::new(label).on_click(go(segs[..=i].join("/"))));
+        crumbs = crumbs.child(BreadcrumbItem::new(label).on_click(go(folder_link(&segs[..i].join("/"), seg, raw))));
     }
     crumbs
 }
@@ -345,6 +361,17 @@ pub fn is_comic(f: &FileEntry) -> bool {
         && f.extension
             .as_deref()
             .is_some_and(|e| matches!(e.to_lowercase().as_str(), ".cbz" | ".zip" | ".cbr" | ".rar"))
+}
+
+/// Área de botões dentro de uma linha ou card clicável: o clique (e o aperto)
+/// para aqui e não chega ao pai. O `Button` do kit não para a propagação, e os
+/// estados sem botão (baixando, "Baixado") também não podem tocar o episódio.
+pub fn stop_click(id: impl Into<ElementId>, child: impl IntoElement) -> Stateful<Div> {
+    div()
+        .id(id)
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(|_, _, cx| cx.stop_propagation())
+        .child(child)
 }
 
 /// Ação "Baixar" de um arquivo, mostrando o estado do download no mesmo lugar.
@@ -427,6 +454,18 @@ pub fn file_list(
     on_read: Option<FileAction>,
     cx: &mut App,
 ) -> Div {
+    file_list_in(dir, files, false, on_play, on_read, cx)
+}
+
+/// [`file_list`] com `raw`: as subpastas abrem cruas, como a pasta atual.
+pub fn file_list_in(
+    dir: &str,
+    files: &[FileEntry],
+    raw: bool,
+    on_play: Option<FileAction>,
+    on_read: Option<FileAction>,
+    cx: &mut App,
+) -> Div {
     let mut sorted = files.to_vec();
     sorted.sort_by(|a, b| {
         b.is_directory
@@ -488,6 +527,7 @@ pub fn file_list(
         };
         if f.is_directory {
             let s = s.clone();
+            let path = folder_link(dir, &f.name, raw);
             list = list.child(
                 hover_fade(
                     ElementId::Name(format!("dir-hover:{key}").into()),
@@ -538,7 +578,7 @@ pub fn file_list(
             format_bytes(f.size),
         ]
         .join(" · ");
-        // Clicar na linha faz a ação principal (assistir ou ler); os botões param a propagação.
+        // Clicar na linha faz a ação principal (assistir ou ler); a área dos botões (`stop_click`) não repassa o clique.
         let primary: Option<FileAction> = if playable { on_play.clone() } else if readable { on_read.clone() } else { None };
         let mut row = row
             .id(ElementId::Name(format!("ep:{key}").into()))
@@ -602,14 +642,15 @@ pub fn file_list(
             );
         if playable {
             let (act, f2) = (on_play.clone().unwrap(), f.clone());
-            row = row.child(
+            row = row.child(stop_click(
+                ElementId::Name(format!("play-area:{key}").into()),
                 Button::new(ElementId::Name(format!("play:{key}").into()))
                     .ghost()
                     .small()
                     .icon(IconName::Play)
                     .label("Assistir")
                     .on_click(move |_, w, cx| act(&f2, w, cx)),
-            );
+            ));
         }
         if readable {
             let (act, f2) = (on_read.clone().unwrap(), f.clone());
@@ -618,20 +659,24 @@ pub fn file_list(
             } else {
                 "Ler"
             };
-            row = row.child(
+            row = row.child(stop_click(
+                ElementId::Name(format!("read-area:{key}").into()),
                 Button::new(ElementId::Name(format!("read:{key}").into()))
                     .ghost()
                     .small()
                     .icon(IconName::BookOpen)
                     .label(label)
                     .on_click(move |_, w, cx| act(&f2, w, cx)),
-            );
+            ));
         }
-        row = row.child(div().w_20().flex().justify_end().child(download_button(
-            ElementId::Name(format!("dl:{key}").into()),
-            &path,
-            cx,
-        )));
+        row = row.child(stop_click(
+            ElementId::Name(format!("dl-area:{key}").into()),
+            div().w_20().flex().justify_end().child(download_button(
+                ElementId::Name(format!("dl:{key}").into()),
+                &path,
+                cx,
+            )),
+        ));
         list = list.child(
             hover_fade(ElementId::Name(format!("ep-hover:{key}").into()), row)
                 .fill(theme.list_hover)
@@ -676,6 +721,45 @@ pub fn option_button(
         .selected(selected)
 }
 
+/// Cartão de uma versão (release) da obra: nome em destaque e etiquetas de
+/// resolução, fonte, áudio e episódios. O clique vem de quem usa.
+pub fn version_card(
+    id: impl Into<ElementId>,
+    label: &VersionLabel,
+    episodes: Option<usize>,
+    selected: bool,
+    cx: &App,
+) -> Stateful<Div> {
+    let theme = cx.theme();
+    let tags = [label.resolution.clone(), label.source.clone(), label.audio.clone(), episodes.map(|n| format!("{n} ep"))];
+    v_flex()
+        .id(id)
+        .relative()
+        .min_w_40()
+        .max_w_80()
+        .gap_1()
+        .px_3()
+        .py_2()
+        .rounded(theme.radius_lg)
+        .border_1()
+        .cursor_pointer()
+        .map(|d| {
+            if selected {
+                d.border_color(theme.primary).bg(theme.primary.opacity(0.1))
+            } else {
+                d.border_color(theme.border).bg(theme.muted)
+            }
+        })
+        .child(truncate(label.name.clone()).text_sm().font_weight(FontWeight::SEMIBOLD))
+        .child(
+            h_flex()
+                .flex_wrap()
+                .gap_1()
+                .children(tags.into_iter().flatten().map(|t| Tag::secondary().xsmall().child(t))),
+        )
+        .when(!selected, |d| d.child(hover_layer("ring").border(theme.ring).radius(theme.radius_lg)))
+}
+
 /// Título de seção com algo à direita.
 pub fn section_title(title: impl Into<SharedString>, aside: Option<AnyElement>) -> Div {
     h_flex()
@@ -692,6 +776,45 @@ pub fn section_title(title: impl Into<SharedString>, aside: Option<AnyElement>) 
         .children(aside)
 }
 
+/// Pôster de um título da nuvem numa grade: busca os metadados quando aparece
+/// na tela e abre `target` ao clicar.
+pub fn title_card(id: ElementId, name: &str, target: String, media: MediaType, width: Pixels, cx: &mut App) -> Div {
+    let s = state(cx);
+    let looked = s.read(cx).lookup(name, media);
+    let card = poster(
+        PosterProps {
+            id,
+            name: name.to_owned(),
+            media: looked.clone().flatten(),
+            loading: looked.is_none(),
+            width,
+            badge: false,
+            dimmed: false,
+            meta: None,
+        },
+        cx,
+    )
+    .on_click(move |_, _, cx| s.update(cx, |s, cx| s.go(target.clone(), cx)));
+    div()
+        .relative()
+        .child(card)
+        .when(looked.is_none(), |d| d.child(when_visible(400., want_lookup(name.to_owned(), media))))
+}
+
 pub fn want_lookup(name: String, media: MediaType) -> impl FnOnce(&mut App) {
-    move |cx| state(cx).update(cx, |s: &mut AppState, cx| s.want_lookup(&name, media, cx))
+    move |cx| {
+        state(cx).update(cx, |s: &mut AppState, cx| s.want_lookup(&name, media, cx));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folder_link_keeps_raw() {
+        assert_eq!(folder_link("Animes/Letra S", "Smile", false), "Animes/Letra S/Smile");
+        assert_eq!(folder_link("Animes/Letra S", "Smile", true), "raw:Animes/Letra S/Smile");
+        assert_eq!(folder_link("", "Animes", true), "raw:Animes");
+    }
 }

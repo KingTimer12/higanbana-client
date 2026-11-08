@@ -1,7 +1,14 @@
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    sync::{
+        Mutex as StdMutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 
 use serde_json::{Value, json};
-use reqwest::{Client, StatusCode, header};
+use reqwest::{Client, StatusCode, header::{self, HeaderMap}};
 use tokio::sync::Mutex;
 
 use super::error::{AniListError, AniListResult};
@@ -9,14 +16,192 @@ use super::error::{AniListError, AniListResult};
 const ENDPOINT: &str = "https://graphql.anilist.co";
 const MAX_ATTEMPTS: usize = 3;
 const DEFAULT_RETRY_AFTER: Duration = Duration::from_secs(60);
+/// Pedidos por minuto até o AniList dizer outro valor (`X-RateLimit-Limit`); hoje roda degradado em 30.
+const DEFAULT_LIMIT: u32 = 30;
+/// Janela do limite do AniList (pedidos por minuto).
+const WINDOW: Duration = Duration::from_secs(60);
+/// Intervalo mínimo entre pedidos do que a pessoa está vendo.
+const INTERACTIVE_GAP: Duration = Duration::from_millis(700);
+/// Folga somada ao `Retry-After` de um 429.
+const RETRY_SLACK: Duration = Duration::from_secs(1);
+/// De quanto em quanto tempo um pedido em segundo plano olha se alguém passou na frente.
+const YIELD_STEP: Duration = Duration::from_millis(200);
+
+/// Quem está pedindo: decide o ritmo e a folga deixada no limite.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Priority {
+    /// O que a pessoa está vendo (cards, detalhe, franquia).
+    Interactive,
+    /// Rastreio de metadados: anda devagar, deixa folga e cede a vez.
+    Background,
+}
+
+/// O que se sabe do limite do AniList.
+#[derive(Debug, Clone)]
+struct LimitState {
+    limit: u32,
+    remaining: Option<u32>,
+    reset_at: Option<Instant>,
+    blocked_until: Option<Instant>,
+    last_sent: Option<Instant>,
+    /// Envios do último minuto, do mais antigo ao mais novo: limita mesmo sem `X-RateLimit-Reset`.
+    sent: VecDeque<Instant>,
+}
+
+impl Default for LimitState {
+    fn default() -> Self {
+        Self {
+            limit: DEFAULT_LIMIT,
+            remaining: None,
+            reset_at: None,
+            blocked_until: None,
+            last_sent: None,
+            sent: VecDeque::new(),
+        }
+    }
+}
+
+impl LimitState {
+    /// Anota um envio em `now` e descarta os que já saíram da janela.
+    fn record_send(&mut self, now: Instant) {
+        self.last_sent = Some(now);
+        self.sent.push_back(now);
+        while self.sent.front().is_some_and(|&t| now.saturating_duration_since(t) >= WINDOW) {
+            self.sent.pop_front();
+        }
+    }
+
+    /// Envios ainda dentro da janela em `now`, do mais antigo ao mais novo.
+    fn in_window(&self, now: Instant) -> impl Iterator<Item = Instant> + '_ {
+        self.sent.iter().copied().filter(move |&t| now.saturating_duration_since(t) < WINDOW)
+    }
+
+    /// Aplica os cabeçalhos de uma resposta recebida em `now`.
+    fn absorb(&mut self, h: &RateHeaders, now: Instant, too_many: bool) {
+        if let Some(limit) = h.limit {
+            self.limit = limit.max(1);
+        }
+        if let Some(remaining) = h.remaining {
+            self.remaining = Some(remaining);
+        }
+        if let Some(reset_in) = h.reset_in {
+            self.reset_at = Some(now + reset_in);
+        }
+        if too_many {
+            self.blocked_until = Some(now + h.retry_after.unwrap_or(DEFAULT_RETRY_AFTER) + RETRY_SLACK);
+            self.remaining = Some(0);
+        }
+    }
+}
+
+/// Cabeçalhos de limite de uma resposta.
+#[derive(Debug, Default, PartialEq)]
+struct RateHeaders {
+    limit: Option<u32>,
+    remaining: Option<u32>,
+    /// Tempo até a janela do limite recomeçar (`X-RateLimit-Reset` é epoch em segundos).
+    reset_in: Option<Duration>,
+    retry_after: Option<Duration>,
+}
+
+fn parse_rate_headers(headers: &HeaderMap, now_epoch: u64) -> RateHeaders {
+    let number = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.trim().parse::<i64>().ok())
+            .map(|v| v.max(0) as u64)
+    };
+    RateHeaders {
+        limit: number("x-ratelimit-limit").map(|v| v.min(u32::MAX as u64) as u32),
+        remaining: number("x-ratelimit-remaining").map(|v| v.min(u32::MAX as u64) as u32),
+        // Limitado a uma janela (+ folga): relógio desacertado não pode travar o cliente por horas.
+        reset_in: number("x-ratelimit-reset")
+            .map(|at| Duration::from_secs(at.saturating_sub(now_epoch)).min(WINDOW + RETRY_SLACK)),
+        // Só segundos; `Retry-After` como data HTTP fica `None` e o 429 espera `DEFAULT_RETRY_AFTER`.
+        retry_after: number(header::RETRY_AFTER.as_str()).map(Duration::from_secs),
+    }
+}
+
+/// Quando um pedido com `priority` pode sair, dado o que se sabe do limite em `now`.
+///
+/// Nunca antes do bloqueio de um 429; respeita o intervalo mínimo desde o último pedido; não passa
+/// de `limite - reserva` envios no último minuto (conta própria, porque o AniList quase nunca manda
+/// `X-RateLimit-Reset` fora do 429); e, se o que sobra na janela já chegou na reserva, espera a
+/// janela recomeçar (o reset, se conhecido; senão, o envio mais antigo sair da janela).
+/// `Background` reserva um terço do limite para o que a pessoa está vendo, também no intervalo
+/// (`60 s / (limite - reserva)`).
+fn send_at(state: &LimitState, now: Instant, priority: Priority) -> Instant {
+    let limit = state.limit.max(1);
+    let (gap, reserve) = match priority {
+        Priority::Interactive => (INTERACTIVE_GAP, 1),
+        Priority::Background => {
+            let reserve = limit / 3;
+            (WINDOW / (limit - reserve).max(1), reserve)
+        }
+    };
+    let cap = limit.saturating_sub(reserve).max(1) as usize;
+    let window: Vec<Instant> = state.in_window(now).collect();
+
+    let mut at = now;
+    if let Some(until) = state.blocked_until {
+        at = at.max(until);
+    }
+    if let Some(last) = state.last_sent {
+        at = at.max(last + gap);
+    }
+    // Janela cheia para esta prioridade: espera sair o bastante para caber mais um.
+    if window.len() >= cap {
+        at = at.max(window[window.len() - cap] + WINDOW);
+    }
+    if let Some(remaining) = state.remaining
+        && remaining <= reserve
+    {
+        match state.reset_at {
+            Some(reset) if reset > now => at = at.max(reset),
+            // Reset já passou: o `remaining` é de uma janela antiga.
+            Some(_) => {}
+            // Sem reset: vale até o envio mais antigo do último minuto sair da janela
+            // (sem envio no último minuto, a janela já recomeçou). Só para a tela: o fundo
+            // já para no teto do registro (limite - reserva) e esperar aqui o travava ~60 s.
+            None if priority == Priority::Background => {}
+            None => {
+                if let Some(&oldest) = window.first() {
+                    at = at.max(oldest + WINDOW);
+                }
+            }
+        }
+    }
+    at
+}
+
+/// Conta um pedido `Interactive` esperando enquanto vive.
+struct Waiting<'a>(&'a AtomicUsize);
+
+impl<'a> Waiting<'a> {
+    fn new(counter: &'a AtomicUsize) -> Self {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Self(counter)
+    }
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 /// Cliente GraphQL do AniList (público, sem auth).
 ///
-/// Respeita o rate limit: em `429` espera o `Retry-After` antes de tentar de novo,
-/// e chamadas concorrentes esperam o mesmo bloqueio.
+/// Tem ritmo próprio: uma requisição por vez, espaçadas conforme a prioridade e os cabeçalhos
+/// `X-RateLimit-*`. Em `429` espera o `Retry-After` antes de tentar de novo, e todo mundo espera junto.
 pub struct AniListClient {
     http: Client,
-    blocked_until: Mutex<Option<Instant>>,
+    /// Vez de mandar: segurada da espera até a resposta (uma requisição em voo).
+    gate: Mutex<()>,
+    state: StdMutex<LimitState>,
+    /// Pedidos `Interactive` esperando; enquanto houver algum, `Background` cede a vez.
+    interactive_waiting: AtomicUsize,
 }
 
 impl AniListClient {
@@ -26,41 +211,27 @@ impl AniListClient {
                 .user_agent(concat!("higanbana-client/", env!("CARGO_PKG_VERSION")))
                 .build()
                 .expect("falha ao criar cliente HTTP"),
-            blocked_until: Mutex::new(None),
+            gate: Mutex::new(()),
+            state: StdMutex::new(LimitState::default()),
+            interactive_waiting: AtomicUsize::new(0),
         }
+    }
+
+    /// Executa query com prioridade `Interactive`; ver [`Self::query_with`].
+    pub async fn query(&self, query: &str, variables: Value) -> AniListResult<Value> {
+        self.query_with(Priority::Interactive, query, variables).await
     }
 
     /// Executa query e devolve `data`. Erros parciais (ex.: um alias 404) são ignorados
     /// quando há `data`; sem `data`, o primeiro erro vira [`AniListError::Api`].
-    pub async fn query(&self, query: &str, variables: Value) -> AniListResult<Value> {
-        let body = json!({ "query": query, "variables": variables });
+    pub async fn query_with(&self, priority: Priority, query: &str, variables: Value) -> AniListResult<Value> {
+        let body = json!({ "query": query, "variables": variables }).to_string();
 
         for _ in 0..MAX_ATTEMPTS {
-            self.wait_if_blocked().await;
-
-            let resp = self
-                .http
-                .post(ENDPOINT)
-                .header(header::CONTENT_TYPE, "application/json")
-                .header(header::ACCEPT, "application/json")
-                .body(body.to_string())
-                .send()
-                .await?;
-
-            if resp.status() == StatusCode::TOO_MANY_REQUESTS {
-                let retry_after = resp
-                    .headers()
-                    .get(header::RETRY_AFTER)
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|v| v.parse::<u64>().ok())
-                    .map(Duration::from_secs)
-                    .unwrap_or(DEFAULT_RETRY_AFTER);
-                *self.blocked_until.lock().await = Some(Instant::now() + retry_after);
+            let (status, text) = self.send(priority, &body).await?;
+            if status == StatusCode::TOO_MANY_REQUESTS {
                 continue;
             }
-
-            let status = resp.status();
-            let text = resp.text().await?;
             let parsed: Value = serde_json::from_str(&text)
                 .map_err(|e| AniListError::Decode(format!("{e} (HTTP {status})")))?;
             return extract_data(parsed);
@@ -68,14 +239,60 @@ impl AniListClient {
         Err(AniListError::RateLimited)
     }
 
-    async fn wait_if_blocked(&self) {
-        let until = *self.blocked_until.lock().await;
-        if let Some(until) = until
-            && until > Instant::now()
-        {
-            tokio::time::sleep_until(until.into()).await;
-        }
+    /// Fim da pausa pedida pelo AniList (429), se ainda estiver valendo.
+    pub fn paused_until(&self) -> Option<Instant> {
+        let now = Instant::now();
+        self.state.lock().unwrap().blocked_until.filter(|&until| until > now)
     }
+
+    /// Espera a vez e o ritmo, manda o pedido e lê os cabeçalhos de limite.
+    async fn send(&self, priority: Priority, body: &str) -> reqwest::Result<(StatusCode, String)> {
+        let _waiting = (priority == Priority::Interactive).then(|| Waiting::new(&self.interactive_waiting));
+        let _gate = loop {
+            let gate = self.gate.lock().await;
+            let now = Instant::now();
+            if priority == Priority::Background && self.interactive_waiting.load(Ordering::SeqCst) > 0 {
+                drop(gate);
+                tokio::time::sleep(YIELD_STEP).await;
+                continue;
+            }
+            let at = send_at(&self.state.lock().unwrap(), now, priority);
+            if at <= now {
+                break gate;
+            }
+            match priority {
+                // Só quem tem a vez muda o estado: depois da espera, pode sair.
+                Priority::Interactive => {
+                    tokio::time::sleep_until(at.into()).await;
+                    break gate;
+                }
+                // Espera sem a vez, em passos curtos, para um `Interactive` poder passar na frente.
+                Priority::Background => {
+                    drop(gate);
+                    tokio::time::sleep_until(at.min(now + YIELD_STEP).into()).await;
+                }
+            }
+        };
+
+        self.state.lock().unwrap().record_send(Instant::now());
+        let resp = self
+            .http
+            .post(ENDPOINT)
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::ACCEPT, "application/json")
+            .body(body.to_owned())
+            .send()
+            .await?;
+        let status = resp.status();
+        let limits = parse_rate_headers(resp.headers(), epoch_now());
+        self.state.lock().unwrap().absorb(&limits, Instant::now(), status == StatusCode::TOO_MANY_REQUESTS);
+        let text = resp.text().await?;
+        Ok((status, text))
+    }
+}
+
+fn epoch_now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default()
 }
 
 fn extract_data(mut body: Value) -> AniListResult<Value> {
@@ -125,5 +342,197 @@ mod tests {
     fn maps_api_error() {
         let body = json!({"errors":[{"message":"Max query complexity","status":400}],"data":null});
         assert!(matches!(extract_data(body), Err(AniListError::Api { status: 400, .. })));
+    }
+
+    const SEC: Duration = Duration::from_secs(1);
+
+    #[test]
+    fn fresh_state_sends_now() {
+        let now = Instant::now();
+        let st = LimitState::default();
+        assert_eq!(send_at(&st, now, Priority::Interactive), now);
+        assert_eq!(send_at(&st, now, Priority::Background), now);
+    }
+
+    #[test]
+    fn waits_for_block() {
+        let now = Instant::now();
+        let st = LimitState { blocked_until: Some(now + 5 * SEC), ..Default::default() };
+        assert_eq!(send_at(&st, now, Priority::Interactive), now + 5 * SEC);
+        assert_eq!(send_at(&st, now, Priority::Background), now + 5 * SEC);
+        // Bloqueio vencido não segura nada.
+        let st = LimitState { blocked_until: Some(now), ..Default::default() };
+        assert_eq!(send_at(&st, now + SEC, Priority::Interactive), now + SEC);
+    }
+
+    #[test]
+    fn gap_depends_on_priority() {
+        let now = Instant::now();
+        let st = LimitState { last_sent: Some(now), ..Default::default() };
+        assert_eq!(send_at(&st, now, Priority::Interactive), now + Duration::from_millis(700));
+        // Fundo: 60 s / (limite - reserva) = 60 / 20 = 3 s, deixando ~10/min para o Interactive.
+        assert_eq!(send_at(&st, now, Priority::Background), now + 3 * SEC);
+        // Limite maior, ritmo de fundo mais rápido: 60 / (90 - 30) = 1 s.
+        let st = LimitState { limit: 90, last_sent: Some(now), ..Default::default() };
+        assert_eq!(send_at(&st, now, Priority::Background), now + SEC);
+        // Limite minúsculo não divide por zero.
+        let st = LimitState { limit: 1, last_sent: Some(now), ..Default::default() };
+        assert_eq!(send_at(&st, now, Priority::Background), now + 60 * SEC);
+        // Intervalo já passado: sai na hora.
+        let st = LimitState { last_sent: Some(now), ..Default::default() };
+        assert_eq!(send_at(&st, now + 3 * SEC, Priority::Background), now + 3 * SEC);
+    }
+
+    #[test]
+    fn reserve_holds_background_not_interactive() {
+        let now = Instant::now();
+        let reset = now + 20 * SEC;
+        let st = LimitState { remaining: Some(10), reset_at: Some(reset), ..Default::default() };
+        assert_eq!(send_at(&st, now, Priority::Background), reset);
+        assert_eq!(send_at(&st, now, Priority::Interactive), now);
+        // Acima da reserva (10 com limite 30), o fundo segue.
+        let st = LimitState { remaining: Some(11), reset_at: Some(reset), ..Default::default() };
+        assert_eq!(send_at(&st, now, Priority::Background), now);
+        // Na última vaga, até o Interactive espera o reset.
+        let st = LimitState { remaining: Some(1), reset_at: Some(reset), ..Default::default() };
+        assert_eq!(send_at(&st, now, Priority::Interactive), reset);
+        // Reset já passou: o `remaining` antigo não vale mais.
+        let st = LimitState { remaining: Some(0), reset_at: Some(now), ..Default::default() };
+        assert_eq!(send_at(&st, now + SEC, Priority::Background), now + SEC);
+    }
+
+    /// Estado com `n` envios, um por segundo a partir de `base`.
+    fn with_sends(base: Instant, n: u32) -> LimitState {
+        let sent: VecDeque<Instant> = (0..n).map(|i| base + i * SEC).collect();
+        LimitState { last_sent: sent.back().copied(), sent, ..Default::default() }
+    }
+
+    #[test]
+    fn window_caps_interactive() {
+        let base = Instant::now();
+        let now = base + 30 * SEC;
+        // 29 envios no último minuto (limite 30 - 1): espera o mais antigo sair da janela.
+        assert_eq!(send_at(&with_sends(base, 29), now, Priority::Interactive), base + WINDOW);
+        assert_eq!(send_at(&with_sends(base, 28), now, Priority::Interactive), now);
+        // Envios com mais de 60 s não contam.
+        assert_eq!(send_at(&with_sends(base, 29), base + 61 * SEC, Priority::Interactive), base + 61 * SEC);
+    }
+
+    #[test]
+    fn window_caps_background_at_reserve() {
+        let base = Instant::now();
+        let now = base + 30 * SEC;
+        // Limite 30, reserva 10: o fundo para em 20 envios por minuto.
+        assert_eq!(send_at(&with_sends(base, 20), now, Priority::Background), base + WINDOW);
+        assert_eq!(send_at(&with_sends(base, 19), now, Priority::Background), now);
+    }
+
+    #[test]
+    fn exhausted_without_reset_waits_window() {
+        let base = Instant::now();
+        // `remaining` zerado sem `X-RateLimit-Reset`: espera o envio mais antigo da janela sair.
+        let mut st = with_sends(base, 1);
+        st.remaining = Some(0);
+        assert_eq!(send_at(&st, base + 2 * SEC, Priority::Interactive), base + WINDOW);
+        // Nenhum envio no último minuto: o `remaining` é velho, a janela já recomeçou.
+        let st = LimitState { remaining: Some(0), ..Default::default() };
+        assert_eq!(send_at(&st, base, Priority::Interactive), base);
+    }
+
+    #[test]
+    fn background_without_reset_is_gated_by_log_and_gap() {
+        let base = Instant::now();
+        // `remaining` na reserva sem reset: o fundo não espera a janela esvaziar;
+        // o registro de envios (teto 20) e o intervalo já seguram o limite.
+        let mut st = with_sends(base, 10);
+        st.remaining = Some(10);
+        let last = base + 9 * SEC;
+        assert_eq!(send_at(&st, base + 10 * SEC, Priority::Background), last + WINDOW / 20);
+        // Registro cheio: espera pelo teto, não pelo envio mais antigo.
+        let mut st = with_sends(base, 20);
+        st.remaining = Some(10);
+        assert_eq!(send_at(&st, base + 20 * SEC, Priority::Background), base + WINDOW);
+        // A tela continua esperando a janela esvaziar.
+        let mut st = with_sends(base, 10);
+        st.remaining = Some(1);
+        assert_eq!(send_at(&st, base + 10 * SEC, Priority::Interactive), base + WINDOW);
+    }
+
+    #[test]
+    fn records_sends_in_window() {
+        let base = Instant::now();
+        let mut st = LimitState::default();
+        st.record_send(base);
+        st.record_send(base + 30 * SEC);
+        st.record_send(base + 61 * SEC);
+        assert_eq!(st.sent, VecDeque::from([base + 30 * SEC, base + 61 * SEC]));
+        assert_eq!(st.last_sent, Some(base + 61 * SEC));
+    }
+
+    #[test]
+    fn background_keeps_headroom_without_reset() {
+        let now = Instant::now();
+        // O AniList quase nunca manda `X-RateLimit-Reset` fora do 429: sem ele, o intervalo segura a folga.
+        let st = LimitState { remaining: Some(5), reset_at: None, last_sent: Some(now), ..Default::default() };
+        assert!(send_at(&st, now, Priority::Background) >= now + 3 * SEC);
+        assert_eq!(send_at(&st, now, Priority::Interactive), now + Duration::from_millis(700));
+    }
+
+    #[test]
+    fn parses_rate_headers() {
+        let mut h = HeaderMap::new();
+        h.insert("x-ratelimit-limit", "30".parse().unwrap());
+        h.insert("x-ratelimit-remaining", "7".parse().unwrap());
+        h.insert("x-ratelimit-reset", "1000012".parse().unwrap());
+        h.insert(header::RETRY_AFTER, "11".parse().unwrap());
+        assert_eq!(
+            parse_rate_headers(&h, 1_000_000),
+            RateHeaders {
+                limit: Some(30),
+                remaining: Some(7),
+                reset_in: Some(12 * SEC),
+                retry_after: Some(11 * SEC),
+            }
+        );
+        // Reset no passado vira zero; remaining negativo vira zero; lixo é ignorado.
+        let mut h = HeaderMap::new();
+        h.insert("x-ratelimit-remaining", "-2".parse().unwrap());
+        h.insert("x-ratelimit-reset", "999990".parse().unwrap());
+        h.insert("x-ratelimit-limit", "abc".parse().unwrap());
+        assert_eq!(
+            parse_rate_headers(&h, 1_000_000),
+            RateHeaders { limit: None, remaining: Some(0), reset_in: Some(Duration::ZERO), retry_after: None }
+        );
+        assert_eq!(parse_rate_headers(&HeaderMap::new(), 1_000_000), RateHeaders::default());
+        // Relógio adiantado/atrasado não gera espera maior que uma janela (+ folga).
+        let mut h = HeaderMap::new();
+        h.insert("x-ratelimit-reset", "1003600".parse().unwrap());
+        assert_eq!(parse_rate_headers(&h, 1_000_000).reset_in, Some(WINDOW + RETRY_SLACK));
+        // `Retry-After` como data HTTP não é lido: o 429 cai no padrão.
+        let mut h = HeaderMap::new();
+        h.insert(header::RETRY_AFTER, "Wed, 21 Oct 2026 07:28:00 GMT".parse().unwrap());
+        assert_eq!(parse_rate_headers(&h, 1_000_000).retry_after, None);
+    }
+
+    #[test]
+    fn absorbs_headers_and_429() {
+        let now = Instant::now();
+        let mut st = LimitState::default();
+        let h = RateHeaders { limit: Some(90), remaining: Some(40), reset_in: Some(30 * SEC), retry_after: None };
+        st.absorb(&h, now, false);
+        assert_eq!((st.limit, st.remaining, st.reset_at, st.blocked_until), (90, Some(40), Some(now + 30 * SEC), None));
+
+        let h = RateHeaders { retry_after: Some(11 * SEC), ..Default::default() };
+        st.absorb(&h, now, true);
+        assert_eq!(st.blocked_until, Some(now + 12 * SEC));
+        assert_eq!(st.remaining, Some(0));
+
+        // 429 sem `Retry-After`: espera o padrão.
+        let mut st = LimitState::default();
+        st.absorb(&RateHeaders::default(), now, true);
+        assert_eq!(st.blocked_until, Some(now + DEFAULT_RETRY_AFTER + SEC));
+        // Limite zero não quebra a conta do ritmo.
+        st.absorb(&RateHeaders { limit: Some(0), ..Default::default() }, now, false);
+        assert_eq!(st.limit, 1);
     }
 }

@@ -2,10 +2,12 @@
 //!   <Título>/[ANO] <Temporada>/<Release [tags]>/arquivos
 //! Temporadas = subpastas com ano; releases = subpastas da temporada.
 //! Cada temporada casa com sua própria entrada no AniList.
+//! Anime com a maioria das subpastas datadas é franquia: sem obra escolhida
+//! mostra a [`FranchiseView`]; com obra, `title_path/<obra>` vira a raiz da página.
 
 use crate::interact::hover_layer;
 use crate::interact::Button;
-use std::{collections::HashSet, rc::Rc};
+use std::{collections::HashSet, rc::Rc, sync::Arc};
 
 use gpui_kit::{
     AnyElement, Context, ElementId, Entity, FontWeight, IntoElement, ParentElement, Render, Styled, Subscription,
@@ -25,16 +27,23 @@ use higanbana_core::{
         MediaType, text,
         types::{MediaDetail, MediaSummary},
     },
-    library::{base_name, folder_title, folder_year, join_path, natural_cmp, release_tags},
+    library::{
+        LOOSE_FILES_VERSION, VersionLabel, base_name, folder_title, folder_year, is_extra_folder, is_franchise, join_path,
+        natural_cmp, parse_work_name, raw_path, release_tags, resolution_rank, version_label,
+    },
     nuvem::FileEntry,
     player::logic::{episode_number, format_time, video_files},
     reader::logic::{chapter_label, comic_files, label_text},
+    tmdb::{
+        WorkEpisodes, work_key,
+        matching::{WorkKind, WorkQuery, Ymd},
+    },
 };
 
 use crate::{
     components::{
         breadcrumbs, columns, content_width, cover, file_list, file_paths, hex_color, option_button, option_group,
-        remote_image, rounded_image, FileAction,
+        remote_image, rounded_image, version_card, FileAction,
     },
     music::album::{AlbumEvent, AlbumView, looks_like_album},
     reader::{ReadTarget, progress_map},
@@ -42,7 +51,7 @@ use crate::{
     theme::ProductColors as _,
     ui::{empty_state, truncate},
     video::PlayTarget,
-    views::load_listing,
+    views::{episodes::episode_list, franchise::FranchiseView, load_listing},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -69,10 +78,19 @@ pub struct TitleView {
     season_for: Option<String>,
     detail: Option<Option<MediaDetail>>,
     detail_for: Option<i64>,
+    /// Chave (`tmdb::work_key`) dos episódios pedidos para a obra aberta.
+    episodes_key: Option<String>,
     tab: Section,
     expanded: bool,
     album: Option<Entity<AlbumView>>,
     not_album: bool,
+    franchise: Option<Entity<FranchiseView>>,
+    /// Subpastas de `title_listing`, ordenadas (guardadas quando a listagem chega).
+    title_dirs: Vec<FileEntry>,
+    /// Anime cuja pasta tem a maioria das subpastas datadas (cada uma é uma obra).
+    franchise_folder: bool,
+    /// Subpastas da obra (versões, extras), refeitas quando uma listagem de cima chega.
+    work_split: (Vec<FileEntry>, Vec<FileEntry>),
     _subs: Vec<Subscription>,
 }
 
@@ -92,6 +110,65 @@ fn files_of(l: &Listing) -> Option<&Vec<FileEntry>> {
     }
 }
 
+/// Subpastas da obra separadas em versões (releases) e extras.
+pub(crate) fn split_work_dirs(dirs: Vec<FileEntry>) -> (Vec<FileEntry>, Vec<FileEntry>) {
+    dirs.into_iter().partition(|d| !is_extra_folder(&d.name))
+}
+
+/// Versão aberta quando o caminho não diz qual: a lembrada, se ainda existe;
+/// senão a de maior resolução (a primeira, no empate).
+pub(crate) fn default_version(versions: &[FileEntry], remembered: Option<&str>, work_title: &str) -> Option<String> {
+    if let Some(r) = remembered.filter(|r| versions.iter().any(|v| v.name == *r)) {
+        return Some(r.to_owned());
+    }
+    let rank = |v: &FileEntry| resolution_rank(&version_label(&v.name, work_title));
+    versions.iter().fold(None::<&FileEntry>, |best, v| match best {
+        Some(b) if rank(b) >= rank(v) => Some(b),
+        _ => Some(v),
+    })
+    .map(|v| v.name.clone())
+}
+
+/// O que pedir ao TMDB sobre a obra: títulos do AniList e da pasta, ano, data de
+/// início (sem dia → dia 1 e `start_day_known` falso; sem mês → nenhuma) e tipo. Filme (e música) fica fora.
+pub(crate) fn work_query(detail: &MediaSummary, folder_name: &str) -> Option<WorkQuery> {
+    let kind = match detail.format.as_deref() {
+        Some("MOVIE" | "MUSIC") => return None,
+        Some("OVA" | "SPECIAL") => WorkKind::Special,
+        _ => WorkKind::Series,
+    };
+    let t = &detail.title;
+    let folder = parse_work_name(folder_name).title;
+    let mut titles: Vec<String> = Vec::new();
+    let candidates = [t.romaji.as_deref(), t.english.as_deref(), t.native.as_deref()]
+        .into_iter()
+        .flatten()
+        .chain(detail.synonyms.iter().map(String::as_str))
+        .chain(std::iter::once(folder.as_str()));
+    for c in candidates.map(str::trim).filter(|c| !c.is_empty()) {
+        if !titles.iter().any(|t| t == c) {
+            titles.push(c.to_owned());
+        }
+    }
+    let start = detail.start_date.and_then(|d| Some(Ymd { y: d.year?, m: d.month?, d: d.day.unwrap_or(1) }));
+    let start_day_known = detail.start_date.is_some_and(|d| d.day.is_some());
+    Some(WorkQuery { titles, year: detail.year(), start, start_day_known, kind })
+}
+
+/// O detalhe `detail_id` é da obra aberta: foi o pedido por último e casa com o resumo atual.
+pub(crate) fn is_open_work(detail_id: i64, detail_for: Option<i64>, current: Option<i64>) -> bool {
+    detail_for == Some(detail_id) && current == Some(detail_id)
+}
+
+/// Rótulo do cartão de uma versão; a sintética de arquivos soltos tem nome fixo.
+fn label_of(folder: &str, work_title: &str) -> VersionLabel {
+    if folder == LOOSE_FILES_VERSION {
+        VersionLabel { name: LOOSE_FILES_VERSION.to_owned(), ..VersionLabel::default() }
+    } else {
+        version_label(folder, work_title)
+    }
+}
+
 impl TitleView {
     pub fn new(title_path: String, rest: Vec<String>, media_type: MediaType, cx: &mut Context<Self>) -> Self {
         let state = state(cx);
@@ -101,6 +178,10 @@ impl TitleView {
         })];
         load_listing(&state, title_path.clone(), cx, |v: &mut Self, r, cx| {
             v.title_listing = Some(r);
+            v.title_dirs = dirs(&v.title_listing);
+            v.franchise_folder = v.media_type == MediaType::Anime
+                && is_franchise(&v.title_dirs.iter().map(|d| d.name.as_str()).collect::<Vec<_>>());
+            v.refresh_work_dirs();
             v.sync(cx);
         });
         Self {
@@ -115,19 +196,38 @@ impl TitleView {
             season_for: None,
             detail: None,
             detail_for: None,
+            episodes_key: None,
             tab: Section::Files,
             expanded: false,
             album: None,
             not_album: false,
+            franchise: None,
+            title_dirs: Vec::new(),
+            franchise_folder: false,
+            work_split: (Vec::new(), Vec::new()),
             _subs: subs,
         }
     }
 
     fn seasons(&self) -> Vec<FileEntry> {
-        dirs(&self.title_listing).into_iter().filter(|d| folder_year(&d.name).is_some()).collect()
+        self.title_dirs.iter().filter(|d| folder_year(&d.name).is_some()).cloned().collect()
     }
 
+    fn is_franchise(&self) -> bool {
+        self.franchise_folder
+    }
+
+    /// Na franquia sem obra escolhida, quem desenha a página é a [`FranchiseView`].
+    fn shows_franchise(&self) -> bool {
+        self.is_franchise() && self.season_name().is_none()
+    }
+
+    /// Temporada (ou obra, na franquia) aberta.
     fn season_name(&self) -> Option<String> {
+        if self.is_franchise() {
+            let wanted = self.rest.first()?;
+            return self.title_dirs.iter().find(|d| &d.name == wanted).map(|d| d.name.clone());
+        }
         let seasons = self.seasons();
         let first = seasons.first()?.name.clone();
         let wanted = self.rest.first();
@@ -145,30 +245,77 @@ impl TitleView {
         }
     }
 
-    fn releases(&self) -> Vec<FileEntry> {
-        if self.season_name().is_some() {
-            dirs(&self.season_listing)
-        } else {
-            dirs(&self.title_listing).into_iter().filter(|d| folder_year(&d.name).is_none()).collect()
-        }
+    /// Listagem da pasta da obra (temporada, obra da franquia ou o próprio título).
+    fn work_listing(&self) -> &Listing {
+        if self.season_name().is_some() { &self.season_listing } else { &self.title_listing }
     }
 
-    fn release_name(&self) -> Option<String> {
-        let releases = self.releases();
-        let first = releases.first()?.name.clone();
+    /// Refaz as subpastas da obra (versões e extras) a partir das listagens.
+    fn refresh_work_dirs(&mut self) {
+        let dirs = if self.season_name().is_some() {
+            dirs(&self.season_listing)
+        } else {
+            self.title_dirs.iter().filter(|d| folder_year(&d.name).is_none()).cloned().collect()
+        };
+        self.work_split = split_work_dirs(dirs);
+    }
+
+    /// Nome da obra usado para rotular as versões.
+    fn work_title(&self) -> String {
+        folder_title(&self.lookup_name())
+    }
+
+    /// Versões da obra. Vídeos soltos ao lado de pastas de versão viram a
+    /// versão sintética [`LOOSE_FILES_VERSION`], que aponta para a própria pasta.
+    fn releases(&self) -> Vec<FileEntry> {
+        let mut releases = self.work_split.0.clone();
+        let loose = files_of(self.work_listing()).is_some_and(|f| !video_files(f).is_empty());
+        if loose && !releases.is_empty() {
+            releases.push(FileEntry {
+                name: LOOSE_FILES_VERSION.to_owned(),
+                is_directory: true,
+                size: 0,
+                modified: String::new(),
+                extension: None,
+            });
+        }
+        releases
+    }
+
+    /// Pasta extra aberta pelo caminho (`<obra>/Extras/...`).
+    fn extra_name(&self) -> Option<String> {
         let rest = self.rest_after_season();
-        Some(rest.first().filter(|w| releases.iter().any(|r| &&r.name == w)).cloned().unwrap_or(first))
+        let wanted = rest.first()?;
+        self.work_split.1.iter().find(|e| &e.name == wanted).map(|e| e.name.clone())
+    }
+
+    /// Versão aberta: a do caminho; senão a lembrada ou a de maior resolução.
+    fn release_name(&self, cx: &gpui_kit::App) -> Option<String> {
+        let releases = self.releases();
+        let rest = self.rest_after_season();
+        if let Some(r) = rest.first().filter(|w| releases.iter().any(|r| &&r.name == w)) {
+            return Some(r.clone());
+        }
+        let remembered = self.state.read(cx).core.prefs().version(&self.season_path());
+        default_version(&releases, remembered.as_deref(), &self.work_title())
     }
 
     /// Pasta dos arquivos, ou `None` enquanto as listagens de cima não chegaram.
-    fn files_path(&self) -> Option<String> {
+    fn files_path(&self, cx: &gpui_kit::App) -> Option<String> {
         self.title_listing.as_ref()?;
         if self.season_name().is_some() && self.season_listing.is_none() {
             return None;
         }
         let season_path = self.season_path();
-        let Some(release) = self.release_name() else { return Some(season_path) };
         let rest = self.rest_after_season();
+        if self.extra_name().is_some() {
+            return Some(std::iter::once(season_path).chain(rest).collect::<Vec<_>>().join("/"));
+        }
+        let release = match self.release_name(cx) {
+            None => return Some(season_path),
+            Some(r) if r == LOOSE_FILES_VERSION => return Some(season_path),
+            Some(r) => r,
+        };
         let deeper: Vec<String> = if rest.first() == Some(&release) { rest[1..].to_vec() } else { Vec::new() };
         Some(std::iter::once(season_path).chain(std::iter::once(release)).chain(deeper).collect::<Vec<_>>().join("/"))
     }
@@ -197,17 +344,30 @@ impl TitleView {
         if self.title_listing.is_none() {
             return;
         }
+        if self.shows_franchise() {
+            if self.franchise.is_none() {
+                let (path, works) = (self.title_path.clone(), self.title_dirs.clone());
+                self.franchise = Some(cx.new(|cx| FranchiseView::new(path, works, cx)));
+            }
+            return;
+        }
         if let Some(season) = self.season_name()
             && self.season_for.as_deref() != Some(season.as_str())
         {
             self.season_for = Some(season);
             self.season_listing = None;
+            // Outra obra: nada do detalhe nem dos episódios da anterior fica.
+            self.detail = None;
+            self.detail_for = None;
+            self.episodes_key = None;
+            self.refresh_work_dirs();
             load_listing(&self.state, self.season_path(), cx, |v: &mut Self, r, cx| {
                 v.season_listing = Some(r);
+                v.refresh_work_dirs();
                 v.sync(cx);
             });
         }
-        if let Some(path) = self.files_path()
+        if let Some(path) = self.files_path(cx)
             && self.files_for.as_deref() != Some(path.as_str())
         {
             self.files_for = Some(path.clone());
@@ -235,12 +395,63 @@ impl TitleView {
             cx.spawn(async move |this, cx| {
                 let d = task.await.ok().and_then(Result::ok).and_then(|v| serde_json::from_value::<MediaDetail>(v).ok());
                 let _ = this.update(cx, |v, cx| {
+                    // A obra pode ter mudado enquanto o detalhe vinha.
+                    if v.detail_for != Some(id) {
+                        return;
+                    }
                     v.detail = Some(d);
+                    v.want_episodes(cx);
                     cx.notify();
                 });
             })
             .detach();
         }
+        self.want_episodes(cx);
+    }
+
+    /// Pede ao TMDB os episódios da obra (anime, fora filmes) quando o detalhe completo chega.
+    fn want_episodes(&mut self, cx: &mut Context<Self>) {
+        if self.media_type != MediaType::Anime {
+            return;
+        }
+        // Só o detalhe da obra aberta: nunca misturar com o da anterior.
+        let current = self.summary(cx).flatten().map(|m| m.id);
+        let Some(d) = self.full().filter(|d| is_open_work(d.summary.id, self.detail_for, current)) else { return };
+        let Some(q) = work_query(&d.summary, &self.lookup_name()) else { return };
+        let key = work_key(&q);
+        if self.episodes_key.as_deref() == Some(key.as_str()) {
+            return;
+        }
+        self.episodes_key = Some(key.clone());
+        self.state.update(cx, |s, cx| s.want_episodes(key, q, cx));
+    }
+
+    /// Episódios do TMDB da obra aberta (`None` enquanto não chegam ou sem TMDB).
+    fn tmdb_episodes(&self, cx: &gpui_kit::App) -> Option<Arc<WorkEpisodes>> {
+        self.state.read(cx).episodes(self.episodes_key.as_deref()?).flatten()
+    }
+
+    /// Episódios para a aba: `None` enquanto o AniList ou o TMDB respondem;
+    /// `Some(None)` sem dados do TMDB (mangá, filme, obra não achada, sem token).
+    fn episodes_state(&self, cx: &gpui_kit::App) -> Option<Option<Arc<WorkEpisodes>>> {
+        if self.media_type != MediaType::Anime {
+            return Some(None);
+        }
+        match &self.episodes_key {
+            Some(key) => self.state.read(cx).episodes(key),
+            // Sem pedido ainda: espera o resumo e o detalhe da obra chegarem.
+            None if self.detail.is_none() && !matches!(self.summary(cx), Some(None)) => None,
+            None => Some(None),
+        }
+    }
+
+    /// Arquivos que a tela mostra. Na raiz da obra (versão de arquivos soltos,
+    /// ou obra só com extras) as subpastas ficam de fora: versões viram cartões
+    /// e extras têm seção própria.
+    fn shown_files(&self) -> Option<Vec<FileEntry>> {
+        let list = files_of(&self.files_listing)?.clone();
+        let at_root = self.files_for.as_deref() == Some(self.season_path().as_str());
+        Some(if at_root { list.into_iter().filter(|f| !f.is_directory).collect() } else { list })
     }
 
     /// Pasta de músicas vira encarte (se não for álbum, ele avisa e volta à lista).
@@ -265,12 +476,12 @@ impl TitleView {
     }
 
     fn play(&self, file: FileEntry, cx: &mut gpui_kit::App) {
-        let (Some(dir), Some(files)) = (self.files_for.clone(), files_of(&self.files_listing).cloned()) else { return };
+        let (Some(dir), Some(files)) = (self.files_for.clone(), self.shown_files()) else { return };
         let t = PlayTarget {
             dir,
             file,
             files,
-            mal_id: self.full().and_then(|d| d.id_mal),
+            mal_id: self.full().and_then(|d| d.summary.id_mal).and_then(|v| u32::try_from(v).ok()),
             is_anime: self.media_type == MediaType::Anime,
             anime_title: self.heading(cx),
         };
@@ -278,7 +489,7 @@ impl TitleView {
     }
 
     fn read(&self, file: FileEntry, cx: &mut gpui_kit::App) {
-        let (Some(dir), Some(files)) = (self.files_for.clone(), files_of(&self.files_listing).cloned()) else { return };
+        let (Some(dir), Some(files)) = (self.files_for.clone(), self.shown_files()) else { return };
         let t = ReadTarget { dir, file, files, title_path: self.title_path.clone(), title: self.heading(cx) };
         self.state.update(cx, |s, cx| s.read(t, cx));
     }
@@ -286,13 +497,17 @@ impl TitleView {
 
 impl Render for TitleView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(view) = self.franchise.clone().filter(|_| self.shows_franchise()) {
+            return view.into_any_element();
+        }
         let theme = cx.theme().clone();
         let rem = f32::from(window.rem_size());
         let width = content_width(window, 72. * rem);
         let media = self.media(cx);
         let full = self.full().cloned();
         let heading = self.heading(cx);
-        let files = files_of(&self.files_listing).cloned();
+        let release_name = self.release_name(cx);
+        let files = self.shown_files();
         let files_path = self.files_for.clone().unwrap_or_default();
         let st = self.state.read(cx);
         let progress = st.player_data.progress.clone();
@@ -371,11 +586,14 @@ impl Render for TitleView {
         let active_ix = tabs.iter().position(|t| t.0 == self.tab).unwrap_or(0);
         let active_tab = tabs[active_ix].0;
 
+        let tmdb = self.tmdb_episodes(cx);
+        let episodes_state = self.episodes_state(cx);
+        let rating = st.rating_source().work(media.as_ref(), tmdb.as_deref());
         let meta: Vec<String> = media
             .as_ref()
             .map(|m| {
                 [
-                    m.average_score.map(|s| format!("Nota {s}%")),
+                    rating.map(|s| format!("★ {}", s.label())),
                     m.format.as_deref().map(|f| text::format(Some(f))),
                     m.year().map(|y| y.to_string()),
                     m.episodes.map(|e| format!("{e} {}", if e == 1 { "episódio" } else { "episódios" })),
@@ -421,13 +639,20 @@ impl Render for TitleView {
                 st_entity.update(cx, |s, cx| s.start_downloads(&rem_paths, cx));
             }),
         );
+        // Fora de franquia abre o título inteiro: irmãs sem data (Filmes, Extras) ficam ao alcance.
+        let raw = raw_path(&if self.is_franchise() { self.season_path() } else { self.title_path.clone() });
+        let st_entity = self.state.clone();
+        actions = actions.child(Button::new("raw-folder").ghost().icon(IconName::Folder).label("Ver pasta").on_click(move |_, _, cx| {
+            st_entity.update(cx, |s, cx| s.go(raw.clone(), cx));
+        }));
         // Destinos externos (abrem no navegador): Link, não botão.
         let mut links = h_flex().gap_4().text_sm();
         if let Some(t) = full.as_ref().and_then(|d| d.trailer.clone()).filter(|t| t.site.as_deref() == Some("youtube")) {
             links = links.child(Link::new("trailer").href(format!("https://www.youtube.com/watch?v={}", t.id)).child("Trailer no YouTube"));
         }
         if let Some(url) = full.as_ref().and_then(|d| d.site_url.clone()) {
-            links = links.child(Link::new("anilist").href(url).child("Página no AniList"));
+            let mal_only = full.as_ref().is_some_and(|d| d.summary.is_mal_only());
+            links = links.child(Link::new("site").href(url).child(if mal_only { "Ver no MyAnimeList" } else { "Página no AniList" }));
         }
 
         // --- Sinopse ---
@@ -465,10 +690,13 @@ impl Render for TitleView {
             let seasons = self.seasons();
             let releases = self.releases();
             let season_name = self.season_name();
-            let release_name = self.release_name();
+            let work_path = self.season_path();
+            let work_title = self.work_title();
+            let selected = release_name.clone().filter(|_| self.extra_name().is_none());
             let single_tags = if releases.len() == 1 { release_tags(&releases[0].name) } else { Vec::new() };
             let mut options = v_flex().gap_3();
-            if seasons.len() > 1 {
+            // Franquias trocam de obra pela página da franquia (link de volta acima do título).
+            if seasons.len() > 1 && !self.is_franchise() {
                 options = options.child(option_group("Temporada", cx).child(h_flex().flex_wrap().gap_2().children(seasons.iter().map(|s| {
                     let target = join_path(&self.title_path, &s.name);
                     let st = self.state.clone();
@@ -478,22 +706,37 @@ impl Render for TitleView {
                 }))));
             }
             if releases.len() > 1 {
-                let season_path = self.season_path();
+                // Só a versão aberta foi listada: as outras ficam sem contagem.
+                let count = files.as_ref().filter(|_| self.album.is_none()).map(|f| video_files(f).len()).filter(|&n| n > 0);
                 options = options.child(option_group("Versão", cx).child(h_flex().flex_wrap().gap_2().children(releases.iter().map(|r| {
-                    let tags = release_tags(&r.name);
-                    let target = join_path(&season_path, &r.name);
-                    let st = self.state.clone();
-                    option_button(
-                        ElementId::Name(format!("release:{}", r.name).into()),
-                        if tags.is_empty() { folder_title(&r.name) } else { tags.join(" ") },
-                        Some(&r.name) == release_name.as_ref(),
-                    )
-                    .on_click(move |_, _, cx| st.update(cx, |s, cx| s.go(target.clone(), cx)))
+                    let on = Some(&r.name) == selected.as_ref();
+                    let target = if r.name == LOOSE_FILES_VERSION { work_path.clone() } else { join_path(&work_path, &r.name) };
+                    let (st, work, folder) = (self.state.clone(), work_path.clone(), r.name.clone());
+                    version_card(ElementId::Name(format!("release:{}", r.name).into()), &label_of(&r.name, &work_title), count.filter(|_| on), on, cx)
+                        .on_click(move |_, _, cx| {
+                            st.update(cx, |s, cx| {
+                                s.core.prefs().set_version(&work, &folder);
+                                s.go(target.clone(), cx);
+                            })
+                        })
                 }))));
             }
             if !single_tags.is_empty() {
                 options = options.child(option_group("Versão", cx).child(div().pt_1().text_sm().text_color(theme.muted_foreground).child(single_tags.join(" "))));
             }
+            let extras = &self.work_split.1;
+            let extras_section = (!extras.is_empty()).then(|| {
+                v_flex().gap_2().child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child("Extras")).child(h_flex().flex_wrap().gap_2().children(extras.iter().map(|e| {
+                    let target = join_path(&work_path, &e.name);
+                    let st = self.state.clone();
+                    Button::new(ElementId::Name(format!("extra:{}", e.name).into()))
+                        .outline()
+                        .small()
+                        .icon(IconName::Folder)
+                        .label(folder_title(&e.name))
+                        .on_click(move |_, _, cx| st.update(cx, |s, cx| s.go(target.clone(), cx)))
+                })))
+            });
             let body = match (&self.files_listing, files.clone()) {
                 (Some(Err(e)), _) => empty_state(IconName::WifiOff, "Não foi possível abrir os arquivos", Some(e.clone().into()), cx).into_any_element(),
                 (_, None) => Skeleton::new().h_72().rounded(theme.radius_lg).into_any_element(),
@@ -509,10 +752,17 @@ impl Render for TitleView {
                     let on_read: FileAction = Rc::new(move |f, _, cx| {
                         let _ = this.update(cx, |v, cx| v.read(f.clone(), cx));
                     });
-                    file_list(&files_path, &list, Some(on_play), Some(on_read), cx).into_any_element()
+                    if self.media_type == MediaType::Anime {
+                        let layout = self.state.read(cx).episode_layout();
+                        let cols = columns(width, 15.5 * rem, rem);
+                        let eps = episodes_state.as_ref().map(|e| e.as_deref());
+                        episode_list(&files_path, &list, eps, layout, cols, on_play, Some(on_read), cx).into_any_element()
+                    } else {
+                        file_list(&files_path, &list, Some(on_play), Some(on_read), cx).into_any_element()
+                    }
                 }
             };
-            v_flex().gap_5().child(options).child(body)
+            v_flex().gap_5().child(options).child(body).children(extras_section)
         };
 
         let panel: AnyElement = match (active_tab, &full) {
@@ -527,6 +777,17 @@ impl Render for TitleView {
         let english = media.as_ref().and_then(|m| m.title.english.clone()).filter(|n| *n != heading);
         let genres = media.as_ref().map(|m| m.genres.iter().map(|g| text::genre(g)).collect::<Vec<_>>().join(", ")).filter(|g| !g.is_empty());
         let tab_ids: Vec<Section> = tabs.iter().map(|t| t.0).collect();
+        let back = self.is_franchise().then(|| {
+            let (st, target) = (self.state.clone(), self.title_path.clone());
+            h_flex().child(
+                Button::new("franchise-back")
+                    .ghost()
+                    .small()
+                    .icon(IconName::ChevronLeft)
+                    .label(folder_title(base_name(&self.title_path)))
+                    .on_click(move |_, _, cx| st.update(cx, |s, cx| s.go(target.clone(), cx))),
+            )
+        });
 
         div()
             .relative()
@@ -573,6 +834,7 @@ impl Render for TitleView {
                                     .flex_1()
                                     .min_w_0()
                                     .gap_4()
+                                    .children(back)
                                     .child(
                                         v_flex()
                                             .gap_1()
@@ -617,6 +879,7 @@ impl Render for TitleView {
                             .child(panel),
                     ),
             )
+            .into_any_element()
     }
 }
 
@@ -741,6 +1004,7 @@ fn related(d: &MediaDetail, width: f32, rem: f32, cx: &mut gpui_kit::App) -> gpu
 type FactGroup<'a> = (&'a str, Vec<(&'a str, Option<String>)>);
 
 fn facts(d: &MediaDetail, cx: &gpui_kit::App) -> gpui_kit::Div {
+    let site = if d.summary.is_mal_only() { "MyAnimeList" } else { "AniList" };
     let theme = cx.theme().clone();
     let m = &d.summary;
     let groups: Vec<FactGroup> = vec![
@@ -760,13 +1024,13 @@ fn facts(d: &MediaDetail, cx: &gpui_kit::App) -> gpui_kit::Div {
             "Exibição",
             vec![
                 ("Situação", m.status.as_deref().map(|s| text::status(Some(s)))),
-                ("Temporada", d.season.as_deref().zip(m.season_year).map(|(s, y)| format!("{} de {y}", text::season(Some(s))))),
+                ("Temporada", d.summary.season.as_deref().zip(m.season_year).map(|(s, y)| format!("{} de {y}", text::season(Some(s))))),
                 ("Estreia", text::date(m.start_date)),
                 ("Fim", text::date(d.end_date)),
             ],
         ),
         (
-            "AniList",
+            site,
             vec![
                 ("Nota média", m.average_score.map(|s| format!("{s}%"))),
                 ("Popularidade", m.popularity.map(|p| format!("{} pessoas", text::number(p)))),
@@ -801,4 +1065,97 @@ fn facts(d: &MediaDetail, cx: &gpui_kit::App) -> gpui_kit::Div {
                 ),
             )
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dir(name: &str) -> FileEntry {
+        FileEntry { name: name.to_owned(), is_directory: true, size: 0, modified: String::new(), extension: None }
+    }
+
+    fn smile() -> Vec<FileEntry> {
+        vec![
+            dir("[Aenianos] Smile Precure [1280x720][hi10p]"),
+            dir("[DragsterPS] Glitter Force S01 e S02 [1080p] [Multi-Audio] [Multi-Subs]"),
+            dir("Extras"),
+        ]
+    }
+
+    #[test]
+    fn split_work_dirs_separates_extras() {
+        let (versions, extras) = split_work_dirs(smile());
+        assert_eq!(versions.len(), 2);
+        assert_eq!(extras.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["Extras"]);
+    }
+
+    #[test]
+    fn default_version_prefers_remembered() {
+        let (versions, _) = split_work_dirs(smile());
+        let aenianos = versions[0].name.clone();
+        assert_eq!(default_version(&versions, Some(&aenianos), "Smile Precure!"), Some(aenianos));
+    }
+
+    #[test]
+    fn default_version_falls_back_to_best_resolution() {
+        let (versions, _) = split_work_dirs(smile());
+        let glitter = versions[1].name.clone();
+        assert_eq!(default_version(&versions, Some("sumiu"), "Smile Precure!"), Some(glitter.clone()));
+        assert_eq!(default_version(&versions, None, "Smile Precure!"), Some(glitter));
+        assert_eq!(default_version(&[], None, "Smile Precure!"), None);
+    }
+
+    #[test]
+    fn detail_of_previous_work_is_ignored() {
+        assert!(is_open_work(7, Some(7), Some(7)));
+        // Trocou de obra: o resumo novo ainda não chegou ou já é outro.
+        assert!(!is_open_work(7, Some(7), None));
+        assert!(!is_open_work(7, Some(7), Some(8)));
+        // O detalhe pedido agora é outro (ou foi zerado na troca).
+        assert!(!is_open_work(7, Some(8), Some(8)));
+        assert!(!is_open_work(7, None, Some(7)));
+    }
+
+    fn media(json: &str) -> MediaSummary {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn work_query_skips_movies() {
+        let m = media(r#"{"id":1,"format":"MOVIE","title":{"romaji":"Kimi no Na wa."}}"#);
+        assert!(work_query(&m, "[2016] Kimi no Na wa").is_none());
+    }
+
+    #[test]
+    fn work_query_ova_is_special() {
+        let m = media(r#"{"id":2,"format":"OVA","title":{"romaji":"Hellsing Ultimate"}}"#);
+        assert_eq!(work_query(&m, "Hellsing Ultimate").unwrap().kind, WorkKind::Special);
+    }
+
+    #[test]
+    fn work_query_tv_uses_full_start_and_folder_title() {
+        let m = media(
+            r#"{"id":3,"format":"TV","title":{"romaji":"Sousou no Frieren","english":"Frieren: Beyond Journey's End","native":"葬送のフリーレン"},
+                "synonyms":["Frieren"],"seasonYear":2023,"startDate":{"year":2023,"month":9,"day":29}}"#,
+        );
+        let q = work_query(&m, "[2023] Frieren e a Jornada").unwrap();
+        assert_eq!(q.kind, WorkKind::Series);
+        assert_eq!(q.year, Some(2023));
+        assert_eq!(q.start, Some(Ymd { y: 2023, m: 9, d: 29 }));
+        assert!(q.start_day_known);
+        for t in ["Sousou no Frieren", "Frieren: Beyond Journey's End", "葬送のフリーレン", "Frieren", "Frieren e a Jornada"] {
+            assert!(q.titles.iter().any(|q| q == t), "faltou {t}: {:?}", q.titles);
+        }
+    }
+
+    #[test]
+    fn work_query_start_without_day_or_month() {
+        let m = media(r#"{"id":4,"format":"TV","title":{"romaji":"X"},"startDate":{"year":2020,"month":4}}"#);
+        let q = work_query(&m, "X").unwrap();
+        assert_eq!(q.start, Some(Ymd { y: 2020, m: 4, d: 1 }));
+        assert!(!q.start_day_known);
+        let m = media(r#"{"id":5,"format":"TV","title":{"romaji":"X"},"startDate":{"year":2020}}"#);
+        assert_eq!(work_query(&m, "X").unwrap().start, None);
+    }
 }

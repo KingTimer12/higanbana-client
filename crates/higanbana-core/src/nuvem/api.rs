@@ -1,6 +1,6 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Instant};
 
-use super::{Listing, SearchResponse, download};
+use super::{Listing, SearchResponse, download, gate::Priority};
 use crate::{cloud::Cloud, http::HttpResult};
 
 /// Pastas do acervo que o app não mostra: `AniGUI (Downloader Oficial)` é de outro aplicativo.
@@ -10,18 +10,34 @@ pub fn is_hidden(name: &str) -> bool {
 }
 
 impl Cloud {
-    /// Lista um diretório. `path` vazio = raiz.
+    /// Lista um diretório pedido pela interface. `path` vazio = raiz.
     pub async fn list(&self, path: &str) -> HttpResult<Listing> {
-        let mut listing: Listing = self.apis.nuvem.get_json(&self.auth, "files", &[("path", path)]).await?;
+        self.list_with(Priority::Interactive, path).await
+    }
+
+    /// Lista um diretório para a indexação em segundo plano: cede a vez à interface.
+    pub(crate) async fn list_background(&self, path: &str) -> HttpResult<Listing> {
+        self.list_with(Priority::Background, path).await
+    }
+
+    async fn list_with(&self, prio: Priority, path: &str) -> HttpResult<Listing> {
+        let query = [("path", path)];
+        let mut listing: Listing = self.gate.run(prio, || self.apis.nuvem.get_json(&self.auth, "files", &query)).await?;
         listing.files.retain(|f| !is_hidden(&f.name));
         Ok(listing)
     }
 
     /// Busca pastas por nome (animes, mangás, doramas, OSTs...).
     pub async fn search(&self, query: &str) -> HttpResult<SearchResponse> {
-        let mut res: SearchResponse = self.apis.nuvem.get_json(&self.auth, "search", &[("q", query)]).await?;
+        let q = [("q", query)];
+        let mut res: SearchResponse = self.gate.run(Priority::Interactive, || self.apis.nuvem.get_json(&self.auth, "search", &q)).await?;
         res.results.retain(|r| !r.path.split('/').any(is_hidden));
         Ok(res)
+    }
+
+    /// Até quando a nuvem pediu pausa (HTTP 429); `None` fora do recuo.
+    pub fn backing_off_until(&self) -> Option<Instant> {
+        self.gate.backing_off_until()
     }
 
     /// Onde um arquivo da nuvem fica ao ser baixado sem destino escolhido.

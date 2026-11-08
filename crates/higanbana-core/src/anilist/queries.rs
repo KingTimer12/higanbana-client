@@ -23,7 +23,8 @@ pub const SUMMARY_FRAGMENT: &str = "fragment Summary on Media {
   id type format status
   title { romaji english native userPreferred }
   synonyms
-  seasonYear startDate { year }
+  season seasonYear startDate { year }
+  idMal
   coverImage { extraLarge large color }
   bannerImage
   averageScore popularity
@@ -120,6 +121,13 @@ pub fn batch_search_query(types: &[MediaType], per_page: u32) -> String {
         defs.join(", "),
         body.join(" ")
     )
+}
+
+/// Busca várias mídias pelo id da MAL em uma requisição só (aliases `m0`, `m1`, ...).
+pub fn idmal_batch_query(n: usize) -> String {
+    let defs: Vec<String> = (0..n).map(|i| format!("$i{i}: Int")).collect();
+    let body: Vec<String> = (0..n).map(|i| format!("m{i}: Media(idMal: $i{i}, type: ANIME) {{ ...Summary }}")).collect();
+    format!("query ({}) {{ {} }} {SUMMARY_FRAGMENT}", defs.join(", "), body.join(" "))
 }
 
 #[cfg(test)]

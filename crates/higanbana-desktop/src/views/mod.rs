@@ -1,6 +1,10 @@
 //! Telas do acervo.
 
+pub mod catalog;
+pub mod catalog_filters;
+pub mod episodes;
 pub mod folder;
+pub mod franchise;
 pub mod home;
 pub mod login;
 pub mod shelf;

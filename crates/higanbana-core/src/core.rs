@@ -5,7 +5,7 @@ use std::{future::Future, sync::Arc};
 use tokio::runtime::{Handle, Runtime};
 
 use crate::{
-    anilist::AniList, auth::AuthManager, catalog::Catalog, cloud::Cloud, events::EventFn, music::Music, paths::Paths, player::Player,
+    anilist::AniList, tmdb::Tmdb, anime_index::AnimeIndex, auth::AuthManager, catalog::Catalog, cloud::Cloud, events::EventFn, music::Music, paths::Paths, player::Player, prefs::Prefs, settings::Settings,
     reader::Reader,
 };
 
@@ -15,7 +15,11 @@ pub struct Core {
     rt: Runtime,
     cloud: Arc<Cloud>,
     anilist: AniList,
+    tmdb: Tmdb,
     catalog: Catalog,
+    anime_index: AnimeIndex,
+    prefs: Prefs,
+    settings: Settings,
     web: reqwest::Client,
     reader: Reader,
     player: Player,
@@ -27,12 +31,16 @@ impl Core {
         let rt = tokio::runtime::Builder::new_multi_thread().thread_name("higanbana-core").enable_all().build()?;
         let cloud = Arc::new(Cloud::new(paths.clone(), events.clone())?);
         let anilist = AniList::new(&paths.cache);
+        let tmdb = Tmdb::new(&paths.cache);
         let catalog = Catalog::open(paths.cache.join("catalog.json"));
+        let anime_index = AnimeIndex::open(paths.cache.join("anime-index.json"));
+        let prefs = Prefs::open(paths.data.join("prefs.json"));
+        let settings = Settings::open(paths.data.join("settings.json"));
         let web = reqwest::Client::builder().user_agent(concat!("higanbana-client/", env!("CARGO_PKG_VERSION"))).build()?;
         let reader = Reader::new(cloud.clone());
         let player = rt.block_on(Player::start(cloud.clone()))?;
         let music = Music::start(rt.handle().clone(), cloud.clone(), events);
-        Ok(Self { rt, cloud, anilist, catalog, web, reader, player, music })
+        Ok(Self { rt, cloud, anilist, tmdb, catalog, anime_index, prefs, settings, web, reader, player, music })
     }
 
     pub fn rt(&self) -> &Handle {
@@ -64,12 +72,28 @@ impl Core {
         &self.cloud.paths
     }
 
+    pub fn tmdb(&self) -> &Tmdb {
+        &self.tmdb
+    }
+
     pub fn anilist(&self) -> &AniList {
         &self.anilist
     }
 
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
+    }
+
+    pub fn prefs(&self) -> &Prefs {
+        &self.prefs
+    }
+
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    pub fn anime_index(&self) -> &AnimeIndex {
+        &self.anime_index
     }
 
     /// Bytes de uma URL pública (capas do AniList, avatar do Discord). Só https.
@@ -86,7 +110,7 @@ impl Core {
 
     /// Confere se o anime está no acervo (ver [`Catalog`]).
     pub async fn check_catalog(&self, m: &crate::anilist::types::MediaSummary) -> Option<String> {
-        self.catalog.check(&self.cloud, &self.anilist, m).await
+        self.catalog.check(&self.anime_index, &self.cloud, &self.anilist, m).await
     }
 
     pub fn reader(&self) -> &Reader {

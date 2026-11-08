@@ -7,12 +7,15 @@
 pub(crate) mod cache;
 mod client;
 mod error;
+pub mod jikan;
+pub mod mal_site;
 mod matcher;
 mod queries;
 mod service;
 pub mod text;
 pub mod types;
 
+pub use client::Priority;
 pub use error::{AniListError, AniListResult};
-pub use queries::{MediaType, season_at};
-pub use service::{AniList, LookupRequest};
+pub use queries::{MediaType, idmal_batch_query, season_at};
+pub use service::{AniList, Lookup, LookupRequest};

@@ -8,7 +8,7 @@
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -16,12 +16,12 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 
 use crate::{
-    anilist::{AniList, LookupRequest, MediaType, types::MediaSummary},
+    anilist::{AniList, Lookup, LookupRequest, MediaType, types::MediaSummary},
+    anime_index::AnimeIndex,
     cloud::Cloud,
-    library::{folder_title, join_path, norm},
+    library::{folder_title, norm},
 };
 
-const ROOT: &str = "Animes";
 const TTL_SECS: u64 = 12 * 3600;
 
 fn now() -> u64 {
@@ -38,7 +38,6 @@ struct Stored {
 pub struct Catalog {
     file: PathBuf,
     stored: Mutex<Stored>,
-    letters: tokio::sync::Mutex<HashMap<String, Arc<Vec<String>>>>,
     limit: Semaphore,
 }
 
@@ -74,7 +73,7 @@ impl Catalog {
             .and_then(|b| serde_json::from_slice(&b).ok())
             .filter(|s: &Stored| now().saturating_sub(s.at) < TTL_SECS)
             .unwrap_or_else(|| Stored { at: now(), paths: HashMap::new() });
-        Self { file, stored: Mutex::new(stored), letters: Default::default(), limit: Semaphore::new(2) }
+        Self { file, stored: Mutex::new(stored), limit: Semaphore::new(2) }
     }
 
     /// Já conferido: `Some(Some(caminho))`, `Some(None)` (não está), `None` (não conferido).
@@ -89,17 +88,7 @@ impl Catalog {
         }
     }
 
-    async fn letter(&self, cloud: &Cloud, folder: &str) -> Result<Arc<Vec<String>>, String> {
-        if let Some(hit) = self.letters.lock().await.get(folder) {
-            return Ok(hit.clone());
-        }
-        let listing = cloud.list(&join_path(ROOT, folder)).await.map_err(|e| e.to_string())?;
-        let names = Arc::new(listing.files.into_iter().filter(|f| f.is_directory).map(|f| f.name).collect::<Vec<_>>());
-        self.letters.lock().await.insert(folder.to_owned(), names.clone());
-        Ok(names)
-    }
-
-    async fn resolve(&self, cloud: &Cloud, anilist: &AniList, m: &MediaSummary) -> Result<Option<String>, String> {
+    async fn resolve(&self, index: &AnimeIndex, cloud: &Cloud, anilist: &AniList, m: &MediaSummary) -> Result<Option<String>, String> {
         let titles = titles_of(m);
         let exact: Vec<String> = titles.iter().map(|t| norm(t)).collect();
         let bases: Vec<String> = titles.iter().map(|t| norm(&base_title(t))).filter(|b| b.len() >= 3).collect();
@@ -108,9 +97,9 @@ impl Catalog {
 
         let mut near = Vec::new();
         for letter in &letters {
-            for name in self.letter(cloud, letter).await?.iter() {
+            for entry in index.letter(cloud, letter).await?.iter() {
+                let (name, path) = (&entry.name, entry.path.clone());
                 let n = norm(&folder_title(name));
-                let path = join_path(&join_path(ROOT, letter), name);
                 if exact.contains(&n) {
                     return Ok(Some(path));
                 }
@@ -125,7 +114,10 @@ impl Catalog {
                 .lookup(&[LookupRequest { name: name.clone(), media_type: MediaType::Anime }])
                 .await
                 .ok()
-                .and_then(|v| v.into_iter().next().flatten());
+                .and_then(|v| match v.into_iter().next() {
+                    Some(Lookup::Found(f)) => Some(f),
+                    _ => None,
+                });
             if found.and_then(|f| f.get("id").and_then(|v| v.as_i64())) == Some(m.id) {
                 return Ok(Some(path.clone()));
             }
@@ -134,8 +126,12 @@ impl Catalog {
         Ok(near.into_iter().next().map(|(_, p)| p))
     }
 
-    /// Confere um título no acervo. Falha de rede não é guardada.
-    pub async fn check(&self, cloud: &Cloud, anilist: &AniList, m: &MediaSummary) -> Option<String> {
+    /// Confere um título no acervo. Falha de rede não é guardada. Obras só da MAL
+    /// (id negativo) não são conferidas.
+    pub async fn check(&self, index: &AnimeIndex, cloud: &Cloud, anilist: &AniList, m: &MediaSummary) -> Option<String> {
+        if m.is_mal_only() {
+            return None;
+        }
         if let Some(known) = self.known(m.id) {
             return known;
         }
@@ -143,7 +139,7 @@ impl Catalog {
         if let Some(known) = self.known(m.id) {
             return known;
         }
-        let path = self.resolve(cloud, anilist, m).await.ok()?;
+        let path = self.resolve(index, cloud, anilist, m).await.ok()?;
         self.stored.lock().unwrap().paths.insert(m.id, path.clone());
         self.save();
         path

@@ -163,6 +163,7 @@ impl Render for HomeView {
                             width: card_w,
                             badge: matches!(known, Some(Some(_))),
                             dimmed: matches!(known, Some(None)),
+                            meta: None,
                         },
                         cx,
                     )

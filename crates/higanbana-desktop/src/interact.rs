@@ -7,10 +7,10 @@
 //! - [`HoverFade`]: embrulha um elemento clicável e acende borda e/ou fundo
 //!   com um fade de entrada e saída quando o ponteiro passa por cima.
 
-use std::{panic::Location, time::{Duration, Instant}};
+use std::{cell::Cell, panic::Location, rc::Rc, time::{Duration, Instant}};
 
 use gpui_kit::{
-    AnyElement, App, Background, BorderStyle, Bounds, ClickEvent, Corners, CursorStyle, DispatchPhase, Element,
+    AnyElement, App, Background, BorderStyle, Bounds, ClickEvent, Corners, CursorStyle, DispatchPhase, Element, FocusHandle,
     ElementId, GlobalElementId, Hitbox, HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId,
     MouseMoveEvent, Pixels, SharedString, StyleRefinement, Styled, Window, px, quad, transparent_black,
 };
@@ -115,6 +115,15 @@ impl Button {
         self.map(|b| b.rounded(rounded))
     }
 
+    pub fn dropdown_caret(self, caret: bool) -> Self {
+        self.map(|b| b.dropdown_caret(caret))
+    }
+
+    /// Foco guardado por quem chama (para saber quando o botão está focado).
+    pub fn track_focus(self, focus: &FocusHandle) -> Self {
+        self.map(|b| b.track_focus(focus))
+    }
+
 
     pub fn on_click(self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.map(|b| b.on_click(handler))
@@ -190,17 +199,88 @@ pub fn radios<S: Into<SharedString>>(labels: impl IntoIterator<Item = S>) -> imp
 
 // --- Fade de hover ---
 
-/// Avança o fade em direção a `target` (0 ou 1) proporcionalmente ao tempo:
-/// interromper no meio volta do valor atual, sem pular.
-fn fade_step(value: f32, target: f32, elapsed: Duration) -> f32 {
-    let step = elapsed.as_secs_f32() / HOVER_FADE.as_secs_f32();
+/// Avança `value` (0–1) em direção a `target` no ritmo em que o caminho
+/// inteiro leva `duration`: interromper no meio volta do valor atual.
+fn step_toward(value: f32, target: f32, elapsed: Duration, duration: Duration) -> f32 {
+    let step = if duration.is_zero() { 1. } else { elapsed.as_secs_f32() / duration.as_secs_f32() };
     if value < target { (value + step).min(target) } else { (value - step).max(target) }
 }
 
-#[derive(Clone, Copy)]
-struct Fade {
+/// Progresso de um hover animado (0 = repouso, 1 = ponteiro em cima).
+///
+/// Fica num `Rc<Cell<_>>` no estado do elemento, dividido entre o desenho e o
+/// listener do mouse: o listener roda fora do desenho, então ele troca o alvo
+/// e pede o quadro, e esse quadro já anda para o alvo certo (um `refresh()`
+/// durante o desenho não faz nada).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct HoverTrack {
     value: f32,
+    /// Quando `value` foi calculado.
     at: Instant,
+    hovered: bool,
+}
+
+impl HoverTrack {
+    fn new(now: Instant) -> Self {
+        Self { value: 0., at: now, hovered: false }
+    }
+
+    fn target(self) -> f32 {
+        if self.hovered { 1. } else { 0. }
+    }
+
+    fn settled(self) -> bool {
+        self.value == self.target()
+    }
+
+    /// O valor em `now`, andando em direção ao alvo desde `at`.
+    fn advance(self, now: Instant, duration: Duration, reduce: bool) -> Self {
+        let target = self.target();
+        let value = if reduce { target } else { step_toward(self.value, target, now.saturating_duration_since(self.at), duration) };
+        Self { value, at: now, ..self }
+    }
+
+    /// O ponteiro entrou ou saiu em `now`: fecha o caminho até aqui com o alvo
+    /// antigo e só então troca o alvo. Depois de muito tempo parado o valor já
+    /// está no alvo antigo, e a animação começa dali, sem pulo.
+    fn hover(self, hovered: bool, now: Instant, duration: Duration, reduce: bool) -> Self {
+        Self { hovered, ..self.advance(now, duration, reduce) }
+    }
+}
+
+type SharedTrack = Rc<Cell<HoverTrack>>;
+
+fn shared_track(window: &mut Window, id: &GlobalElementId) -> SharedTrack {
+    window.with_element_state(id, |state: Option<SharedTrack>, _| {
+        let track = state.unwrap_or_else(|| Rc::new(Cell::new(HoverTrack::new(Instant::now()))));
+        (track.clone(), track)
+    })
+}
+
+/// No desenho: se o hover mudou sem o mouse se mexer (a lista rolou embaixo
+/// do ponteiro), troca o alvo e pede o próximo quadro.
+fn sync_hover(track: &SharedTrack, hitbox: &Hitbox, duration: Duration, window: &mut Window, cx: &App) {
+    let hovered = hitbox.is_hovered(window);
+    let t = track.get();
+    if hovered != t.hovered {
+        track.set(t.hover(hovered, Instant::now(), duration, cx.reduce_motion()));
+        window.request_animation_frame();
+    }
+}
+
+/// Fora do desenho: ao entrar ou sair, troca o alvo e pede um quadro novo.
+fn watch_hover(track: SharedTrack, hitbox: Hitbox, duration: Duration, window: &mut Window) {
+    window.on_mouse_event(move |_: &MouseMoveEvent, phase, window, cx| {
+        if phase != DispatchPhase::Capture {
+            return;
+        }
+        let hovered = hitbox.is_hovered(window);
+        let t = track.get();
+        if hovered != t.hovered {
+            track.set(t.hover(hovered, Instant::now(), duration, cx.reduce_motion()));
+            window.refresh();
+        }
+    });
 }
 
 /// Embrulha um elemento e acende borda/fundo com fade quando o ponteiro entra,
@@ -273,18 +353,14 @@ impl Element for HoverFade {
     }
 
     fn paint(&mut self, id: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), hitbox: &mut Hitbox, window: &mut Window, cx: &mut App) {
-        let hovered = hitbox.is_hovered(window);
-        let target = if hovered { 1. } else { 0. };
-        let reduce = cx.reduce_motion();
-        let value = window.with_element_state(id.expect("HoverFade tem id"), |state: Option<Fade>, _| {
-            let now = Instant::now();
-            let prev = state.unwrap_or(Fade { value: 0., at: now });
-            let value = if reduce { target } else { fade_step(prev.value, target, now.duration_since(prev.at)) };
-            (value, Fade { value, at: now })
-        });
-        if value != target {
+        let track = shared_track(window, id.expect("HoverFade tem id"));
+        sync_hover(&track, hitbox, HOVER_FADE, window, cx);
+        let t = track.get().advance(Instant::now(), HOVER_FADE, cx.reduce_motion());
+        track.set(t);
+        if !t.settled() {
             window.request_animation_frame();
         }
+        let value = t.value;
         // Curva de saída: acende rápido e assenta devagar.
         let eased = crate::motion::ease_out_cubic(value);
 
@@ -297,12 +373,95 @@ impl Element for HoverFade {
         }
 
         // Entrar ou sair redesenha (o GPUI só redesenha sozinho para `.hover()`).
-        let hitbox = hitbox.clone();
-        window.on_mouse_event(move |_: &MouseMoveEvent, phase, window, _| {
-            if phase == DispatchPhase::Capture && hitbox.is_hovered(window) != hovered {
-                window.refresh();
-            }
-        });
+        watch_hover(track, hitbox.clone(), HOVER_FADE, window);
+    }
+}
+
+// --- Hover animado ---
+
+type BuildFn = Box<dyn FnOnce(f32, &mut Window, &mut App) -> AnyElement>;
+
+/// Elemento cujo conteúdo é montado a cada quadro com o progresso do hover
+/// (0 = em repouso, 1 = ponteiro em cima), que anda nos dois sentidos em
+/// `duration` e reverte do valor atual. O GPUI não tem transição de CSS: aqui
+/// o cartão inteiro pode animar cantos, tamanhos e cores a partir de um número.
+///
+/// O progresso é linear; quem monta aplica a curva (`motion::ease_out_cubic`).
+/// Com "reduzir movimento" pula direto para o fim.
+pub struct HoverAnim {
+    id: ElementId,
+    duration: Duration,
+    build: Option<BuildFn>,
+    child: Option<AnyElement>,
+    track: Option<SharedTrack>,
+}
+
+/// `id` precisa ser estável (do domínio, não da posição na lista).
+pub fn hover_anim<E: IntoElement>(
+    id: impl Into<ElementId>,
+    duration: Duration,
+    build: impl FnOnce(f32, &mut Window, &mut App) -> E + 'static,
+) -> HoverAnim {
+    HoverAnim {
+        id: id.into(),
+        duration,
+        build: Some(Box::new(move |t, window, cx| build(t, window, cx).into_any_element())),
+        child: None,
+        track: None,
+    }
+}
+
+impl IntoElement for HoverAnim {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for HoverAnim {
+    type RequestLayoutState = ();
+    type PrepaintState = Hitbox;
+
+    fn id(&self) -> Option<ElementId> {
+        Some(self.id.clone())
+    }
+
+    fn source_location(&self) -> Option<&'static Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, id: Option<&GlobalElementId>, _: Option<&InspectorElementId>, window: &mut Window, cx: &mut App) -> (LayoutId, ()) {
+        let track = shared_track(window, id.expect("HoverAnim tem id"));
+        let t = track.get().advance(Instant::now(), self.duration, cx.reduce_motion());
+        track.set(t);
+        if !t.settled() {
+            window.request_animation_frame();
+        }
+        self.track = Some(track);
+        let value = t.value;
+        let build = self.build.take().expect("HoverAnim monta uma vez por quadro");
+        let mut child = build(value, window, cx);
+        let layout = child.request_layout(window, cx);
+        self.child = Some(child);
+        (layout, ())
+    }
+
+    fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), window: &mut Window, cx: &mut App) -> Hitbox {
+        if let Some(child) = self.child.as_mut() {
+            child.prepaint(window, cx);
+        }
+        window.insert_hitbox(bounds, HitboxBehavior::Normal)
+    }
+
+    fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), hitbox: &mut Hitbox, window: &mut Window, cx: &mut App) {
+        if let Some(child) = self.child.as_mut() {
+            child.paint(window, cx);
+        }
+        if let Some(track) = self.track.take() {
+            sync_hover(&track, hitbox, self.duration, window, cx);
+            watch_hover(track, hitbox.clone(), self.duration, window);
+        }
     }
 }
 
@@ -312,16 +471,62 @@ mod tests {
 
     #[test]
     fn fade_reaches_target_in_hover_duration() {
-        assert_eq!(fade_step(0., 1., HOVER_FADE), 1.);
-        assert_eq!(fade_step(1., 0., HOVER_FADE), 0.);
+        assert_eq!(step_toward(0., 1., HOVER_FADE, HOVER_FADE), 1.);
+        assert_eq!(step_toward(1., 0., HOVER_FADE, HOVER_FADE), 0.);
     }
 
     #[test]
     fn fade_is_gradual_and_reverses_from_current_value() {
-        let half = fade_step(0., 1., HOVER_FADE / 2);
+        let half = step_toward(0., 1., HOVER_FADE / 2, HOVER_FADE);
         assert!((half - 0.5).abs() < 0.01, "metade do tempo, metade do caminho: {half}");
         // Saiu no meio: começa a apagar de onde estava, não de 1.
-        let back = fade_step(half, 0., HOVER_FADE / 4);
+        let back = step_toward(half, 0., HOVER_FADE / 4, HOVER_FADE);
         assert!((back - 0.25).abs() < 0.01, "{back}");
+    }
+
+    const D: Duration = Duration::from_millis(400);
+
+    #[test]
+    fn enter_after_long_idle_starts_from_rest() {
+        let t0 = Instant::now();
+        let idle = t0 + Duration::from_secs(60);
+        // Um minuto parado e o ponteiro entra: começa do 0, não pula para o fim.
+        let entered = HoverTrack::new(t0).hover(true, idle, D, false);
+        assert_eq!(entered.value, 0.);
+        assert!(!entered.settled(), "tem para onde andar: pede quadros");
+        let quarter = entered.advance(idle + D / 4, D, false);
+        assert!((quarter.value - 0.25).abs() < 0.01, "{quarter:?}");
+        assert!(entered.advance(idle + D, D, false).settled());
+    }
+
+    #[test]
+    fn leave_mid_animation_reverses_from_current_value() {
+        let t0 = Instant::now();
+        let half = HoverTrack::new(t0).hover(true, t0, D, false).advance(t0 + D / 2, D, false);
+        assert!((half.value - 0.5).abs() < 0.01, "{half:?}");
+        let left = half.hover(false, t0 + D / 2, D, false);
+        assert!((left.value - 0.5).abs() < 0.01, "sair não pula: {left:?}");
+        let back = left.advance(t0 + D / 2 + D / 4, D, false);
+        assert!((back.value - 0.25).abs() < 0.01, "{back:?}");
+        let rest = left.advance(t0 + D * 2, D, false);
+        assert_eq!(rest.value, 0.);
+        assert!(rest.settled(), "assentado: para de pedir quadros");
+    }
+
+    #[test]
+    fn reduced_motion_jumps_to_target() {
+        let t0 = Instant::now();
+        let t = HoverTrack::new(t0).hover(true, t0, D, true).advance(t0, D, true);
+        assert_eq!(t.value, 1.);
+    }
+
+    #[test]
+    fn step_follows_its_own_duration() {
+        let d = Duration::from_millis(400);
+        assert_eq!(step_toward(0., 1., d, d), 1.);
+        let quarter = step_toward(0., 1., d / 4, d);
+        assert!((quarter - 0.25).abs() < 0.01, "{quarter}");
+        assert_eq!(step_toward(0.6, 0., Duration::ZERO, d), 0.6, "sem tempo, não anda");
+        assert_eq!(step_toward(0.3, 1., Duration::from_millis(5), Duration::ZERO), 1., "duração zero pula para o fim");
     }
 }

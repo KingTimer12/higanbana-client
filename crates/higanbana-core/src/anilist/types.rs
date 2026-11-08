@@ -46,6 +46,8 @@ pub struct MediaSummary {
     #[serde(default)]
     pub synonyms: Vec<String>,
     #[serde(default)]
+    pub season: Option<String>,
+    #[serde(default)]
     pub season_year: Option<i32>,
     #[serde(default)]
     pub start_date: Option<FuzzyDate>,
@@ -63,9 +65,16 @@ pub struct MediaSummary {
     pub episodes: Option<i64>,
     #[serde(default)]
     pub chapters: Option<i64>,
+    #[serde(default)]
+    pub id_mal: Option<i64>,
 }
 
 impl MediaSummary {
+    /// Obra que só existe na MAL (id negativo = `-mal_id`).
+    pub fn is_mal_only(&self) -> bool {
+        self.id < 0
+    }
+
     pub fn title(&self) -> String {
         let t = &self.title;
         t.user_preferred.clone().or_else(|| t.romaji.clone()).or_else(|| t.english.clone()).or_else(|| t.native.clone()).unwrap_or_default()
@@ -215,15 +224,11 @@ pub struct MediaDetail {
     #[serde(flatten)]
     pub summary: MediaSummary,
     #[serde(default)]
-    pub id_mal: Option<u32>,
-    #[serde(default)]
     pub source: Option<String>,
     #[serde(default)]
     pub site_url: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(default)]
-    pub season: Option<String>,
     #[serde(default)]
     pub end_date: Option<FuzzyDate>,
     #[serde(default)]

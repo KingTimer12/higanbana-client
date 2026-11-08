@@ -43,6 +43,13 @@ impl<V: Clone + Serialize + DeserializeOwned> DiskCache<V> {
             .map(|e| e.value.clone())
     }
 
+    /// Primeiro valor válido (não expirado) que satisfaz `pred`.
+    pub fn find(&self, pred: impl Fn(&V) -> bool) -> Option<V> {
+        let map = self.map.lock().unwrap();
+        let t = now();
+        map.values().filter(|e| t - e.at < self.ttl_secs).map(|e| &e.value).find(|v| pred(v)).cloned()
+    }
+
     pub fn insert(&self, key: String, value: V) {
         self.map.lock().unwrap().insert(key, Entry { at: now(), value });
     }
@@ -65,5 +72,19 @@ impl<V: Clone + Serialize + DeserializeOwned> DiskCache<V> {
                 let _ = std::fs::rename(&tmp, &self.path);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_by_value() {
+        let cache: DiskCache<i64> = DiskCache::open(PathBuf::from("nao-existe/cache-teste.json"), 60);
+        cache.insert("a".into(), 1);
+        cache.insert("b".into(), 2);
+        assert_eq!(cache.find(|v| *v == 2), Some(2));
+        assert_eq!(cache.find(|v| *v == 3), None);
     }
 }

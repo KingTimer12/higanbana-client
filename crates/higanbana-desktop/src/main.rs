@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod catalog_state;
 mod chrome;
 mod components;
 mod interact;

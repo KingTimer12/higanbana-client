@@ -20,7 +20,7 @@ use crate::{
     reader::{ReadTarget, ReaderEvent, ReaderView},
     state::{AppEvent, AppState, Tone, state},
     video::{PlayTarget, PlayerEvent, PlayerView, Surface},
-    views::{folder::FolderView, home::HomeView, login::LoginView, shelf::ShelfView, title::TitleView},
+    views::{catalog::CatalogView, folder::FolderView, home::HomeView, login::LoginView, shelf::ShelfView, title::TitleView},
 };
 
 actions!(higanbana, [OpenSearch, Back, Forward]);
@@ -114,13 +114,17 @@ impl AppView {
         let _ = core.music().command("pause");
         let surface = self.surface.clone();
         crate::theme::set_video_backdrop(true, window, cx);
+        self.state.update(cx, |s, cx| s.set_playing(true, cx));
         let player = cx.new(|cx| PlayerView::new(core, target, surface, window, cx));
         let sub = cx.subscribe_in(&player, window, |this, _, e: &PlayerEvent, window, cx| match e {
             PlayerEvent::Close => {
                 crate::theme::set_video_backdrop(false, window, cx);
                 this.player = None;
                 window.focus(&this.focus, cx);
-                this.state.update(cx, |s, cx| s.refresh_player_data(cx));
+                this.state.update(cx, |s, cx| {
+                    s.set_playing(false, cx);
+                    s.refresh_player_data(cx);
+                });
                 cx.notify();
             }
         });
@@ -153,7 +157,9 @@ impl AppView {
             Place::Home => cx.new(HomeView::new).into(),
             Place::Shelf { path, media } => cx.new(|cx| ShelfView::new(path, media, window, cx)).into(),
             Place::Title { title_path, rest, media, .. } => cx.new(|cx| TitleView::new(title_path, rest, media, cx)).into(),
-            Place::Folder { path } => cx.new(|cx| FolderView::new(path, cx)).into(),
+            Place::Folder { path } => cx.new(|cx| FolderView::new(path, false, cx)).into(),
+            Place::Raw { path } => cx.new(|cx| FolderView::new(path, true, cx)).into(),
+            Place::Catalog { letter } => cx.new(|cx| CatalogView::new(letter, window, cx)).into(),
         };
         self.page = Some((path, view.clone()));
         view
@@ -163,6 +169,17 @@ impl AppView {
         let page = self.page(window, cx);
         let has_music = self.state.read(cx).music.as_ref().is_some_and(|m| m.album.is_some());
         let path_key = self.state.read(cx).path().to_owned();
+        // O catálogo rola sozinho: o índice lateral fica fixo e pula até uma letra.
+        let own_scroll = matches!(classify(&path_key), Place::Catalog { .. });
+        // A tela nova aparece com um fade curto: deixa claro que o conteúdo trocou.
+        let body = div().when(own_scroll, |d| d.size_full()).child(page).with_animation(
+            SharedString::from(format!("enter:{path_key}")),
+            crate::motion::enter(crate::motion::BASE),
+            |d, t| d.opacity(t),
+        );
+        let main = div().id(SharedString::from(format!("main:{path_key}"))).flex_1().min_w_0();
+        // Uma área rolável por rota: a posição volta ao topo ao navegar.
+        let main = if own_scroll { main.min_h_0() } else { main.overflow_y_scroll() };
         let st = self.state.clone();
         let nav = move |back: bool| {
             let st = st.clone();
@@ -179,20 +196,7 @@ impl AppView {
                     .flex_1()
                     .min_h_0()
                     .child(sidebar(&self.state, &self.sections, cx))
-                    .child(
-                        // Uma área rolável por rota: a posição volta ao topo ao navegar.
-                        div()
-                            .id(SharedString::from(format!("main:{path_key}")))
-                            .flex_1()
-                            .min_w_0()
-                            .overflow_y_scroll()
-                            // A tela nova aparece com um fade curto: deixa claro que o conteúdo trocou.
-                            .child(div().child(page).with_animation(
-                                SharedString::from(format!("enter:{path_key}")),
-                                crate::motion::enter(crate::motion::BASE),
-                                |d, t| d.opacity(t),
-                            )),
-                    ),
+                    .child(main.child(body)),
             )
             // A barra de música aparece com fade quando um álbum começa a tocar.
             .when(has_music, |d| {
