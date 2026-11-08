@@ -1,6 +1,8 @@
 //! Tela do player ("Imersivo"): o mpv desenha na janela filha embaixo e esta
 //! tela é só a interface por cima.
 
+use crate::interact::{hover_layer, radios};
+use crate::interact::Button;
 use std::{
     cell::Cell,
     rc::Rc,
@@ -12,12 +14,12 @@ use futures::StreamExt;
 use gpui_kit::{
     AnyElement, App, Bounds, ClickEvent, Context, Div, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
     FontWeight, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
-    Pixels, Render, SharedString, Styled, Subscription, Task, Window, assets::IconName, canvas, div,
+    AnimationExt as _, Pixels, Render, SharedString, Stateful, Styled, Subscription, Task, Window, assets::IconName, canvas, div,
     linear_color_stop, linear_gradient, prelude::*, px, relative, rems,
 };
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Icon, Sizable as _, h_flex, v_flex,
-    button::{Button, ButtonVariants as _},
+    button::ButtonVariants as _,
     popover::Popover,
     progress::Progress as ProgressBar,
     radio::RadioGroup,
@@ -764,7 +766,7 @@ impl PlayerView {
             .gap_3()
             .child(
                 v_flex().child(menu_heading("Legenda", cx)).child(
-                    RadioGroup::vertical("subtitle-tracks").children(sub_labels).selected_index(Some(sub_ix)).on_change(cx.listener(move |v, ix: &usize, _, cx| {
+                    RadioGroup::vertical("subtitle-tracks").children(radios(sub_labels)).selected_index(Some(sub_ix)).on_change(cx.listener(move |v, ix: &usize, _, cx| {
                         v.choose_sub(if *ix == 0 { None } else { subs.get(ix - 1).cloned() });
                         cx.notify();
                     })),
@@ -774,7 +776,7 @@ impl PlayerView {
                 let labels: Vec<String> = audios.iter().map(Self::track_label).collect();
                 p.child(Divider::horizontal()).child(
                     v_flex().child(menu_heading("Áudio", cx)).child(
-                        RadioGroup::vertical("audio-tracks").children(labels).selected_index(audio_ix).on_change(cx.listener(move |v, ix: &usize, _, cx| {
+                        RadioGroup::vertical("audio-tracks").children(radios(labels)).selected_index(audio_ix).on_change(cx.listener(move |v, ix: &usize, _, cx| {
                             if let Some(t) = audios.get(*ix) {
                                 v.choose_audio(t.clone());
                                 cx.notify();
@@ -790,7 +792,7 @@ impl PlayerView {
         let lang_group = |id: &'static str, label: &'static str, value: &str, sub: bool, cx: &mut Context<Self>| {
             v_flex().gap_1().child(menu_heading(label, cx)).child(
                 RadioGroup::horizontal(id)
-                    .children(LANGS.iter().map(|(_, name)| *name))
+                    .children(radios(LANGS.iter().map(|(_, name)| *name)))
                     .selected_index(LANGS.iter().position(|(code, _)| *code == value))
                     .on_change(cx.listener(move |v, ix: &usize, _, cx| {
                         let code = LANGS[*ix].0;
@@ -802,7 +804,7 @@ impl PlayerView {
         v_flex()
             .w_80()
             .gap_3()
-            .child(Switch::new("auto-next").label("Ir para o próximo episódio sozinho").checked(s.auto_next).on_change(cx.listener(|v, on: &bool, _, cx| {
+            .child(Switch::new("auto-next").cursor_pointer().label("Ir para o próximo episódio sozinho").checked(s.auto_next).on_change(cx.listener(|v, on: &bool, _, cx| {
                 v.change_settings(|s| s.auto_next = *on);
                 cx.notify();
             })))
@@ -810,7 +812,7 @@ impl PlayerView {
                 p.child(
                     v_flex().gap_1().child(menu_heading("Tempo da contagem", cx)).child(
                         RadioGroup::horizontal("countdown")
-                            .children(COUNTDOWNS.map(|n| format!("{n} s")))
+                            .children(radios(COUNTDOWNS.map(|n| format!("{n} s"))))
                             .selected_index(COUNTDOWNS.iter().position(|n| *n == s.countdown_sec))
                             .on_change(cx.listener(|v, ix: &usize, _, cx| {
                                 v.change_settings(|s| s.countdown_sec = COUNTDOWNS[*ix]);
@@ -819,7 +821,7 @@ impl PlayerView {
                     ),
                 )
             })
-            .child(Switch::new("skip-intro").label("Mostrar “Pular abertura”").checked(s.show_skip_intro).on_change(cx.listener(|v, on: &bool, _, cx| {
+            .child(Switch::new("skip-intro").cursor_pointer().label("Mostrar “Pular abertura”").checked(s.show_skip_intro).on_change(cx.listener(|v, on: &bool, _, cx| {
                 v.change_settings(|s| s.show_skip_intro = *on);
                 cx.notify();
             })))
@@ -830,7 +832,7 @@ impl PlayerView {
             .child(
                 v_flex().gap_1().child(menu_heading("Memória à frente", cx)).child(
                     RadioGroup::horizontal("cache")
-                        .children(CACHES.map(|n| format!("{n} MB")))
+                        .children(radios(CACHES.map(|n| format!("{n} MB"))))
                         .selected_index(CACHES.iter().position(|n| *n == s.cache_mib))
                         .on_change(cx.listener(|v, ix: &usize, _, cx| {
                             v.change_settings(|s| s.cache_mib = CACHES[*ix]);
@@ -854,7 +856,9 @@ impl PlayerView {
                 .px_2()
                 .py_2()
                 .rounded(theme.radius)
-                .map(|d| if is_current { d.bg(theme.list_active) } else { d.hover(|s| s.bg(theme.list_hover)) })
+                .relative()
+                .cursor_pointer()
+                .map(|d| if is_current { d.bg(theme.list_active) } else { d.child(hover_layer("hover").fill(theme.list_hover).radius(theme.radius)) })
                 .child(
                     div()
                         .w_8()
@@ -997,7 +1001,7 @@ impl PlayerView {
             )
     }
 
-    fn render_next_card(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_next_card(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let label = self.next().map_or_else(String::new, |n| episode_number(&n.name).map_or_else(|| n.name.clone(), |num| format!("Episódio {num}")));
         let total = self.settings().countdown_sec as f64;
         let fill = self.countdown.map_or(0., |left| 1. - left / total.max(1.));
@@ -1089,9 +1093,8 @@ impl Render for PlayerView {
                 .absolute()
                 .size_full(),
             )
-            // Topo sobreposto (some com o mouse parado).
-            .when(!hidden, |d| {
-                d.child(
+            // Topo sobreposto: some com o mouse parado (fade, sem mudar o layout).
+            .child(
                     h_flex()
                         .flex_none()
                         .gap_2()
@@ -1107,9 +1110,11 @@ impl Render for PlayerView {
                                 .text_sm()
                                 .child(truncate(title).flex_none().max_w(relative(0.7)).font_weight(FontWeight::SEMIBOLD))
                                 .child(div().flex_none().text_color(theme::on_media_muted()).child(format!(" · {ep}"))),
-                        ),
-                )
-            })
+                        )
+                        .with_animation(SharedString::from(format!("top-bar:{hidden}")), crate::motion::enter(crate::motion::QUICK), move |e, t| {
+                            e.opacity(if hidden { 1. - t } else { t })
+                        }),
+            )
             // Área do vídeo: clique pausa, duplo clique alterna tela cheia.
             .child(
                 div()
@@ -1191,11 +1196,28 @@ impl Render for PlayerView {
                             cx.notify();
                         })))
                     })
-                    .when(show_next, |d| d.child(self.render_next_card(cx))),
+                    .when(show_next, |d| {
+                        // O cartão aparece com fade: algo novo no canto.
+                        d.child(self.render_next_card(cx).with_animation("next-card-in", crate::motion::enter(crate::motion::BASE), |e, t| {
+                            e.opacity(t)
+                        }))
+                    }),
             )
-            // Controles inferiores.
-            .when(!hidden, |d| {
-                d.child(v_flex().id("controls").flex_none().gap_1().px_5().pt_10().pb_3().bg(scrim_up(0.85)).child(self.render_seekbar(cx)).child(self.render_controls(window, cx)))
-            })
+            // Controles inferiores (mesmo fade do topo).
+            .child(
+                v_flex()
+                    .id("controls")
+                    .flex_none()
+                    .gap_1()
+                    .px_5()
+                    .pt_10()
+                    .pb_3()
+                    .bg(scrim_up(0.85))
+                    .child(self.render_seekbar(cx))
+                    .child(self.render_controls(window, cx))
+                    .with_animation(SharedString::from(format!("controls:{hidden}")), crate::motion::enter(crate::motion::QUICK), move |e, t| {
+                        e.opacity(if hidden { 1. - t } else { t })
+                    }),
+            )
     }
 }

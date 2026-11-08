@@ -3,18 +3,19 @@
 //! Tudo lê cor de `cx.theme()`; as únicas cores fixas são as de sobre-mídia
 //! (`theme::on_media*`) e a cor que o AniList dá para cada capa (é dado).
 
+use crate::interact::Button;
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::{
     breadcrumb::{Breadcrumb, BreadcrumbItem},
-    button::{Button, ButtonVariants as _},
+    button::ButtonVariants as _,
     h_flex,
     progress::Progress,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _,
 };
 use gpui_kit::{
-    assets::IconName, canvas, div, img, prelude::*, relative, AnyElement, App, Bounds, Div,
-    ElementId, FontWeight, Hsla, IntoElement, ObjectFit, ParentElement, Pixels, SharedString,
-    Stateful, Styled, Window,
+    assets::IconName, canvas, div, img, prelude::*, px, relative, Corners, AnimationExt as _, AnyElement, App,
+    Bounds, Div, ElementId, FontWeight, Hsla, IntoElement, ObjectFit, ParentElement, Pixels,
+    SharedString, Stateful, Styled, Window,
 };
 use higanbana_core::{
     anilist::{text, types::MediaSummary, MediaType},
@@ -24,6 +25,7 @@ use higanbana_core::{
 };
 
 use crate::{
+    interact::hover_fade,
     state::{state, AppState, DlStatus, Img},
     theme::{self, ProductColors as _},
     ui::truncate,
@@ -47,7 +49,13 @@ pub fn when_visible(margin: f32, f: impl FnOnce(&mut App) + 'static) -> impl Int
 }
 
 /// Imagem de uma URL pública; vazio enquanto carrega (o fundo do pai aparece).
+/// Quando chega, aparece com um fade curto em vez de "estourar" na tela.
 pub fn remote_image(url: Option<&str>, cx: &mut App) -> AnyElement {
+    rounded_image(url, None, cx)
+}
+
+/// Como `remote_image`, recortando os cantos: o recorte do pai não arredonda imagens.
+pub fn rounded_image(url: Option<&str>, radius: Option<Pixels>, cx: &mut App) -> AnyElement {
     let Some(url) = url else {
         return div().size_full().into_any_element();
     };
@@ -56,6 +64,12 @@ pub fn remote_image(url: Option<&str>, cx: &mut App) -> AnyElement {
         Img::Ready(image) => img(image)
             .size_full()
             .object_fit(ObjectFit::Cover)
+            .when_some(radius, |i, r| i.rounded(r))
+            .with_animation(
+                SharedString::from(format!("img-in:{url}")),
+                crate::motion::enter(crate::motion::QUICK),
+                |i, t| i.opacity(t),
+            )
             .into_any_element(),
         _ => div().size_full().into_any_element(),
     }
@@ -70,19 +84,23 @@ pub fn hex_color(c: Option<&str>) -> Option<Hsla> {
         .map(|v| gpui_kit::rgb(v).into())
 }
 
-/// Capa tipográfica para títulos sem correspondência no AniList.
+/// Capa tipográfica para títulos sem correspondência no AniList: o nome
+/// inteiro (quebrado em linhas, nunca cortado no meio) sobre a cor de superfície.
 fn type_poster(name: &str, cx: &App) -> Div {
-    div()
+    let theme = cx.theme();
+    v_flex()
         .size_full()
-        .flex()
-        .items_end()
+        .justify_between()
         .p_3()
-        .bg(cx.theme().muted)
+        .bg(theme.muted)
+        .child(Icon::new(IconName::Clapperboard).small().text_color(theme.muted_foreground))
         .child(
             div()
-                .text_lg()
-                .font_weight(FontWeight::BOLD)
-                .line_height(relative(1.1))
+                .text_base()
+                .font_weight(FontWeight::SEMIBOLD)
+                .line_height(relative(1.2))
+                .text_color(theme.foreground.opacity(0.8))
+                .line_clamp(5)
                 .child(folder_title(name)),
         )
 }
@@ -101,8 +119,9 @@ pub fn cover(media: Option<&MediaSummary>, name: &str, width: Option<Pixels>, cx
         Some(w) => base.w(w).h(w * 1.5),
         None => base.w_full(),
     };
+    let radius = cx.theme().radius_lg;
     match media.and_then(|m| m.cover()) {
-        Some(url) => base.child(remote_image(Some(url), cx)),
+        Some(url) => base.child(rounded_image(Some(url), Some(radius), cx)),
         None => base.child(type_poster(name, cx)),
     }
 }
@@ -168,7 +187,6 @@ pub fn poster(p: PosterProps, cx: &mut App) -> Stateful<Div> {
     let format = media
         .and_then(|m| m.format.as_deref())
         .map(|f| text::format(Some(f)));
-    let alt = media.map(|m| m.title()).filter(|t| *t != title);
     let cover_el = if p.loading {
         Skeleton::new()
             .w(p.width)
@@ -186,25 +204,29 @@ pub fn poster(p: PosterProps, cx: &mut App) -> Stateful<Div> {
     .flatten()
     .collect::<Vec<_>>()
     .join(" · ");
+    let theme = cx.theme().clone();
     v_flex()
         .id(p.id)
         .gap_2()
         .w(p.width)
+        .cursor_pointer()
         .when(p.dimmed, |d| d.opacity(0.55))
         .child(
-            div()
-                .relative()
-                .rounded(cx.theme().radius_lg)
-                .border_1()
-                .border_color(gpui_kit::transparent_black())
-                .hover(|d| d.border_color(cx.theme().ring))
-                .child(cover_el)
-                .when(p.badge, |d| d.child(in_library_mark(cx)))
-                .children(
-                    media
-                        .and_then(|m| m.average_score)
-                        .map(|s| score_mark(s, cx)),
-                ),
+            hover_fade(
+                "cover-ring",
+                div()
+                    .relative()
+                    .rounded(theme.radius_lg)
+                    .child(cover_el)
+                    .when(p.badge, |d| d.child(in_library_mark(cx)))
+                    .children(
+                        media
+                            .and_then(|m| m.average_score)
+                            .map(|s| score_mark(s, cx)),
+                    ),
+            )
+            .border(theme.ring)
+            .radius(theme.radius_lg),
         )
         .child(
             v_flex()
@@ -223,12 +245,7 @@ pub fn poster(p: PosterProps, cx: &mut App) -> Stateful<Div> {
                             .text_color(cx.theme().muted_foreground)
                             .child(meta),
                     )
-                })
-                .children(alt.map(|a| {
-                    truncate(a)
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                })),
+                }),
         )
 }
 
@@ -367,9 +384,9 @@ pub fn download_button(id: impl Into<ElementId>, path: &str, cx: &mut App) -> An
         Some((DlStatus::Done, _)) => h_flex()
             .gap_1()
             .px_2()
-            .text_sm()
+            .text_xs()
             .text_color(cx.theme().success_foreground)
-            .child(Icon::new(IconName::Check).small())
+            .child(Icon::new(IconName::Check).xsmall())
             .child("Baixado")
             .into_any_element(),
         Some((DlStatus::Error, _)) => Button::new(id)
@@ -380,10 +397,10 @@ pub fn download_button(id: impl Into<ElementId>, path: &str, cx: &mut App) -> An
             .on_click(start)
             .into_any_element(),
         None => Button::new(id)
-            .outline()
+            .ghost()
             .small()
             .icon(IconName::Download)
-            .label("Baixar")
+            .tooltip("Baixar para o computador")
             .on_click(start)
             .into_any_element(),
     }
@@ -451,38 +468,47 @@ pub fn file_list(
         .border_color(theme.border)
         .bg(theme.group_box)
         .overflow_hidden();
+    let total = sorted.len();
     for (i, f) in sorted.into_iter().enumerate() {
         let path = join_path(dir, &f.name);
         // Identidade pelo nome do arquivo, não pela posição.
         let key = SharedString::from(f.name.clone());
         let row = h_flex()
-            .gap_4()
-            .px_4()
-            .py_3()
+            .gap_3()
+            .px_3()
+            .py_2p5()
             .when(i > 0, |d| d.border_t_1().border_color(theme.border));
+        // Fundo do hover acompanha os cantos da lista na primeira e na última linha.
+        let r = theme.radius_lg;
+        let corners = Corners {
+            top_left: if i == 0 { r } else { px(0.) },
+            top_right: if i == 0 { r } else { px(0.) },
+            bottom_left: if i + 1 == total { r } else { px(0.) },
+            bottom_right: if i + 1 == total { r } else { px(0.) },
+        };
         if f.is_directory {
             let s = s.clone();
-            list =
-                list.child(
+            list = list.child(
+                hover_fade(
+                    ElementId::Name(format!("dir-hover:{key}").into()),
                     row.id(ElementId::Name(format!("dir:{key}").into()))
-                        .hover(|d| d.bg(theme.list_hover))
+                        .cursor_pointer()
                         .child(
                             div().w_10().flex_none().flex().justify_center().child(
                                 Icon::new(IconName::Folder).text_color(theme.muted_foreground),
                             ),
                         )
-                        .child(
-                            truncate(f.name.clone())
-                                .flex_1()
-                                .font_weight(FontWeight::MEDIUM),
-                        )
+                        .child(truncate(f.name.clone()).flex_1().text_sm())
                         .child(
                             Icon::new(IconName::ChevronRight)
                                 .small()
                                 .text_color(theme.muted_foreground),
                         )
                         .on_click(move |_, _, cx| s.update(cx, |s, cx| s.go(path.clone(), cx))),
-                );
+                )
+                .fill(theme.list_hover)
+                .radius(corners),
+            );
             continue;
         }
         let ep = parse_episode(&f.name);
@@ -512,19 +538,29 @@ pub fn file_list(
             format_bytes(f.size),
         ]
         .join(" · ");
+        // Clicar na linha faz a ação principal (assistir ou ler); os botões param a propagação.
+        let primary: Option<FileAction> = if playable { on_play.clone() } else if readable { on_read.clone() } else { None };
         let mut row = row
-            .hover(|d| d.bg(theme.list_hover))
+            .id(ElementId::Name(format!("ep:{key}").into()))
+            .when_some(primary, |d, act| {
+                let f2 = f.clone();
+                d.cursor_pointer().on_click(move |_, w, cx| act(&f2, w, cx))
+            })
             .child(
                 div()
                     .w_10()
                     .flex_none()
                     .flex()
                     .justify_center()
-                    .text_xl()
+                    .text_lg()
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(match &ep.number {
+                        // Visto: o número dá lugar ao check; o resto continua legível.
+                        Some(_) if watched => Icon::new(IconName::Check)
+                            .text_color(theme.success_foreground)
+                            .into_any_element(),
                         Some(n) => div()
-                            .text_color(theme.primary_ink())
+                            .text_color(if frac >= 0. { theme.primary_ink() } else { theme.muted_foreground })
                             .child(n.clone())
                             .into_any_element(),
                         None => Icon::new(IconName::FilePlay)
@@ -537,7 +573,7 @@ pub fn file_list(
                     .flex_1()
                     .min_w_0()
                     .gap_0p5()
-                    .child(truncate(label).font_weight(FontWeight::MEDIUM))
+                    .child(truncate(label).text_sm().font_weight(FontWeight::MEDIUM))
                     .child(
                         h_flex()
                             .gap_3()
@@ -568,6 +604,7 @@ pub fn file_list(
             let (act, f2) = (on_play.clone().unwrap(), f.clone());
             row = row.child(
                 Button::new(ElementId::Name(format!("play:{key}").into()))
+                    .ghost()
                     .small()
                     .icon(IconName::Play)
                     .label("Assistir")
@@ -583,18 +620,23 @@ pub fn file_list(
             };
             row = row.child(
                 Button::new(ElementId::Name(format!("read:{key}").into()))
+                    .ghost()
                     .small()
                     .icon(IconName::BookOpen)
                     .label(label)
                     .on_click(move |_, w, cx| act(&f2, w, cx)),
             );
         }
-        row = row.child(div().w_32().flex().justify_end().child(download_button(
+        row = row.child(div().w_20().flex().justify_end().child(download_button(
             ElementId::Name(format!("dl:{key}").into()),
             &path,
             cx,
         )));
-        list = list.child(row);
+        list = list.child(
+            hover_fade(ElementId::Name(format!("ep-hover:{key}").into()), row)
+                .fill(theme.list_hover)
+                .radius(corners),
+        );
     }
     let mut out = v_flex().gap_2();
     if let Some(q) = shared {

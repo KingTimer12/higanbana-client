@@ -5,8 +5,8 @@ use std::{rc::Rc, sync::Arc};
 
 use futures::{StreamExt, channel::mpsc::UnboundedReceiver};
 use gpui_kit::{
-    AnyView, AnyWindowHandle, Context, Entity, IntoElement, KeyBinding, MouseButton, NavigationDirection,
-    ParentElement, Render, SharedString, Styled, Subscription, Window, actions, div, prelude::*,
+    AnyView, AnyWindowHandle, Context, Entity, FocusHandle, IntoElement, KeyBinding, MouseButton, NavigationDirection,
+    ParentElement, Render, SharedString, Styled, Subscription, Window, actions, div, prelude::*, AnimationExt as _,
 };
 use gpui_kit::component::{
     ActiveTheme as _, WindowExt as _, h_flex, v_flex,
@@ -43,6 +43,8 @@ pub struct AppView {
     music: Entity<MusicBar>,
     player: Option<(Entity<PlayerView>, Subscription)>,
     reader: Option<(Entity<ReaderView>, Subscription)>,
+    /// Foco da janela: sem ele nenhum atalho global (Ctrl+K, Alt+←) chega aqui.
+    focus: FocusHandle,
     _subs: Vec<Subscription>,
 }
 
@@ -89,7 +91,10 @@ impl AppView {
             v.sections = sort_sections(names);
         });
 
+        let focus = cx.focus_handle();
+        window.focus(&focus, cx);
         Self {
+            focus,
             palette: cx.new(|cx| SearchPalette::new(window, cx)),
             music: cx.new(|cx| MusicBar::new(window, cx)),
             sections: Vec::new(),
@@ -114,6 +119,7 @@ impl AppView {
             PlayerEvent::Close => {
                 crate::theme::set_video_backdrop(false, window, cx);
                 this.player = None;
+                window.focus(&this.focus, cx);
                 this.state.update(cx, |s, cx| s.refresh_player_data(cx));
                 cx.notify();
             }
@@ -124,9 +130,10 @@ impl AppView {
 
     pub fn read(&mut self, target: ReadTarget, window: &mut Window, cx: &mut Context<Self>) {
         let reader = cx.new(|cx| ReaderView::new(target, window, cx));
-        let sub = cx.subscribe_in(&reader, window, |this, _, e: &ReaderEvent, _, cx| match e {
+        let sub = cx.subscribe_in(&reader, window, |this, _, e: &ReaderEvent, window, cx| match e {
             ReaderEvent::Close => {
                 this.reader = None;
+                window.focus(&this.focus, cx);
                 cx.notify();
             }
         });
@@ -179,16 +186,27 @@ impl AppView {
                             .flex_1()
                             .min_w_0()
                             .overflow_y_scroll()
-                            .child(page),
+                            // A tela nova aparece com um fade curto: deixa claro que o conteúdo trocou.
+                            .child(div().child(page).with_animation(
+                                SharedString::from(format!("enter:{path_key}")),
+                                crate::motion::enter(crate::motion::BASE),
+                                |d, t| d.opacity(t),
+                            )),
                     ),
             )
-            .when(has_music, |d| d.child(self.music.clone()))
+            // A barra de música aparece com fade quando um álbum começa a tocar.
+            .when(has_music, |d| {
+                d.child(div().child(self.music.clone()).with_animation("music-bar-in", crate::motion::enter(crate::motion::BASE), |e, t| {
+                    e.opacity(t)
+                }))
+            })
     }
 }
 
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let root = div()
+            .track_focus(&self.focus)
             .size_full()
             .text_color(cx.theme().foreground)
             .on_action(cx.listener(|v, _: &OpenSearch, window, cx| {

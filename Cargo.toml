@@ -7,9 +7,43 @@ version = "0.1.0"
 authors = ["Aaron King"]
 edition = "2024"
 
+[workspace.dependencies]
+higanbana-core = { path = "crates/higanbana-core" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+tokio = { version = "1", features = ["time", "sync", "fs", "io-util", "net", "macros", "rt-multi-thread"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "gzip", "brotli", "rustls-tls", "charset", "http2"] }
+url = "2"
+regex = "1"
+thiserror = "2"
+sha2 = "0.10"
+getrandom = "0.3"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+futures-util = "0.3"
+urlencoding = "2"
+flate2 = "1"
+unrar = "0.5.8"
+symphonia = { version = "0.5", features = ["all-codecs", "all-formats"] }
+rubato = "0.16"
+ebur128 = "0.1"
+cpal = "0.15"
+souvlaki = "0.8"
+dirs = "6"
+open = "5"
+gpui-kit = "0.9"
+raw-window-handle = "0.6"
+futures = "0.3"
+libloading = "0.8"
+image = "0.25"
+
 [profile.release]
 codegen-units = 1
-lto = true
-opt-level = 3
+lto = "fat"
+opt-level = "s"
 panic = "abort"
 strip = true

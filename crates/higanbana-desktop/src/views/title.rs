@@ -3,6 +3,8 @@
 //! Temporadas = subpastas com ano; releases = subpastas da temporada.
 //! Cada temporada casa com sua própria entrada no AniList.
 
+use crate::interact::hover_layer;
+use crate::interact::Button;
 use std::{collections::HashSet, rc::Rc};
 
 use gpui_kit::{
@@ -13,7 +15,7 @@ use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Sizable as _, h_flex, v_flex,
     avatar::Avatar,
-    button::{Button, ButtonVariants as _},
+    button::ButtonVariants as _,
     link::Link,
     tab::{Tab, TabBar},
     tag::Tag,
@@ -32,7 +34,7 @@ use higanbana_core::{
 use crate::{
     components::{
         breadcrumbs, columns, content_width, cover, file_list, file_paths, hex_color, option_button, option_group,
-        remote_image, FileAction,
+        remote_image, rounded_image, FileAction,
     },
     music::album::{AlbumEvent, AlbumView, looks_like_album},
     reader::{ReadTarget, progress_map},
@@ -448,7 +450,7 @@ impl Render for TitleView {
                         h_flex()
                             .gap_3()
                             .when(long, |d| {
-                                d.child(Button::new("more").ghost().xsmall().label(if expanded { "Mostrar menos" } else { "Mostrar mais" }).on_click(cx.listener(|v, _, _, cx| {
+                                d.child(Button::new("more").text().xsmall().label(if expanded { "Mostrar menos" } else { "Mostrar mais" }).on_click(cx.listener(|v, _, _, cx| {
                                     v.expanded = !v.expanded;
                                     cx.notify();
                                 })))
@@ -543,6 +545,12 @@ impl Render for TitleView {
                         180.,
                         gpui_kit::linear_color_stop(theme.background.opacity(0.3), 0.),
                         gpui_kit::linear_color_stop(theme.background, 1.),
+                    )))
+                    // Véu do lado do texto: sinopse e ações legíveis sobre qualquer banner.
+                    .child(div().absolute().inset_0().bg(gpui_kit::linear_gradient(
+                        90.,
+                        gpui_kit::linear_color_stop(theme.background.opacity(0.85), 0.25),
+                        gpui_kit::linear_color_stop(theme.background.opacity(0.), 0.9),
                     ))),
             )
             .child(
@@ -602,8 +610,8 @@ impl Render for TitleView {
                                         }
                                     }))
                                     .children(tabs.into_iter().map(|(_, label, count)| match count {
-                                        Some(n) => Tab::new().label(format!("{label} {n}")),
-                                        None => Tab::new().label(label),
+                                        Some(n) => Tab::new().cursor_pointer().label(format!("{label} {n}")),
+                                        None => Tab::new().cursor_pointer().label(label),
                                     })),
                             )
                             .child(panel),
@@ -621,7 +629,7 @@ fn portrait(url: Option<&str>, name: Option<&str>, cx: &mut gpui_kit::App) -> An
     if is_placeholder(url) {
         Avatar::new().name(name.unwrap_or("?").to_owned()).into_any_element()
     } else {
-        div().size_12().flex_none().rounded_full().overflow_hidden().bg(cx.theme().muted).child(remote_image(url, cx)).into_any_element()
+        div().size_12().flex_none().rounded_full().overflow_hidden().bg(cx.theme().muted).child(rounded_image(url, Some(px(999.)), cx)).into_any_element()
     }
 }
 
@@ -713,10 +721,9 @@ fn related(d: &MediaDetail, width: f32, rem: f32, cx: &mut gpui_kit::App) -> gpu
                         .rounded(theme.radius_lg)
                         .overflow_hidden()
                         .bg(bg)
-                        .border_1()
-                        .border_color(gpui_kit::transparent_black())
-                        .hover(|d| d.border_color(theme.ring))
-                        .child(remote_image(n.cover_image.as_ref().and_then(|c| c.large.as_deref()), cx)),
+                        .relative()
+                        .child(rounded_image(n.cover_image.as_ref().and_then(|c| c.large.as_deref()), Some(theme.radius_lg), cx))
+                        .child(hover_layer("ring").border(theme.ring).radius(theme.radius_lg)),
                 )
                 .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(theme.primary_ink()).child(text::relation(Some(&e.relation_type))))
                 .child(div().text_sm().font_weight(FontWeight::MEDIUM).line_clamp(2).child(n.title.user_preferred.clone().unwrap_or_default()))

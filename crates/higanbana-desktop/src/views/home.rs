@@ -1,5 +1,6 @@
 //! Início: saudação, seções do acervo e a temporada atual do AniList.
 
+use crate::interact::hover_layer;
 use gpui_kit::{
     Context, ElementId, Entity, FontWeight, IntoElement, ParentElement, Render, Styled, Window, assets::IconName, div,
     prelude::*, px,
@@ -114,7 +115,8 @@ impl Render for HomeView {
                     .border_1()
                     .border_color(theme.border)
                     .bg(theme.group_box)
-                    .hover(|d| d.bg(theme.secondary_hover))
+                    .relative()
+                    .cursor_pointer()
                     .child(
                         div()
                             .size_10()
@@ -134,6 +136,7 @@ impl Render for HomeView {
                             .child(div().text_sm().text_color(theme.muted_foreground).line_clamp(1).child(blurb)),
                     )
                     .child(Icon::new(IconName::ChevronRight).small().text_color(theme.muted_foreground))
+                    .child(hover_layer("ring").border(theme.ring).radius(theme.radius_lg))
                     .on_click(move |_, _, cx| state.update(cx, |s, cx| s.go(target.clone(), cx)))
             })),
         };

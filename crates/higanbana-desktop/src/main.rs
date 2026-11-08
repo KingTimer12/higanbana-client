@@ -4,6 +4,8 @@
 mod app;
 mod chrome;
 mod components;
+mod interact;
+mod motion;
 mod music;
 mod reader;
 mod state;
@@ -29,6 +31,7 @@ fn main() {
     gpui_kit::application().with_assets(ui::Assets).run(move |cx: &mut App| {
         gpui_kit::init(cx);
         theme::install(cx);
+        motion::sync_system_preference(cx);
         app::bind_keys(cx);
         state::install(core.clone(), cx);
         let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
@@ -44,6 +47,9 @@ fn main() {
         };
         gpui_kit::open_window(options, cx, |window, cx| {
             let hwnd = hwnd(window);
+            if let Some(h) = hwnd {
+                round_corners(h);
+            }
             core.music().attach_media_keys(hwnd);
             let surface = Rc::new(hwnd.and_then(video::Surface::new).expect("janela do vídeo"));
             let handle = window.window_handle();
@@ -63,3 +69,19 @@ fn hwnd(window: &Window) -> Option<usize> {
         _ => None,
     }
 }
+
+/// Cantos arredondados do Windows 11. Com fundo transparente e barra própria
+/// o sistema não arredonda sozinho; aqui pedimos explicitamente (no Windows 10
+/// a chamada só falha, sem efeito).
+#[cfg(windows)]
+fn round_corners(hwnd: usize) {
+    use windows_sys::Win32::Graphics::Dwm::{DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute};
+    let pref = DWMWCP_ROUND;
+    // SAFETY: HWND da nossa janela, ponteiro para um valor vivo do tamanho informado.
+    unsafe {
+        DwmSetWindowAttribute(hwnd as _, DWMWA_WINDOW_CORNER_PREFERENCE as u32, (&pref as *const i32).cast(), size_of::<i32>() as u32);
+    }
+}
+
+#[cfg(not(windows))]
+fn round_corners(_: usize) {}

@@ -1,12 +1,14 @@
 //! Barra do player de músicas, embaixo da janela enquanto um álbum toca.
 
+use crate::interact::hover_layer;
+use crate::interact::Button;
 use gpui_kit::{
     Context, Entity, FontWeight, IntoElement, ObjectFit, ParentElement, Render, Styled, Subscription, Window,
     assets::IconName, div, img, prelude::*, px,
 };
 use gpui_kit::component::{
     ActiveTheme as _, Selectable as _, Sizable as _, h_flex, v_flex,
-    button::{Button, ButtonRounded, ButtonVariants as _},
+    button::{ButtonRounded, ButtonVariants as _},
     slider::{Slider, SliderEvent, SliderState},
 };
 use higanbana_core::{
@@ -144,7 +146,9 @@ impl Render for MusicBar {
                     .gap_3()
                     .p_1()
                     .rounded(theme.radius)
-                    .hover(|d| d.bg(theme.list_hover))
+                    .relative()
+                    .cursor_pointer()
+                    .child(hover_layer("hover").fill(theme.list_hover).radius(theme.radius))
                     .child(div().size_12().flex_none().rounded(theme.radius).overflow_hidden().bg(theme.muted).children(match cover {
                         Some(Img::Ready(i)) => Some(img(i).size_full().object_fit(ObjectFit::Cover)),
                         _ => None,
