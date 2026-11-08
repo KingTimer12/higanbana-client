@@ -84,12 +84,17 @@ impl FranchiseView {
         let state = state(cx);
         let mut works: Vec<FileEntry> = works.into_iter().filter(|w| w.is_directory).collect();
         works.sort_by(|a, b| natural_cmp(&a.name, &b.name));
-        let names = works.iter().map(|w| w.name.clone()).collect();
+        let names: Vec<String> = works.iter().map(|w| w.name.clone()).collect();
         let works = works.into_iter().map(|w| (w.name.clone(), parse_work_name(&w.name))).collect();
         let franchise = base_name(&title_path).to_owned();
         state.update(cx, |s, cx| {
-            s.set_inner_works(&title_path, names);
             s.want_lookup(&franchise, MediaType::Anime, cx);
+            // Todas as obras de uma vez (não só as visíveis): o formato do AniList/MAL decide
+            // a aba, então as abas já nascem certas. `want_lookup` junta tudo em poucos lotes.
+            for name in &names {
+                s.want_lookup(name, MediaType::Anime, cx);
+            }
+            s.set_inner_works(&title_path, names);
         });
         let subs = vec![cx.observe(&state, |_, _, cx| cx.notify())];
         Self { state, title_path, works, tab: None, _subs: subs }
