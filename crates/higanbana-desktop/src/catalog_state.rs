@@ -38,6 +38,8 @@ pub struct CatalogState {
     letter_failed: HashMap<String, (Instant, String)>,
     crawled: HashSet<String>,
     pending: Vec<String>,
+    /// Nomes que o rastreio pediu e ainda não tiveram resposta.
+    crawl_sent: HashSet<String>,
     playing: bool,
     inner_works: HashMap<String, Vec<String>>,
     /// Muda a cada `set_inner_works`.
@@ -65,6 +67,15 @@ impl Default for CatalogChoice {
 pub fn next_crawl_batch(pending: &mut Vec<String>, max: usize) -> Vec<String> {
     let n = pending.len().min(max);
     pending.drain(..n).collect()
+}
+
+/// Um lote do AniList voltou: os nomes do rastreio saem de `sent`; se o lote
+/// falhou, voltam ao começo da fila para serem pedidos de novo.
+pub fn settle_crawl(pending: &mut Vec<String>, sent: &mut HashSet<String>, names: &[String], failed: bool) {
+    let mine: Vec<String> = names.iter().filter(|n| sent.remove(n.as_str())).cloned().collect();
+    if failed {
+        pending.splice(0..0, mine);
+    }
 }
 
 /// Uma letra que falhou só é pedida de novo depois do período de espera.
@@ -176,7 +187,8 @@ impl AppState {
         }));
     }
 
-    /// Uma rodada; `true` quando não há mais nada a fazer.
+    /// Uma rodada; `true` quando não há mais nada a fazer. Espera a resposta
+    /// do lote anterior (no máximo um lote do rastreio em andamento).
     fn crawl_step(&mut self, cx: &mut Context<Self>) -> bool {
         if self.cat.playing || self.lookups_busy() {
             return false;
@@ -191,9 +203,16 @@ impl AppState {
             }
         }
         for name in next_crawl_batch(&mut self.cat.pending, CRAWL_BATCH) {
-            self.want_lookup(&name, MediaType::Anime, cx);
+            if self.want_lookup(&name, MediaType::Anime, cx) {
+                self.cat.crawl_sent.insert(name);
+            }
         }
-        self.cat.pending.is_empty() && self.cat.crawled.len() == LETTERS.len()
+        self.cat.pending.is_empty() && self.cat.crawl_sent.is_empty() && self.cat.crawled.len() == LETTERS.len()
+    }
+
+    /// Resposta de um lote: nomes do rastreio num lote que falhou voltam à fila.
+    pub(crate) fn crawl_lookups_done(&mut self, names: &[String], failed: bool) {
+        settle_crawl(&mut self.cat.pending, &mut self.cat.crawl_sent, names, failed);
     }
 
     /// Nomes resolvidos / total de nomes no índice. Recontado só quando chega letra ou resposta.
@@ -262,6 +281,21 @@ mod tests {
         assert!(may_retry(None, t, cd));
         assert!(!may_retry(Some(t), t + Duration::from_secs(29), cd));
         assert!(may_retry(Some(t), t + Duration::from_secs(30), cd));
+    }
+
+    #[test]
+    fn failed_crawl_names_return_to_queue() {
+        let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let mut pending = names(&["c"]);
+        let mut sent: HashSet<String> = names(&["a", "b"]).into_iter().collect();
+        // "x" veio de um card visível, não do rastreio: não entra na fila.
+        settle_crawl(&mut pending, &mut sent, &names(&["a", "x"]), true);
+        assert_eq!(pending, names(&["a", "c"]));
+        assert_eq!(sent, names(&["b"]).into_iter().collect());
+        // Lote respondido: só sai de `sent`.
+        settle_crawl(&mut pending, &mut sent, &names(&["b"]), false);
+        assert_eq!(pending, names(&["a", "c"]));
+        assert!(sent.is_empty());
     }
 
     #[test]

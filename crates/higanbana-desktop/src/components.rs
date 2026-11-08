@@ -786,7 +786,9 @@ pub fn title_card(id: ElementId, name: &str, target: String, media: MediaType, w
 }
 
 pub fn want_lookup(name: String, media: MediaType) -> impl FnOnce(&mut App) {
-    move |cx| state(cx).update(cx, |s: &mut AppState, cx| s.want_lookup(&name, media, cx))
+    move |cx| {
+        state(cx).update(cx, |s: &mut AppState, cx| s.want_lookup(&name, media, cx));
+    }
 }
 
 #[cfg(test)]

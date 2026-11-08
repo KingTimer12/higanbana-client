@@ -102,6 +102,8 @@ pub struct AppState {
     lookups_gen: u64,
     lookup_queue: Vec<(MediaType, String)>,
     lookup_task: Option<Task<()>>,
+    /// Lotes enviados ao AniList ainda sem resposta.
+    lookups_inflight: usize,
     catalog: HashMap<i64, Option<Option<String>>>,
     pub downloads: Vec<Download>,
     next_download: u64,
@@ -135,6 +137,7 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             lookups_gen: 0,
             lookup_queue: Vec::new(),
             lookup_task: None,
+            lookups_inflight: 0,
             catalog: HashMap::new(),
             downloads: Vec::new(),
             next_download: 1,
@@ -304,16 +307,17 @@ impl AppState {
         self.lookups.get(&(media, name.to_owned())).and_then(Option::as_ref).map(Option::as_ref)
     }
 
-    /// Há buscas na fila ou prestes a sair (o rastreio espera).
+    /// Há buscas na fila, prestes a sair ou esperando resposta (o rastreio espera).
     pub(crate) fn lookups_busy(&self) -> bool {
-        !self.lookup_queue.is_empty() || self.lookup_task.is_some()
+        !self.lookup_queue.is_empty() || self.lookup_task.is_some() || self.lookups_inflight > 0
     }
 
-    /// Pede a busca (junta pedidos próximos numa requisição só).
-    pub fn want_lookup(&mut self, name: &str, media: MediaType, cx: &mut Context<Self>) {
+    /// Pede a busca (junta pedidos próximos numa requisição só). `false` se o nome já
+    /// estava pedido ou respondido.
+    pub fn want_lookup(&mut self, name: &str, media: MediaType, cx: &mut Context<Self>) -> bool {
         let key = (media, name.to_owned());
         if self.lookups.contains_key(&key) {
-            return;
+            return false;
         }
         self.lookups.insert(key.clone(), None);
         self.lookup_queue.push(key);
@@ -323,6 +327,7 @@ impl AppState {
                 let _ = this.update(cx, |s, cx| s.flush_lookups(cx));
             }));
         }
+        true
     }
 
     fn flush_lookups(&mut self, cx: &mut Context<Self>) {
@@ -341,14 +346,21 @@ impl AppState {
         let core = self.core.clone();
         let items: Vec<LookupRequest> = batch.iter().map(|(m, n)| LookupRequest { name: n.clone(), media_type: *m }).collect();
         let task = self.core.spawn(async move { core.anilist().lookup(&items).await });
+        self.lookups_inflight += 1;
         cx.spawn(async move |this, cx| {
             let result = task.await.ok().and_then(Result::ok);
             let _ = this.update(cx, |s, cx| {
+                s.lookups_inflight = s.lookups_inflight.saturating_sub(1);
+                let anime = |key: &(MediaType, String)| (key.0 == MediaType::Anime).then(|| key.1.clone());
                 match result {
                     Some(list) => {
                         s.lookups_gen += 1;
                         let mut retry = Vec::new();
+                        let mut answered = Vec::new();
                         for (key, v) in batch.into_iter().zip(list) {
+                            if !matches!(v, Lookup::Pending) {
+                                answered.extend(anime(&key));
+                            }
                             match v {
                                 Lookup::Found(v) => {
                                     s.lookups.insert(key, Some(serde_json::from_value::<MediaSummary>(v).ok()));
@@ -372,12 +384,15 @@ impl AppState {
                             })
                             .detach();
                         }
+                        s.crawl_lookups_done(&answered, false);
                     }
-                    // Falha de rede/limite: libera para tentar de novo depois.
+                    // Falha de rede/limite: libera para tentar de novo depois (o rastreio pede de novo os dele).
                     None => {
+                        let failed: Vec<String> = batch.iter().filter_map(anime).collect();
                         for key in batch {
                             s.lookups.remove(&key);
                         }
+                        s.crawl_lookups_done(&failed, true);
                     }
                 }
                 cx.notify();
