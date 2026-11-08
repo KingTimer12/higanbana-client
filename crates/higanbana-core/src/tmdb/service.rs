@@ -19,6 +19,8 @@ use crate::{
 
 const PT: &str = "pt-BR";
 const EN: &str = "en-US";
+/// Obra casada (série e âncora) fica uma semana; "não tem" só um dia, para uma
+/// série recém-cadastrada no TMDB aparecer logo.
 const WORKS_TTL: i64 = 7 * 24 * 3600;
 const DAY_TTL: i64 = 24 * 3600;
 
@@ -90,7 +92,9 @@ pub fn work_key(q: &WorkQuery) -> String {
 
 pub struct Tmdb {
     client: TmdbClient,
-    works: DiskCache<Option<(u64, Anchor)>>,
+    works: DiskCache<(u64, Anchor)>,
+    /// Obras sem série ou sem âncora no TMDB (`DAY_TTL`).
+    misses: DiskCache<bool>,
     shows: DiskCache<TvShow>,
     seasons: DiskCache<Vec<Episode>>,
 }
@@ -100,6 +104,7 @@ impl Tmdb {
         Self {
             client: TmdbClient::new(),
             works: DiskCache::open(cache_dir.join("tmdb-works.json"), WORKS_TTL),
+            misses: DiskCache::open(cache_dir.join("tmdb-works-miss.json"), DAY_TTL),
             shows: DiskCache::open(cache_dir.join("tmdb-shows.json"), DAY_TTL),
             seasons: DiskCache::open(cache_dir.join("tmdb-seasons.json"), DAY_TTL),
         }
@@ -114,19 +119,20 @@ impl Tmdb {
         let key = work_key(q);
         let result = self.resolve(&key, q).await;
         self.works.flush();
+        self.misses.flush();
         self.shows.flush();
         self.seasons.flush();
         result
     }
 
     async fn resolve(&self, key: &str, q: &WorkQuery) -> TmdbResult<Option<WorkEpisodes>> {
-        let (show_id, known) = match self.works.get(key) {
+        let (show_id, known) = match self.cached(key) {
             Some(None) => return Ok(None),
             Some(Some((id, anchor))) => (id, Some(anchor)),
             None => match self.find_show(q).await? {
                 Some(id) => (id, None),
                 None => {
-                    self.works.insert(key.to_owned(), None);
+                    self.remember(key, None);
                     return Ok(None);
                 }
             },
@@ -140,11 +146,11 @@ impl Tmdb {
             Some(a) => a,
             None => match pick_anchor(&show, &pt, q) {
                 Some(a) => {
-                    self.works.insert(key.to_owned(), Some((show_id, a)));
+                    self.remember(key, Some((show_id, a)));
                     a
                 }
                 None => {
-                    self.works.insert(key.to_owned(), None);
+                    self.remember(key, None);
                     return Ok(None);
                 }
             },
@@ -168,6 +174,23 @@ impl Tmdb {
             }));
         }
         Ok(Some(WorkEpisodes { show_id, show_vote: (show.vote_average, show.vote_count), anchor, show, episodes }))
+    }
+
+    /// Casamento guardado: `Some(Some(..))` série e âncora; `Some(None)` o TMDB não
+    /// tem a obra; `None` nada guardado (ou vencido).
+    fn cached(&self, key: &str) -> Option<Option<(u64, Anchor)>> {
+        if let Some(hit) = self.works.get(key) {
+            return Some(Some(hit));
+        }
+        self.misses.get(key).map(|_| None)
+    }
+
+    /// Guarda o casamento: achou → uma semana; não achou → um dia.
+    fn remember(&self, key: &str, found: Option<(u64, Anchor)>) {
+        match found {
+            Some(hit) => self.works.insert(key.to_owned(), hit),
+            None => self.misses.insert(key.to_owned(), true),
+        }
     }
 
     async fn find_show(&self, q: &WorkQuery) -> TmdbResult<Option<u64>> {
@@ -310,6 +333,38 @@ mod tests {
         no_day.start_day_known = false;
         assert_ne!(work_key(&day_one), work_key(&no_day));
         assert!(work_key(&no_day).contains("|2014-02|"));
+    }
+
+    #[test]
+    fn misses_expire_in_a_day_matches_in_a_week() {
+        let dir = std::env::temp_dir().join(format!("higanbana-tmdb-ttl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let (two_hours, two_days) = (now - 2 * 3600, now - 2 * 24 * 3600);
+        std::fs::write(
+            dir.join("tmdb-works.json"),
+            format!(r#"{{"hit":{{"at":{two_days},"value":[5,{{"season":1,"offset":0}}]}}}}"#),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("tmdb-works-miss.json"),
+            format!(r#"{{"old":{{"at":{two_days},"value":true}},"new":{{"at":{two_hours},"value":true}}}}"#),
+        )
+        .unwrap();
+        let tmdb = Tmdb::new(&dir);
+        assert_eq!(tmdb.cached("hit"), Some(Some((5, Anchor { season: 1, offset: 0 }))));
+        assert_eq!(tmdb.cached("new"), Some(None));
+        assert_eq!(tmdb.cached("old"), None);
+        assert_eq!(tmdb.cached("nada"), None);
+        // Gravar: casamento no cache de 7 dias, ausência no de 24 h.
+        tmdb.remember("a", None);
+        tmdb.remember("b", Some((9, Anchor { season: 2, offset: 3 })));
+        assert_eq!(tmdb.cached("a"), Some(None));
+        assert!(tmdb.works.get("a").is_none());
+        assert_eq!(tmdb.cached("b"), Some(Some((9, Anchor { season: 2, offset: 3 }))));
+        assert!(tmdb.misses.get("b").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
