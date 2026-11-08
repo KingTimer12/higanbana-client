@@ -57,11 +57,14 @@ fn header_label(letter: &str) -> &str {
     if letter == "0-9" { "0–9" } else { letter.trim_start_matches("Letra ") }
 }
 
+/// Obras de uma letra: (índice da letra, entradas).
+type LetterSection = (usize, Arc<Vec<IndexEntry>>);
+
 /// Obras cujo nome contém `query` (sem acento nem caixa), por letra; letras sem obra somem.
 fn search_sections<'a>(
     letters: impl IntoIterator<Item = (usize, &'a [IndexEntry])>,
     query: &str,
-) -> Vec<(usize, Arc<Vec<IndexEntry>>)> {
+) -> Vec<LetterSection> {
     let q = norm(query);
     letters
         .into_iter()
@@ -139,7 +142,7 @@ pub struct CatalogView {
     cloud_failed: bool,
     cloud_task: Option<Task<()>>,
     /// Resultado da busca em cache: (texto, letras indexadas, seções).
-    found: Option<(String, usize, Vec<(usize, Arc<Vec<IndexEntry>>)>)>,
+    found: Option<(String, usize, Vec<LetterSection>)>,
     /// Seções do último quadro, na ordem dos filhos (o filho 0 é o cabeçalho).
     shown: Vec<SectionKey>,
     /// Um salto acabou de ser pedido: não restaurar a posição anterior.

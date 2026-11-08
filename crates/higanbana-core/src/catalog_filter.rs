@@ -61,10 +61,7 @@ impl Filters {
         {
             return false;
         }
-        if !self.seasons.is_empty() && !m.season.as_deref().and_then(Season::from_anilist).is_some_and(|s| self.seasons.contains(&s)) {
-            return false;
-        }
-        true
+        self.seasons.is_empty() || m.season.as_deref().and_then(Season::from_anilist).is_some_and(|s| self.seasons.contains(&s))
     }
 }
 

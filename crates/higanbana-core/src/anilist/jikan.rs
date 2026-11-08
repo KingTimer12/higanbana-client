@@ -22,6 +22,12 @@ pub struct JikanClient {
     last_request: Mutex<Option<Instant>>,
 }
 
+impl Default for JikanClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JikanClient {
     pub fn new() -> Self {
         Self {
