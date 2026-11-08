@@ -181,6 +181,91 @@ pub fn folder_title(name: &str) -> String {
     if t.is_empty() { name.to_owned() } else { t.into_owned() }
 }
 
+re!(LEADING_GROUP, r"^\s*\[([^\]]+)\]");
+re!(TRAILING_GROUP, r"-([A-Za-z0-9]+)$");
+re!(RES_P, r"(?i)\b(\d{3,4})p\b");
+re!(RES_WXH, r"\b\d{3,4}x(\d{3,4})\b");
+re!(AUDIO, r"(?i)\b(Multi-Audio|Dual|Dublado|Dub)\b");
+re!(
+    TECH,
+    r"(?i)\b(?:e\s+)?S\d{1,2}\b|\b\d{3,4}p\b|\b\d{3,4}x\d{3,4}\b|\bx26[45]\b|\bH\.?26[45]\b|\b(?:AVC|HEVC|FLAC|hi10p?)\b|\bAAC\d*(?:\.\d)?|\bWEB-DL\b|\b(?:WEB|BD|CR|NF|AMZN)\b|\b\d+\s*~\s*\d+\b"
+);
+
+pub const LOOSE_FILES_VERSION: &str = "Arquivos da pasta";
+
+/// Rótulo legível de uma pasta de versão (release) de uma obra.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct VersionLabel {
+    pub name: String,
+    pub group: Option<String>,
+    pub resolution: Option<String>,
+    pub source: Option<String>,
+    pub audio: Option<String>,
+}
+
+fn words(s: &str) -> Vec<String> {
+    s.split(|c: char| !c.is_alphanumeric()).map(norm).filter(|w| w.len() >= 3).collect()
+}
+
+pub fn version_label(folder: &str, work_title: &str) -> VersionLabel {
+    let group = LEADING_GROUP
+        .captures(folder)
+        .map(|c| c[1].trim().to_owned())
+        .or_else(|| TRAILING_GROUP.captures(folder.trim()).map(|c| c[1].to_owned()));
+    let resolution = RES_P
+        .captures(folder)
+        .map(|c| format!("{}p", &c[1]))
+        .or_else(|| RES_WXH.captures(folder).map(|c| format!("{}p", &c[1])));
+    let source = ["CR", "NF", "AMZN", "BD", "WEB-DL", "WEB"].into_iter().find(|s| {
+        let pat = format!(r"(?i)(?:^|[^A-Za-z0-9]){}(?:[^A-Za-z0-9]|$)", regex::escape(s));
+        Regex::new(&pat).unwrap().is_match(folder)
+    });
+    let audio = AUDIO.captures(folder).map(|c| match c[1].to_ascii_lowercase().as_str() {
+        "multi-audio" => "Multi-Audio",
+        "dual" => "Dual",
+        "dublado" => "Dublado",
+        _ => "Dub",
+    });
+
+    // Nome sem colchetes nem marcas técnicas.
+    let mut base = BRACKETS.replace_all(folder, " ").replace('_', " ");
+    if let Some(m) = TRAILING_GROUP.find(base.trim_end()) {
+        base.truncate(m.start());
+    }
+    let base = TECH.replace_all(&base, " ").replace('.', " ");
+    let base = SPACES.replace_all(&base, " ");
+    let title = EDGES.replace_all(base.trim(), "").into_owned();
+
+    // Título próprio (ex.: "Glitter Force" para Smile Precure) só quando não tem relação com a obra.
+    let (nt, nw) = (norm(&title), norm(work_title));
+    let work_words = words(work_title);
+    let own_title = nt.chars().filter(|c| c.is_alphabetic()).count() >= 3
+        && !nw.contains(&nt)
+        && !nt.contains(&nw)
+        && !words(&title).iter().any(|w| work_words.contains(w));
+    let name = if own_title {
+        title
+    } else if let Some(g) = &group {
+        g.clone()
+    } else if !title.is_empty() {
+        title
+    } else {
+        folder_title(folder)
+    };
+    VersionLabel { name, group, resolution, source: source.map(str::to_owned), audio: audio.map(str::to_owned) }
+}
+
+/// Altura em pixels (`1080p` → 1080); 0 sem resolução.
+pub fn resolution_rank(label: &VersionLabel) -> u32 {
+    label.resolution.as_deref().and_then(|r| r.trim_end_matches('p').parse().ok()).unwrap_or(0)
+}
+
+/// `Extras`, `Especiais`, `Bônus`, `Legendas`, `NCOP`, `NCED`, `OST`, `Scans` (ou começando por elas).
+pub fn is_extra_folder(name: &str) -> bool {
+    const EXTRAS: [&str; 9] = ["extras", "especiais", "bonus", "legendas", "ncop", "nced", "ost", "scans", "extra"];
+    name.split(|c: char| !c.is_alphanumeric()).find(|w| !w.is_empty()).is_some_and(|w| EXTRAS.contains(&norm(w).as_str()))
+}
+
 /// Tags de release entre colchetes: `[DUAL] [NF e Troidex] [BD 1080p]`.
 pub fn release_tags(name: &str) -> Vec<String> {
     TAGS.captures_iter(name)
@@ -275,6 +360,24 @@ pub fn norm(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn version_labels() {
+        let v = version_label("[Aenianos]_Pretty_Cure_Splash_Star [640x480]", "Futari wa Precure Splash Star");
+        assert_eq!((v.group.as_deref(), v.resolution.as_deref()), (Some("Aenianos"), Some("480p")));
+        assert_eq!(v.name, "Aenianos");
+        let v = version_label("PreCure.Splash.Star.S01.1080p.CR.WEB-DL.AAC2.0.H.264-TupaC", "Futari wa Precure Splash Star");
+        assert_eq!((v.group.as_deref(), v.resolution.as_deref(), v.source.as_deref()), (Some("TupaC"), Some("1080p"), Some("CR")));
+        let v = version_label("[DragsterPS] Glitter Force S01 e S02 [1080p] [Multi-Audio] [Multi-Subs]", "Smile Precure!");
+        assert_eq!(v.name, "Glitter Force");
+        assert_eq!((v.audio.as_deref(), v.resolution.as_deref()), (Some("Multi-Audio"), Some("1080p")));
+        let v = version_label("[Aenianos] Smile Precure [1280x720][hi10p]", "Smile Precure!");
+        assert_eq!((v.name.as_str(), v.resolution.as_deref()), ("Aenianos", Some("720p")));
+        assert_eq!(version_label("Yes Precure 5 - 01 ~ 49 [1080p CR WEB-DL AVC AAC][MultiSub]", "Yes! Precure 5").source.as_deref(), Some("CR"));
+        assert!(resolution_rank(&version_label("x [1080p]", "x")) > resolution_rank(&version_label("x [640x480]", "x")));
+        assert!(is_extra_folder("Extras") && is_extra_folder("NCOP e NCED") && is_extra_folder("bônus"));
+        assert!(!is_extra_folder("[Aenianos] Smile Precure"));
+    }
     use super::*;
 
     #[test]
