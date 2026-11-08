@@ -50,17 +50,30 @@ pub struct CatalogState {
     view: CatalogChoice,
 }
 
-/// O que a pessoa escolheu na tela do catálogo (`filters.query` é o texto da busca).
+/// O que a pessoa escolheu na tela do catálogo (`filters.query` é o texto da busca)
+/// e onde a tela estava ao sair.
 #[derive(Clone)]
 pub struct CatalogChoice {
     pub filters: Filters,
     pub sort: Sort,
+    pub place: CatalogPlace,
 }
 
 impl Default for CatalogChoice {
     fn default() -> Self {
-        Self { filters: Filters::default(), sort: Sort::Az }
+        Self { filters: Filters::default(), sort: Sort::Az, place: CatalogPlace::default() }
     }
+}
+
+/// Posição da tela do catálogo, para voltar ao mesmo lugar.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CatalogPlace {
+    /// Última letra pedida (posição em `LETTERS`).
+    pub upto: usize,
+    /// Letra no topo da tela (grade por letras, sem busca); `None` = cabeçalho.
+    pub top: Option<usize>,
+    /// Quanto a tela estava rolada, em pixels (busca ou grade única).
+    pub offset: f32,
 }
 
 /// Tira até `max` nomes do começo, em ordem; o que saiu não volta.
@@ -254,11 +267,15 @@ impl AppState {
     /// Guarda os filtros e a ordenação (a busca fica como está).
     pub fn save_catalog_filters(&mut self, filters: &Filters, sort: Sort) {
         let query = std::mem::take(&mut self.cat.view.filters.query);
-        self.cat.view = CatalogChoice { filters: Filters { query, ..filters.clone() }, sort };
+        self.cat.view = CatalogChoice { filters: Filters { query, ..filters.clone() }, sort, place: self.cat.view.place };
     }
 
     pub fn save_catalog_query(&mut self, query: &str) {
         self.cat.view.filters.query = query.to_owned();
+    }
+
+    pub fn save_catalog_place(&mut self, place: CatalogPlace) {
+        self.cat.view.place = place;
     }
 
     pub fn inner_summaries(&self, title_path: &str) -> Vec<MediaSummary> {

@@ -29,6 +29,7 @@ use higanbana_core::{
 };
 
 use crate::{
+    catalog_state::CatalogPlace,
     components::{breadcrumbs, columns, content_width, title_card, when_visible},
     state::{AppState, state},
     ui::empty_state,
@@ -87,6 +88,25 @@ fn outside(bounds: Bounds<Pixels>, top: Pixels, bottom: Pixels) -> bool {
 fn anchor_index(old: &[usize], new: &[usize], top: usize) -> Option<usize> {
     let letter = *old.get(top.checked_sub(1)?)?;
     new.iter().position(|l| *l == letter).map(|pos| 1 + pos)
+}
+
+/// Onde a tela reabre.
+#[derive(Debug, PartialEq)]
+enum Reopen {
+    Top,
+    Letter(usize),
+    /// Rolada esta quantidade de pixels.
+    Offset(f32),
+}
+
+/// A letra da rota vence; sem ela, volta à letra do topo (grade por letras) ou à rolagem salva.
+fn reopen_at(route: Option<usize>, place: &CatalogPlace, by_letter: bool) -> Reopen {
+    match route {
+        Some(letter) => Reopen::Letter(letter),
+        None if by_letter => place.top.map_or(Reopen::Top, Reopen::Letter),
+        None if place.offset > 0. => Reopen::Offset(place.offset),
+        None => Reopen::Top,
+    }
 }
 
 enum Body {
@@ -155,8 +175,9 @@ pub struct CatalogView {
 impl CatalogView {
     pub fn new(letter: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let state = state(cx);
-        // Busca e filtros voltam como estavam ao reabrir o catálogo (abrir uma obra e voltar).
+        // Busca, filtros e posição voltam como estavam ao reabrir o catálogo (abrir uma obra e voltar).
         let saved_query = state.read(cx).catalog_choice().filters.query.clone();
+        let place = state.read(cx).catalog_choice().place;
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Buscar no catálogo").default_value(saved_query));
         let bar = cx.new(|cx| FilterBar::new(state.clone(), window, cx));
         let subs = vec![
@@ -170,6 +191,10 @@ impl CatalogView {
             // A barra também desenha os menus de ordenação e coleções daqui.
             cx.observe(&bar, |_, _, cx| cx.notify()),
             cx.subscribe(&bar, |this: &mut Self, _, _: &FiltersChanged, cx| this.restart(cx)),
+            cx.on_release(|this: &mut Self, cx| {
+                let place = this.place(cx);
+                this.state.update(cx, |s, _| s.save_catalog_place(place));
+            }),
         ];
         state.update(cx, |s, cx| {
             s.start_anime_index(cx);
@@ -193,12 +218,30 @@ impl CatalogView {
             retry: None,
             _subs: subs,
         };
-        // Sem letra a tela abre no topo (cabeçalho e busca à vista); com letra, já rolada até ela.
-        match letter.and_then(|l| LETTERS.iter().position(|x| *x == l)) {
-            Some(start) => view.jump(start, cx),
-            None => view.state.update(cx, |s, cx| s.want_anime_letter(LETTERS[0], cx)),
+        // Com letra na rota, já rolada até ela; sem, volta aonde estava (ou ao topo).
+        let route = letter.and_then(|l| LETTERS.iter().position(|x| *x == l));
+        if route.is_none() {
+            view.upto = place.upto.min(LETTERS.len() - 1);
         }
+        let by_letter = !view.searching(cx) && !view.flat_mode(cx);
+        match reopen_at(route, &place, by_letter) {
+            Reopen::Letter(start) => view.jump(start, cx),
+            Reopen::Offset(y) => {
+                view.scroll.set_offset(point(px(0.), px(-y)));
+                view.jumped = true;
+            }
+            Reopen::Top => view.state.update(cx, |s, cx| s.want_anime_letter(LETTERS[0], cx)),
+        }
+        // A busca restaurada também traz de volta as obras dentro de franquias.
+        view.cloud_search(cx);
         view
+    }
+
+    /// Onde a tela está agora (guardado ao sair).
+    fn place(&self, cx: &App) -> CatalogPlace {
+        let by_letter = !self.searching(cx) && !self.flat_mode(cx);
+        let top = if by_letter { self.scroll.top_item().checked_sub(1).and_then(|pos| self.shown.get(pos)).map(|k| k.letter) } else { None };
+        CatalogPlace { upto: self.upto, top, offset: (-f32::from(self.scroll.offset().y)).max(0.) }
     }
 
     /// Rola até a letra; sem busca, também passa a desenhar até ela e a pede.
@@ -677,6 +720,20 @@ mod tests {
         assert_eq!(anchor_index(&[2, 8], &[2, 14], 2), None);
         // Topo além das seções conhecidas (rodapé/estado vazio).
         assert_eq!(anchor_index(&[2], &[2], 5), None);
+    }
+
+    #[test]
+    fn reopens_where_it_was() {
+        let place = CatalogPlace { upto: 9, top: Some(7), offset: 1200. };
+        // A letra pedida na rota vence.
+        assert_eq!(reopen_at(Some(3), &place, true), Reopen::Letter(3));
+        assert_eq!(reopen_at(Some(3), &place, false), Reopen::Letter(3));
+        // Grade por letras: volta à letra do topo; com o cabeçalho no topo, ao topo.
+        assert_eq!(reopen_at(None, &place, true), Reopen::Letter(7));
+        assert_eq!(reopen_at(None, &CatalogPlace { top: None, ..place }, true), Reopen::Top);
+        // Busca ou grade única: volta à rolagem salva.
+        assert_eq!(reopen_at(None, &place, false), Reopen::Offset(1200.));
+        assert_eq!(reopen_at(None, &CatalogPlace::default(), false), Reopen::Top);
     }
 
     #[test]
