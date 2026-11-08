@@ -214,9 +214,21 @@ impl AppState {
             return;
         }
         self.cat.crawl_task = Some(cx.spawn(async move |this, cx| {
+            // Pausa do AniList começou ou acabou (429 vindo de qualquer pedido): redesenha
+            // para o aviso do contador aparecer na hora.
+            let mut paused = false;
             loop {
                 cx.background_executor().timer(CRAWL_EVERY).await;
-                let Ok(done) = this.update(cx, |s, cx| s.crawl_step(cx)) else { return };
+                let Ok(done) = this.update(cx, |s, cx| {
+                    let now = s.anilist_paused_until().is_some();
+                    if now != paused && !s.cat.playing {
+                        paused = now;
+                        cx.notify();
+                    }
+                    s.crawl_step(cx)
+                }) else {
+                    return;
+                };
                 if done {
                     return;
                 }
