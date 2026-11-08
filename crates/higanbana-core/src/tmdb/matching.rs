@@ -118,21 +118,22 @@ pub fn pick_show(hits: &[TvHit], q: &WorkQuery) -> Option<u64> {
 }
 
 /// Episódio que estreou mais perto de `start`, a até `DATE_TOLERANCE` dias. Em
-/// séries semanais o vizinho fica a 7 dias, então vence o mais próximo; empate
-/// entre episódios diferentes é dúvida → `None`.
+/// séries semanais o vizinho fica a 7 dias, então vence o mais próximo. Empatados
+/// na mesma temporada e no mesmo dia (estreia dupla, temporada inteira de uma vez)
+/// → o menor número; empate entre datas ou temporadas diferentes é dúvida → `None`.
 fn anchor_near<'a>(seasons: impl Iterator<Item = &'a (u32, Vec<Episode>)>, start: Ymd) -> Option<Anchor> {
-    let mut near: Vec<(i64, u32, u32)> = seasons
+    let mut near: Vec<(i64, u32, i64, u32)> = seasons
         .flat_map(|(s, list)| list.iter().map(move |e| (*s, e)))
         .filter(|(_, e)| e.episode_number > 0)
         .filter_map(|(season, e)| {
-            let diff = (parse_date(e.air_date.as_deref())?.days() - start.days()).abs();
-            (diff <= DATE_TOLERANCE).then_some((diff, season, e.episode_number))
+            let day = parse_date(e.air_date.as_deref())?.days();
+            let diff = (day - start.days()).abs();
+            (diff <= DATE_TOLERANCE).then_some((diff, season, day, e.episode_number))
         })
         .collect();
     near.sort_unstable();
-    near.dedup();
-    let &(best, season, number) = near.first()?;
-    if near.get(1).is_some_and(|&(diff, _, _)| diff == best) {
+    let &(best, season, day, number) = near.first()?;
+    if near.iter().take_while(|n| n.0 == best).any(|n| n.1 != season || n.2 != day) {
         return None;
     }
     Some(Anchor { season, offset: number - 1 })
@@ -421,6 +422,27 @@ mod tests {
         let eps = [weekly(1, 1, &["2022-09-29", "2022-10-03"])];
         let q = query(&["X"], Some(2022), Some("2022-10-01"), WorkKind::Series);
         assert_eq!(pick_anchor(&s, &eps, &q), None);
+        // -3 e +3 dias, com dois episódios em cada data: continua dúvida.
+        let eps = [weekly(1, 1, &["2022-09-28", "2022-09-28", "2022-10-04", "2022-10-04"])];
+        assert_eq!(pick_anchor(&s, &eps, &q), None);
+        // Mesma data em temporadas diferentes: dúvida.
+        let s = show(&[(1, 12), (2, 12)]);
+        let eps = [weekly(1, 5, &["2022-10-01"]), weekly(2, 1, &["2022-10-01"])];
+        assert_eq!(pick_anchor(&s, &eps, &q), None);
+    }
+
+    #[test]
+    fn same_day_episodes_anchor_at_lowest() {
+        let s = show(&[(1, 12)]);
+        let q = query(&["X"], Some(2022), Some("2022-10-01"), WorkKind::Series);
+        // Estreia dupla: ep1 e ep2 no mesmo dia.
+        let eps = [weekly(1, 1, &["2022-10-01", "2022-10-01", "2022-10-08"])];
+        assert_eq!(pick_anchor(&s, &eps, &q), Some(Anchor { season: 1, offset: 0 }));
+        // Temporada inteira lançada de uma vez (ONA), fora de ordem na lista.
+        let mut list: Vec<Episode> = (1..=12).rev().map(|n| ep(1, n, Some("2022-10-03"))).collect();
+        list.swap(0, 5);
+        let eps = [(1, list)];
+        assert_eq!(pick_anchor(&s, &eps, &q), Some(Anchor { season: 1, offset: 0 }));
     }
 
     #[test]
