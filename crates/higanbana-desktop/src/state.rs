@@ -609,13 +609,11 @@ impl AppState {
         .detach();
     }
 
-    // Lidos pela lista de episódios (próxima etapa); até lá ficam sem uso.
-    #[allow(dead_code)]
+    /// Layout da aba Episódios (grade ou lista), guardado nas preferências.
     pub fn episode_layout(&self) -> EpisodeLayout {
         self.core.settings().episode_layout()
     }
 
-    #[allow(dead_code)]
     pub fn set_episode_layout(&mut self, layout: EpisodeLayout, cx: &mut Context<Self>) {
         self.core.settings().set_episode_layout(layout);
         cx.notify();

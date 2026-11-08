@@ -51,7 +51,7 @@ use crate::{
     theme::ProductColors as _,
     ui::{empty_state, truncate},
     video::PlayTarget,
-    views::{franchise::FranchiseView, load_listing},
+    views::{episodes::episode_list, franchise::FranchiseView, load_listing},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -430,6 +430,20 @@ impl TitleView {
         self.state.read(cx).episodes(self.episodes_key.as_deref()?).flatten()
     }
 
+    /// Episódios para a aba: `None` enquanto o AniList ou o TMDB respondem;
+    /// `Some(None)` sem dados do TMDB (mangá, filme, obra não achada, sem token).
+    fn episodes_state(&self, cx: &gpui_kit::App) -> Option<Option<Arc<WorkEpisodes>>> {
+        if self.media_type != MediaType::Anime {
+            return Some(None);
+        }
+        match &self.episodes_key {
+            Some(key) => self.state.read(cx).episodes(key),
+            // Sem pedido ainda: espera o resumo e o detalhe da obra chegarem.
+            None if self.detail.is_none() && !matches!(self.summary(cx), Some(None)) => None,
+            None => Some(None),
+        }
+    }
+
     /// Arquivos que a tela mostra. Na raiz da obra (versão de arquivos soltos,
     /// ou obra só com extras) as subpastas ficam de fora: versões viram cartões
     /// e extras têm seção própria.
@@ -572,6 +586,7 @@ impl Render for TitleView {
         let active_tab = tabs[active_ix].0;
 
         let tmdb = self.tmdb_episodes(cx);
+        let episodes_state = self.episodes_state(cx);
         let rating = st.rating_source().work(media.as_ref(), tmdb.as_deref());
         let meta: Vec<String> = media
             .as_ref()
@@ -733,10 +748,17 @@ impl Render for TitleView {
                             let _ = this.update(cx, |v, cx| v.play(f.clone(), cx));
                         }
                     });
-                    let on_read: FileAction = Rc::new(move |f, _, cx| {
-                        let _ = this.update(cx, |v, cx| v.read(f.clone(), cx));
-                    });
-                    file_list(&files_path, &list, Some(on_play), Some(on_read), cx).into_any_element()
+                    if self.media_type == MediaType::Anime {
+                        let layout = self.state.read(cx).episode_layout();
+                        let cols = columns(width, 15.5 * rem, rem);
+                        let eps = episodes_state.as_ref().map(|e| e.as_deref());
+                        episode_list(&files_path, &list, eps, layout, cols, on_play, cx).into_any_element()
+                    } else {
+                        let on_read: FileAction = Rc::new(move |f, _, cx| {
+                            let _ = this.update(cx, |v, cx| v.read(f.clone(), cx));
+                        });
+                        file_list(&files_path, &list, Some(on_play), Some(on_read), cx).into_any_element()
+                    }
                 }
             };
             v_flex().gap_5().child(options).child(body).children(extras_section)
