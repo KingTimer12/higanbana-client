@@ -18,6 +18,17 @@ impl Player {
         self.proxy.url_for(path)
     }
 
+    /// Como [`Player::stream_url`], para o gerador de miniaturas: o proxy dá a
+    /// ele conexões próprias, sem disputar vaga com o vídeo que está tocando.
+    pub fn preview_url(&self, path: &str, size: u64) -> String {
+        if let Some(local) = self.cloud.default_download_path(path)
+            && std::fs::metadata(&local).is_ok_and(|m| m.is_file() && m.len() == size)
+        {
+            return local.to_string_lossy().into_owned();
+        }
+        self.proxy.url_for_preview(path)
+    }
+
     pub fn data(&self) -> PlayerData {
         self.store.data()
     }

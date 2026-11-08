@@ -33,6 +33,10 @@ pub struct Settings {
     pub sub_lang: String,
     pub audio_lang: String,
     pub cache_mib: u32,
+    /// Miniatura do quadro ao passar o mouse na barra de posição.
+    pub thumbnails: bool,
+    /// Núcleos que o decodificador de vídeo pode usar; 0 deixa o mpv escolher.
+    pub decode_threads: u8,
 }
 
 impl Default for Settings {
@@ -44,6 +48,8 @@ impl Default for Settings {
             sub_lang: "por".into(),
             audio_lang: "jpn".into(),
             cache_mib: 150,
+            thumbnails: true,
+            decode_threads: 0,
         }
     }
 }
@@ -113,6 +119,19 @@ mod tests {
         assert_eq!(s.sub_lang, "por");
         assert_eq!(s.audio_lang, "jpn");
         assert_eq!(s.cache_mib, 150);
+        assert!(s.thumbnails);
+        assert_eq!(s.decode_threads, 0);
+    }
+
+    #[test]
+    fn old_settings_file_without_new_fields_keeps_defaults() {
+        // Arquivo gravado antes de existirem `thumbnails` e `decodeThreads`.
+        let old = r#"{"settings":{"autoNext":false,"cacheMib":300}}"#;
+        let data: PlayerData = serde_json::from_str(old).unwrap();
+        assert!(!data.settings.auto_next);
+        assert_eq!(data.settings.cache_mib, 300);
+        assert!(data.settings.thumbnails);
+        assert_eq!(data.settings.decode_threads, 0);
     }
 
     #[test]

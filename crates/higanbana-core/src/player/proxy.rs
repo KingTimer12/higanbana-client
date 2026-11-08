@@ -24,6 +24,25 @@ use hyper_util::rt::TokioIo;
 use tokio::{net::TcpListener, sync::Semaphore};
 
 pub const MAX_UPSTREAM_PER_FILE: usize = 2;
+/// Miniaturas têm faixa própria: não tiram vaga do vídeo que está tocando.
+/// Duas, e não uma: o FFmpeg abre a conexão do `seek` antes de fechar a antiga.
+pub const MAX_UPSTREAM_PER_PREVIEW: usize = 2;
+
+/// Quem pede: o player ou o gerador de miniaturas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Lane {
+    Player,
+    Preview,
+}
+
+impl Lane {
+    fn limit(self) -> usize {
+        match self {
+            Lane::Player => MAX_UPSTREAM_PER_FILE,
+            Lane::Preview => MAX_UPSTREAM_PER_PREVIEW,
+        }
+    }
+}
 
 /// Headers da nuvem que chegam ao mpv; o resto é descartado.
 const FORWARDED_HEADERS: [&str; 4] = ["content-type", "content-length", "content-range", "accept-ranges"];
@@ -51,7 +70,7 @@ type ProxyBody = UnsyncBoxBody<Bytes, io::Error>;
 struct Shared<U> {
     upstream: U,
     token: String,
-    limits: Mutex<HashMap<String, Arc<Semaphore>>>,
+    limits: Mutex<HashMap<(String, Lane), Arc<Semaphore>>>,
 }
 
 impl StreamProxy {
@@ -83,6 +102,11 @@ impl StreamProxy {
     pub fn url_for(&self, nuvem_path: &str) -> String {
         format!("http://127.0.0.1:{}/{}/stream?path={}", self.port, self.token, urlencoding::encode(nuvem_path))
     }
+
+    /// URL para o gerador de miniaturas: mesmo arquivo, faixa de conexões própria.
+    pub fn url_for_preview(&self, nuvem_path: &str) -> String {
+        format!("{}&lane=preview", self.url_for(nuvem_path))
+    }
 }
 
 fn random_token() -> io::Result<String> {
@@ -97,20 +121,22 @@ fn plain(status: StatusCode) -> Response<ProxyBody> {
     resp
 }
 
-/// `/<token>/stream?path=<caminho>` → caminho, se o token confere.
-fn requested_path(uri: &hyper::Uri, token: &str) -> Option<String> {
+/// `/<token>/stream?path=<caminho>[&lane=preview]` → caminho e faixa, se o token confere.
+fn requested_path(uri: &hyper::Uri, token: &str) -> Option<(String, Lane)> {
     if uri.path() != format!("/{token}/stream") {
         return None;
     }
-    let raw = uri.query()?.split('&').find_map(|kv| kv.strip_prefix("path="))?;
-    urlencoding::decode(raw).ok().map(|p| p.into_owned())
+    let query = uri.query()?;
+    let raw = query.split('&').find_map(|kv| kv.strip_prefix("path="))?;
+    let lane = if query.split('&').any(|kv| kv == "lane=preview") { Lane::Preview } else { Lane::Player };
+    urlencoding::decode(raw).ok().map(|p| (p.into_owned(), lane))
 }
 
 async fn handle<U: Upstream>(
     shared: Arc<Shared<U>>,
     req: Request<hyper::body::Incoming>,
 ) -> Result<Response<ProxyBody>, Infallible> {
-    let Some(path) = requested_path(req.uri(), &shared.token) else {
+    let Some((path, lane)) = requested_path(req.uri(), &shared.token) else {
         return Ok(plain(StatusCode::FORBIDDEN));
     };
     let range = req.headers().get(hyper::header::RANGE).and_then(|v| v.to_str().ok()).map(str::to_owned);
@@ -119,8 +145,8 @@ async fn handle<U: Upstream>(
         .limits
         .lock()
         .unwrap()
-        .entry(path.clone())
-        .or_insert_with(|| Arc::new(Semaphore::new(MAX_UPSTREAM_PER_FILE)))
+        .entry((path.clone(), lane))
+        .or_insert_with(|| Arc::new(Semaphore::new(lane.limit())))
         .clone();
     let Ok(permit) = limit.acquire_owned().await else {
         return Ok(plain(StatusCode::SERVICE_UNAVAILABLE));
@@ -332,6 +358,48 @@ mod tests {
         }
         assert!(fake.peak.load(Ordering::SeqCst) <= 2, "pico = {}", fake.peak.load(Ordering::SeqCst));
         assert_eq!(fake.calls.load(Ordering::SeqCst), 5);
+    }
+
+    #[tokio::test]
+    async fn preview_lane_does_not_wait_for_the_player() {
+        // Dois corpos do player abertos (lentos) ocupam as duas vagas dele.
+        let fake = Fake { chunk_delay: Some(Duration::from_secs(30)), ..Fake::new() };
+        let proxy = StreamProxy::start(fake.clone()).await.unwrap();
+        let client = Client::new();
+        let mut held = Vec::new();
+        for i in 0..MAX_UPSTREAM_PER_FILE {
+            let r = client.get(proxy.url_for("ep.mkv")).header(RANGE, format!("bytes={}-", i * 10)).send().await.unwrap();
+            held.push(r);
+        }
+        // Miniatura do mesmo arquivo: vaga própria, responde sem esperar o player soltar.
+        let preview = tokio::time::timeout(
+            Duration::from_secs(2),
+            client.get(proxy.url_for_preview("ep.mkv")).header(RANGE, "bytes=500-").send(),
+        )
+        .await
+        .expect("miniatura ficou presa atrás do player")
+        .unwrap();
+        assert_eq!(preview.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(fake.last_path.lock().unwrap().as_deref(), Some("ep.mkv"), "mesmo arquivo na nuvem");
+        drop(held);
+    }
+
+    #[tokio::test]
+    async fn preview_lane_is_capped_too() {
+        let fake = Fake { chunk_delay: Some(Duration::from_secs(30)), ..Fake::new() };
+        let proxy = StreamProxy::start(fake.clone()).await.unwrap();
+        let client = Client::new();
+        let mut held = Vec::new();
+        for i in 0..MAX_UPSTREAM_PER_PREVIEW {
+            held.push(client.get(proxy.url_for_preview("ep.mkv")).header(RANGE, format!("bytes={}-", i * 10)).send().await.unwrap());
+        }
+        let blocked = tokio::time::timeout(
+            Duration::from_millis(400),
+            client.get(proxy.url_for_preview("ep.mkv")).header(RANGE, "bytes=900-").send(),
+        )
+        .await;
+        assert!(blocked.is_err(), "a faixa de miniaturas passou do limite");
+        drop(held);
     }
 
     #[tokio::test]
