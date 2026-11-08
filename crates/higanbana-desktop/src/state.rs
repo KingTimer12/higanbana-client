@@ -23,8 +23,10 @@ const LOOKUP_DELAY: Duration = Duration::from_millis(60);
 const LOOKUP_MAX: usize = 36;
 /// Nomes por lote do rastreio (uma requisição).
 const LOOKUP_MAX_BACKGROUND: usize = 18;
-/// Espera antes de repetir buscas adiadas (fallback MAL com limite de requisições).
+/// Espera antes de repetir buscas adiadas (fallback MAL com limite de requisições); dobra a cada vez sem progresso.
 const LOOKUP_RETRY: Duration = Duration::from_secs(3);
+/// Tentativas seguidas sem progresso antes de desistir de um nome adiado.
+const LOOKUP_RETRY_MAX: u32 = 5;
 /// Pausa mínima depois de um lote que falhou (rede ou limite do AniList).
 const LOOKUP_COOLDOWN: Duration = Duration::from_secs(30);
 const MAX_DOWNLOADS: usize = 2;
@@ -118,6 +120,8 @@ pub struct AppState {
     background_cooldown_until: Option<Instant>,
     /// Quando sai a próxima saída agendada (`lookup_task`).
     lookup_due: Option<Instant>,
+    /// Nomes adiados (`Pending`): tentativas seguidas sem progresso.
+    lookup_retries: HashMap<(MediaType, String), u32>,
     catalog: HashMap<i64, Option<Option<String>>>,
     pub downloads: Vec<Download>,
     next_download: u64,
@@ -156,6 +160,7 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             lookups_cooldown_until: None,
             background_cooldown_until: None,
             lookup_due: None,
+            lookup_retries: HashMap::new(),
             catalog: HashMap::new(),
             downloads: Vec::new(),
             next_download: 1,
@@ -198,6 +203,14 @@ pub(crate) fn next_lane(interactive: usize, background: usize) -> Option<(Priori
 /// Fim da pausa depois de um lote que falhou: a nossa espera mínima ou a pedida pelo AniList, a mais longa.
 pub(crate) fn cooldown_end(now: Instant, anilist_paused: Option<Instant>) -> Instant {
     (now + LOOKUP_COOLDOWN).max(anilist_paused.unwrap_or(now))
+}
+
+/// Nome que voltou adiado (`Pending`): `(tentativas sem progresso, espera)` da próxima vez,
+/// ou `None` para desistir. Se o lote resolveu algum nome já adiado (fallback MAL andando
+/// aos poucos), a conta recomeça; senão a espera dobra (3, 6, 12, 24, 48 s).
+pub(crate) fn next_retry(strikes: Option<u32>, progress: bool) -> Option<(u32, Duration)> {
+    let n = if progress { 0 } else { strikes.map_or(0, |n| n + 1) };
+    (n < LOOKUP_RETRY_MAX).then(|| (n, LOOKUP_RETRY * 2u32.pow(n)))
 }
 
 /// Até quando uma faixa espera: a pausa de falha da tela (`global`) e o 429 do cliente
@@ -451,11 +464,14 @@ impl AppState {
                 match result {
                     Some(list) => {
                         s.lookups_gen += 1;
-                        let mut retry = Vec::new();
+                        let mut pending = Vec::new();
                         let mut answered = Vec::new();
+                        // Progresso: algum nome que já tinha voltado adiado agora tem resposta.
+                        let mut progress = false;
                         for (key, v) in batch.into_iter().zip(list) {
                             if !matches!(v, Lookup::Pending) {
                                 answered.extend(anime(&key));
+                                progress |= s.lookup_retries.remove(&key).is_some();
                             }
                             match v {
                                 Lookup::Found(v) => {
@@ -464,15 +480,32 @@ impl AppState {
                                 Lookup::NotFound => {
                                     s.lookups.insert(key, Some(None));
                                 }
-                                // Fallback MAL adiado: continua "buscando" e volta à mesma faixa depois.
-                                Lookup::Pending => retry.push(key),
+                                // Fallback MAL adiado ou parte do lote falhou: continua "buscando".
+                                Lookup::Pending => pending.push(key),
                             }
                         }
-                        if !retry.is_empty() {
+                        // Volta à frente da mesma faixa depois da espera; sem progresso por
+                        // várias vezes, desiste (um card visível pode pedir de novo depois).
+                        let mut later: HashMap<Duration, Vec<(MediaType, String)>> = HashMap::new();
+                        let mut dropped = Vec::new();
+                        for key in pending {
+                            match next_retry(s.lookup_retries.get(&key).copied(), progress) {
+                                Some((n, wait)) => {
+                                    s.lookup_retries.insert(key.clone(), n);
+                                    later.entry(wait).or_default().push(key);
+                                }
+                                None => {
+                                    s.lookup_retries.remove(&key);
+                                    dropped.extend(anime(&key));
+                                    s.lookups.remove(&key);
+                                }
+                            }
+                        }
+                        for (wait, retry) in later {
                             cx.spawn(async move |this, cx| {
-                                cx.background_executor().timer(LOOKUP_RETRY).await;
+                                cx.background_executor().timer(wait).await;
                                 let _ = this.update(cx, |s, cx| {
-                                    s.lane(priority).extend(retry);
+                                    s.lane(priority).splice(0..0, retry);
                                     if s.lookup_task.is_none() {
                                         s.flush_lookups(cx);
                                     }
@@ -481,6 +514,8 @@ impl AppState {
                             .detach();
                         }
                         s.crawl_lookups_done(&answered, false);
+                        // O rastreio não pede de novo os que desistiu (não volta à fila dele).
+                        s.crawl_lookups_done(&dropped, false);
                     }
                     // Falha de rede/limite: libera os nomes e pausa a faixa (sem isso os cards
                     // visíveis pediriam de novo no quadro seguinte). Falha do rastreio só pausa
@@ -493,6 +528,7 @@ impl AppState {
                         }
                         let failed: Vec<String> = batch.iter().filter_map(anime).collect();
                         for key in batch {
+                            s.lookup_retries.remove(&key);
                             s.lookups.remove(&key);
                         }
                         s.crawl_lookups_done(&failed, true);
@@ -679,6 +715,20 @@ mod tests {
         // 429 no cliente vale para todos; pausa vencida não conta.
         assert_eq!(lane_paused_until(i, now, Some(now - Duration::from_secs(1)), None, later(12)), later(12));
         assert_eq!(lane_paused_until(b, now, None, Some(now), None), None);
+    }
+
+    #[test]
+    fn pending_retries_back_off_then_give_up() {
+        let s = Duration::from_secs;
+        // Sem progresso: 3, 6, 12, 24, 48 s e desiste.
+        assert_eq!(next_retry(None, false), Some((0, s(3))));
+        assert_eq!(next_retry(Some(0), false), Some((1, s(6))));
+        assert_eq!(next_retry(Some(1), false), Some((2, s(12))));
+        assert_eq!(next_retry(Some(2), false), Some((3, s(24))));
+        assert_eq!(next_retry(Some(3), false), Some((4, s(48))));
+        assert_eq!(next_retry(Some(4), false), None);
+        // O lote andou (fallback MAL resolvendo aos poucos): a conta recomeça.
+        assert_eq!(next_retry(Some(4), true), Some((0, s(3))));
     }
 
     #[test]
