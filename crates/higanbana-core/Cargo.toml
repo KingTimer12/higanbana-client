@@ -31,3 +31,6 @@ cpal.workspace = true
 souvlaki.workspace = true
 dirs.workspace = true
 open.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

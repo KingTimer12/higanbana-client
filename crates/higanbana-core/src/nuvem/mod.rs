@@ -7,6 +7,7 @@
 //! - `GET /download?path=<file>`→ arquivo inteiro (stream)
 
 mod api;
+pub(crate) mod gate;
 
 pub use api::is_hidden;
 pub mod download;

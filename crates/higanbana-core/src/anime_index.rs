@@ -1,16 +1,18 @@
-//! Índice das pastas de obra de `Animes/<letra>`. Uma listagem por vez, com
-//! 400 ms entre listagens de rede e recuo exponencial em HTTP 429 (a nuvem
-//! limita ~50 listagens seguidas). Guardado em disco por 12 h. A varredura
-//! pode ser pausada (vídeo tocando); a pausa vale só entre letras.
+//! Índice das pastas de obra de `Animes/<letra>`. Uma listagem por vez, pelo
+//! limitador global da nuvem em prioridade de segundo plano (400 ms entre
+//! listagens, recuo exponencial em HTTP 429; a nuvem limita ~50 listagens
+//! seguidas). Guardado em disco por 12 h. A varredura pode ser pausada (vídeo
+//! tocando); a pausa vale só entre letras.
 
 use std::{
     collections::HashMap,
     path::PathBuf,
+    pin::Pin,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
@@ -18,14 +20,13 @@ use tokio::sync::Notify;
 
 use crate::{
     cloud::Cloud,
-    http::HttpError,
+    http::HttpResult,
     library::{join_path, natural_cmp},
+    nuvem::Listing,
 };
 
 const ROOT: &str = "Animes";
 const TTL_SECS: u64 = 12 * 3600;
-const SPACING: Duration = Duration::from_millis(400);
-const MAX_ATTEMPTS: u32 = 6;
 
 pub const LETTERS: [&str; 27] = [
     "0-9", "Letra A", "Letra B", "Letra C", "Letra D", "Letra E", "Letra F", "Letra G", "Letra H", "Letra I", "Letra J", "Letra K",
@@ -35,16 +36,6 @@ pub const LETTERS: [&str; 27] = [
 
 fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
-
-/// Espera antes de repetir uma listagem recusada com 429: 5 s, 10 s, 20 s, 40 s, 60 s, 60 s…
-pub fn backoff(attempt: u32) -> Duration {
-    Duration::from_secs((5u64 << attempt.min(4)).min(60))
-}
-
-/// Quanto falta para respeitar o intervalo desde a última listagem.
-fn remaining(last: Option<Instant>, now: Instant, gap: Duration) -> Duration {
-    last.map_or(Duration::ZERO, |l| gap.saturating_sub(now.saturating_duration_since(l)))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -70,8 +61,8 @@ struct State {
 pub struct AnimeIndex {
     file: PathBuf,
     state: Mutex<State>,
-    /// Uma listagem de rede por vez; guarda o instante da última (espaçamento global).
-    net: tokio::sync::Mutex<Option<Instant>>,
+    /// Uma listagem do índice por vez (evita listar a mesma letra duas vezes).
+    net: tokio::sync::Mutex<()>,
     paused: AtomicBool,
     resume: Notify,
 }
@@ -144,29 +135,14 @@ impl AnimeIndex {
         }
     }
 
-    /// Lista uma pasta; em 429 espera o recuo e repete (até 6 tentativas).
-    async fn list_dirs(&self, cloud: &Cloud, path: &str, last: &mut Option<Instant>) -> Result<Vec<String>, String> {
-        let mut attempt = 0;
-        loop {
-            let wait = remaining(*last, Instant::now(), SPACING);
-            if !wait.is_zero() {
-                tokio::time::sleep(wait).await;
-            }
-            let result = cloud.list(path).await;
-            *last = Some(Instant::now());
-            match result {
-                Ok(l) => {
-                    let mut names: Vec<String> = l.files.into_iter().filter(|f| f.is_directory).map(|f| f.name).collect();
-                    names.sort_by(|a, b| natural_cmp(a, b));
-                    return Ok(names);
-                }
-                Err(HttpError::Status { status: 429, .. }) if attempt + 1 < MAX_ATTEMPTS => {
-                    tokio::time::sleep(backoff(attempt)).await;
-                    attempt += 1;
-                }
-                Err(e) => return Err(e.to_string()),
-            }
-        }
+    /// Lista as subpastas de uma pasta (o limitador da nuvem cuida do intervalo e do 429).
+    async fn list_dirs(&self, cloud: &Cloud, path: &str) -> Result<Vec<String>, String> {
+        // Em caixa: corta a cadeia de tipos (senão a checagem de `Send` estoura no desktop).
+        let listing: Pin<Box<dyn Future<Output = HttpResult<Listing>> + Send + '_>> = Box::pin(cloud.list_background(path));
+        let l = listing.await.map_err(|e| e.to_string())?;
+        let mut names: Vec<String> = l.files.into_iter().filter(|f| f.is_directory).map(|f| f.name).collect();
+        names.sort_by(|a, b| natural_cmp(a, b));
+        Ok(names)
     }
 
     /// Obras da letra: do cache ou de uma listagem. Letra que falha não é guardada.
@@ -174,12 +150,12 @@ impl AnimeIndex {
         if let Some(hit) = self.loaded(letter) {
             return Ok(hit);
         }
-        let mut last = self.net.lock().await;
+        let _net = self.net.lock().await;
         if let Some(hit) = self.loaded(letter) {
             return Ok(hit);
         }
         let dir = join_path(ROOT, letter);
-        let names = self.list_dirs(cloud, &dir, &mut last).await?;
+        let names = self.list_dirs(cloud, &dir).await?;
         let entries = names
             .into_iter()
             .map(|name| IndexEntry { letter: letter.to_owned(), path: join_path(&dir, &name), name })
@@ -190,11 +166,11 @@ impl AnimeIndex {
 
     /// Lista a raiz `Animes`; pastas que não são letras viram coleções.
     pub async fn root(&self, cloud: &Cloud) -> Result<(), String> {
-        let mut last = self.net.lock().await;
+        let _net = self.net.lock().await;
         if !self.state.lock().unwrap().collections.is_empty() {
             return Ok(());
         }
-        let names = self.list_dirs(cloud, ROOT, &mut last).await?;
+        let names = self.list_dirs(cloud, ROOT).await?;
         self.state.lock().unwrap().collections = names.into_iter().filter(|n| !LETTERS.contains(&n.as_str())).collect();
         Ok(())
     }
@@ -227,23 +203,9 @@ impl AnimeIndex {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
-
-    #[test]
-    fn backoff_grows_and_caps() {
-        assert_eq!(backoff(0), Duration::from_secs(5));
-        assert_eq!(backoff(1), Duration::from_secs(10));
-        assert_eq!(backoff(4), Duration::from_secs(60));
-        assert_eq!(backoff(9), Duration::from_secs(60));
-    }
-
-    #[test]
-    fn remaining_spacing() {
-        let t = Instant::now();
-        assert_eq!(remaining(None, t, SPACING), Duration::ZERO);
-        assert_eq!(remaining(Some(t), t + Duration::from_millis(100), SPACING), Duration::from_millis(300));
-        assert_eq!(remaining(Some(t), t + Duration::from_millis(500), SPACING), Duration::ZERO);
-    }
 
     #[tokio::test]
     async fn pause_blocks_until_resumed() {
