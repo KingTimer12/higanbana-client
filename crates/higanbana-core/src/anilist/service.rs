@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     path::Path,
     sync::Mutex,
+    time::Instant,
 };
 
 use serde::Deserialize;
@@ -93,6 +94,11 @@ impl AniList {
             details: DiskCache::open(dir.join("anilist-details.json"), DETAIL_TTL),
             anilist_missed: Mutex::new(HashSet::new()),
         }
+    }
+
+    /// Fim da pausa pedida pelo AniList (429), se ainda estiver valendo.
+    pub fn paused_until(&self) -> Option<Instant> {
+        self.client.paused_until()
     }
 
     /// Casa nomes de pasta com mídias do AniList. Resultado na mesma ordem da entrada.
