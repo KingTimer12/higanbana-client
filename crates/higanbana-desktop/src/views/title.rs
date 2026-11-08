@@ -76,6 +76,10 @@ pub struct TitleView {
     album: Option<Entity<AlbumView>>,
     not_album: bool,
     franchise: Option<Entity<FranchiseView>>,
+    /// Subpastas de `title_listing`, ordenadas (guardadas quando a listagem chega).
+    title_dirs: Vec<FileEntry>,
+    /// Anime cuja pasta tem a maioria das subpastas datadas (cada uma é uma obra).
+    franchise_folder: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -104,6 +108,9 @@ impl TitleView {
         })];
         load_listing(&state, title_path.clone(), cx, |v: &mut Self, r, cx| {
             v.title_listing = Some(r);
+            v.title_dirs = dirs(&v.title_listing);
+            v.franchise_folder = v.media_type == MediaType::Anime
+                && is_franchise(&v.title_dirs.iter().map(|d| d.name.as_str()).collect::<Vec<_>>());
             v.sync(cx);
         });
         Self {
@@ -123,18 +130,18 @@ impl TitleView {
             album: None,
             not_album: false,
             franchise: None,
+            title_dirs: Vec::new(),
+            franchise_folder: false,
             _subs: subs,
         }
     }
 
     fn seasons(&self) -> Vec<FileEntry> {
-        dirs(&self.title_listing).into_iter().filter(|d| folder_year(&d.name).is_some()).collect()
+        self.title_dirs.iter().filter(|d| folder_year(&d.name).is_some()).cloned().collect()
     }
 
-    /// Anime cuja pasta tem a maioria das subpastas datadas (cada uma é uma obra).
     fn is_franchise(&self) -> bool {
-        let dirs = dirs(&self.title_listing);
-        self.media_type == MediaType::Anime && is_franchise(&dirs.iter().map(|d| d.name.as_str()).collect::<Vec<_>>())
+        self.franchise_folder
     }
 
     /// Na franquia sem obra escolhida, quem desenha a página é a [`FranchiseView`].
@@ -146,7 +153,7 @@ impl TitleView {
     fn season_name(&self) -> Option<String> {
         if self.is_franchise() {
             let wanted = self.rest.first()?;
-            return dirs(&self.title_listing).into_iter().map(|d| d.name).find(|d| d == wanted);
+            return self.title_dirs.iter().find(|d| &d.name == wanted).map(|d| d.name.clone());
         }
         let seasons = self.seasons();
         let first = seasons.first()?.name.clone();
@@ -169,7 +176,7 @@ impl TitleView {
         if self.season_name().is_some() {
             dirs(&self.season_listing)
         } else {
-            dirs(&self.title_listing).into_iter().filter(|d| folder_year(&d.name).is_none()).collect()
+            self.title_dirs.iter().filter(|d| folder_year(&d.name).is_none()).cloned().collect()
         }
     }
 
@@ -219,7 +226,7 @@ impl TitleView {
         }
         if self.shows_franchise() {
             if self.franchise.is_none() {
-                let (path, works) = (self.title_path.clone(), dirs(&self.title_listing));
+                let (path, works) = (self.title_path.clone(), self.title_dirs.clone());
                 self.franchise = Some(cx.new(|cx| FranchiseView::new(path, works, cx)));
             }
             return;
@@ -499,7 +506,7 @@ impl Render for TitleView {
             let single_tags = if releases.len() == 1 { release_tags(&releases[0].name) } else { Vec::new() };
             let mut options = v_flex().gap_3();
             // Franquias trocam de obra pela página da franquia (link de volta acima do título).
-            if seasons.len() > 1 && self.media_type != MediaType::Anime {
+            if seasons.len() > 1 && !self.is_franchise() {
                 options = options.child(option_group("Temporada", cx).child(h_flex().flex_wrap().gap_2().children(seasons.iter().map(|s| {
                     let target = join_path(&self.title_path, &s.name);
                     let st = self.state.clone();

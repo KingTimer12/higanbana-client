@@ -72,8 +72,8 @@ pub fn franchise_tabs(works: &[(String, WorkName, Option<MediaSummary>)]) -> Vec
 pub struct FranchiseView {
     state: Entity<AppState>,
     title_path: String,
-    /// Subpastas da franquia, em ordem natural.
-    works: Vec<FileEntry>,
+    /// Subpastas da franquia (nome completo e lido), em ordem natural.
+    works: Vec<(String, WorkName)>,
     /// Aba escolhida; `None` = a primeira que existir.
     tab: Option<FranchiseTab>,
     _subs: Vec<Subscription>,
@@ -85,6 +85,7 @@ impl FranchiseView {
         let mut works: Vec<FileEntry> = works.into_iter().filter(|w| w.is_directory).collect();
         works.sort_by(|a, b| natural_cmp(&a.name, &b.name));
         let names = works.iter().map(|w| w.name.clone()).collect();
+        let works = works.into_iter().map(|w| (w.name.clone(), parse_work_name(&w.name))).collect();
         let franchise = base_name(&title_path).to_owned();
         state.update(cx, |s, cx| {
             s.set_inner_works(&title_path, names);
@@ -108,12 +109,12 @@ impl Render for FranchiseView {
         let franchise = base_name(&self.title_path).to_owned();
         let hero_media = st.lookup(&franchise, MediaType::Anime).flatten();
         // `None` = AniList/MAL ainda não respondeu para essa obra.
-        let looked: Vec<Option<Option<MediaSummary>>> = self.works.iter().map(|w| st.lookup(&w.name, MediaType::Anime)).collect();
+        let looked: Vec<Option<Option<MediaSummary>>> = self.works.iter().map(|(name, _)| st.lookup(name, MediaType::Anime)).collect();
         let works: Vec<(String, WorkName, Option<MediaSummary>)> = self
             .works
             .iter()
             .zip(&looked)
-            .map(|(w, m)| (w.name.clone(), parse_work_name(&w.name), m.clone().flatten()))
+            .map(|((name, parsed), m)| (name.clone(), parsed.clone(), m.clone().flatten()))
             .collect();
         let tabs = franchise_tabs(&works);
         let active_ix = self.tab.and_then(|t| tabs.iter().position(|(tab, _)| *tab == t)).unwrap_or(0);
@@ -220,5 +221,19 @@ mod tests {
         ];
         let tabs = franchise_tabs(&works);
         assert_eq!(tabs, vec![(FranchiseTab::Tv, vec![3, 1]), (FranchiseTab::Movies, vec![0]), (FranchiseTab::Others, vec![2])]);
+    }
+
+    #[test]
+    fn franchise_tabs_other_kinds_and_fallbacks() {
+        let works = vec![
+            work("[2008] Splash [OVA]", None),
+            work("[2009] Gala [ESPECIAL]", None),
+            work("[2010] Web [ONA]", None),
+            work("[2011] Sem tag", None),
+            work("[2012] Filme [FILME]", Some(json!({"id":2,"format":"FORMATO_NOVO"}))),
+            work("[2013] Curta [TV]", Some(json!({"id":3,"format":"OVA"}))),
+        ];
+        let tabs = franchise_tabs(&works);
+        assert_eq!(tabs, vec![(FranchiseTab::Tv, vec![2, 3]), (FranchiseTab::Movies, vec![4]), (FranchiseTab::Specials, vec![0, 1, 5])]);
     }
 }
