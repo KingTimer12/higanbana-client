@@ -27,7 +27,10 @@ use higanbana_core::{
         MediaType, text,
         types::{MediaDetail, MediaSummary},
     },
-    library::{base_name, folder_title, folder_year, is_franchise, join_path, natural_cmp, release_tags},
+    library::{
+        LOOSE_FILES_VERSION, VersionLabel, base_name, folder_title, folder_year, is_extra_folder, is_franchise, join_path,
+        natural_cmp, raw_path, release_tags, resolution_rank, version_label,
+    },
     nuvem::FileEntry,
     player::logic::{episode_number, format_time, video_files},
     reader::logic::{chapter_label, comic_files, label_text},
@@ -36,7 +39,7 @@ use higanbana_core::{
 use crate::{
     components::{
         breadcrumbs, columns, content_width, cover, file_list, file_paths, hex_color, option_button, option_group,
-        remote_image, rounded_image, FileAction,
+        remote_image, rounded_image, version_card, FileAction,
     },
     music::album::{AlbumEvent, AlbumView, looks_like_album},
     reader::{ReadTarget, progress_map},
@@ -96,6 +99,34 @@ fn files_of(l: &Listing) -> Option<&Vec<FileEntry>> {
     match l {
         Some(Ok(f)) => Some(f),
         _ => None,
+    }
+}
+
+/// Subpastas da obra separadas em versões (releases) e extras.
+pub(crate) fn split_work_dirs(dirs: Vec<FileEntry>) -> (Vec<FileEntry>, Vec<FileEntry>) {
+    dirs.into_iter().partition(|d| !is_extra_folder(&d.name))
+}
+
+/// Versão aberta quando o caminho não diz qual: a lembrada, se ainda existe;
+/// senão a de maior resolução (a primeira, no empate).
+pub(crate) fn default_version(versions: &[FileEntry], remembered: Option<&str>, work_title: &str) -> Option<String> {
+    if let Some(r) = remembered.filter(|r| versions.iter().any(|v| v.name == *r)) {
+        return Some(r.to_owned());
+    }
+    let rank = |v: &FileEntry| resolution_rank(&version_label(&v.name, work_title));
+    versions.iter().fold(None::<&FileEntry>, |best, v| match best {
+        Some(b) if rank(b) >= rank(v) => Some(b),
+        _ => Some(v),
+    })
+    .map(|v| v.name.clone())
+}
+
+/// Rótulo do cartão de uma versão; a sintética de arquivos soltos tem nome fixo.
+fn label_of(folder: &str, work_title: &str) -> VersionLabel {
+    if folder == LOOSE_FILES_VERSION {
+        VersionLabel { name: LOOSE_FILES_VERSION.to_owned(), ..VersionLabel::default() }
+    } else {
+        version_label(folder, work_title)
     }
 }
 
@@ -172,30 +203,77 @@ impl TitleView {
         }
     }
 
-    fn releases(&self) -> Vec<FileEntry> {
-        if self.season_name().is_some() {
+    /// Listagem da pasta da obra (temporada, obra da franquia ou o próprio título).
+    fn work_listing(&self) -> &Listing {
+        if self.season_name().is_some() { &self.season_listing } else { &self.title_listing }
+    }
+
+    /// Subpastas da obra: versões e extras.
+    fn work_dirs(&self) -> (Vec<FileEntry>, Vec<FileEntry>) {
+        let dirs = if self.season_name().is_some() {
             dirs(&self.season_listing)
         } else {
             self.title_dirs.iter().filter(|d| folder_year(&d.name).is_none()).cloned().collect()
-        }
+        };
+        split_work_dirs(dirs)
     }
 
-    fn release_name(&self) -> Option<String> {
-        let releases = self.releases();
-        let first = releases.first()?.name.clone();
+    /// Nome da obra usado para rotular as versões.
+    fn work_title(&self) -> String {
+        folder_title(&self.lookup_name())
+    }
+
+    /// Versões da obra. Vídeos soltos ao lado de pastas de versão viram a
+    /// versão sintética [`LOOSE_FILES_VERSION`], que aponta para a própria pasta.
+    fn releases(&self) -> Vec<FileEntry> {
+        let mut releases = self.work_dirs().0;
+        let loose = files_of(self.work_listing()).is_some_and(|f| !video_files(f).is_empty());
+        if loose && !releases.is_empty() {
+            releases.push(FileEntry {
+                name: LOOSE_FILES_VERSION.to_owned(),
+                is_directory: true,
+                size: 0,
+                modified: String::new(),
+                extension: None,
+            });
+        }
+        releases
+    }
+
+    /// Pasta extra aberta pelo caminho (`<obra>/Extras/...`).
+    fn extra_name(&self) -> Option<String> {
         let rest = self.rest_after_season();
-        Some(rest.first().filter(|w| releases.iter().any(|r| &&r.name == w)).cloned().unwrap_or(first))
+        let wanted = rest.first()?;
+        self.work_dirs().1.into_iter().find(|e| &e.name == wanted).map(|e| e.name)
+    }
+
+    /// Versão aberta: a do caminho; senão a lembrada ou a de maior resolução.
+    fn release_name(&self, cx: &gpui_kit::App) -> Option<String> {
+        let releases = self.releases();
+        let rest = self.rest_after_season();
+        if let Some(r) = rest.first().filter(|w| releases.iter().any(|r| &&r.name == w)) {
+            return Some(r.clone());
+        }
+        let remembered = self.state.read(cx).core.prefs().version(&self.season_path());
+        default_version(&releases, remembered.as_deref(), &self.work_title())
     }
 
     /// Pasta dos arquivos, ou `None` enquanto as listagens de cima não chegaram.
-    fn files_path(&self) -> Option<String> {
+    fn files_path(&self, cx: &gpui_kit::App) -> Option<String> {
         self.title_listing.as_ref()?;
         if self.season_name().is_some() && self.season_listing.is_none() {
             return None;
         }
         let season_path = self.season_path();
-        let Some(release) = self.release_name() else { return Some(season_path) };
         let rest = self.rest_after_season();
+        if self.extra_name().is_some() {
+            return Some(std::iter::once(season_path).chain(rest).collect::<Vec<_>>().join("/"));
+        }
+        let release = match self.release_name(cx) {
+            None => return Some(season_path),
+            Some(r) if r == LOOSE_FILES_VERSION => return Some(season_path),
+            Some(r) => r,
+        };
         let deeper: Vec<String> = if rest.first() == Some(&release) { rest[1..].to_vec() } else { Vec::new() };
         Some(std::iter::once(season_path).chain(std::iter::once(release)).chain(deeper).collect::<Vec<_>>().join("/"))
     }
@@ -241,7 +319,7 @@ impl TitleView {
                 v.sync(cx);
             });
         }
-        if let Some(path) = self.files_path()
+        if let Some(path) = self.files_path(cx)
             && self.files_for.as_deref() != Some(path.as_str())
         {
             self.files_for = Some(path.clone());
@@ -329,7 +407,10 @@ impl Render for TitleView {
         let media = self.media(cx);
         let full = self.full().cloned();
         let heading = self.heading(cx);
-        let files = files_of(&self.files_listing).cloned();
+        let release_name = self.release_name(cx);
+        let loose = release_name.as_deref() == Some(LOOSE_FILES_VERSION) && self.extra_name().is_none();
+        // Na versão de arquivos soltos a listagem é a da obra: as pastas de versão ficam de fora.
+        let files = files_of(&self.files_listing).cloned().map(|f| if loose { f.into_iter().filter(|f| !f.is_directory).collect() } else { f });
         let files_path = self.files_for.clone().unwrap_or_default();
         let st = self.state.read(cx);
         let progress = st.player_data.progress.clone();
@@ -458,13 +539,18 @@ impl Render for TitleView {
                 st_entity.update(cx, |s, cx| s.start_downloads(&rem_paths, cx));
             }),
         );
+        let (st_entity, raw) = (self.state.clone(), raw_path(&self.season_path()));
+        actions = actions.child(Button::new("raw-folder").ghost().icon(IconName::Folder).label("Ver pasta").on_click(move |_, _, cx| {
+            st_entity.update(cx, |s, cx| s.go(raw.clone(), cx));
+        }));
         // Destinos externos (abrem no navegador): Link, não botão.
         let mut links = h_flex().gap_4().text_sm();
         if let Some(t) = full.as_ref().and_then(|d| d.trailer.clone()).filter(|t| t.site.as_deref() == Some("youtube")) {
             links = links.child(Link::new("trailer").href(format!("https://www.youtube.com/watch?v={}", t.id)).child("Trailer no YouTube"));
         }
         if let Some(url) = full.as_ref().and_then(|d| d.site_url.clone()) {
-            links = links.child(Link::new("anilist").href(url).child("Página no AniList"));
+            let mal_only = full.as_ref().is_some_and(|d| d.summary.is_mal_only());
+            links = links.child(Link::new("site").href(url).child(if mal_only { "Ver no MyAnimeList" } else { "Página no AniList" }));
         }
 
         // --- Sinopse ---
@@ -502,7 +588,9 @@ impl Render for TitleView {
             let seasons = self.seasons();
             let releases = self.releases();
             let season_name = self.season_name();
-            let release_name = self.release_name();
+            let work_path = self.season_path();
+            let work_title = self.work_title();
+            let selected = release_name.clone().filter(|_| self.extra_name().is_none());
             let single_tags = if releases.len() == 1 { release_tags(&releases[0].name) } else { Vec::new() };
             let mut options = v_flex().gap_3();
             // Franquias trocam de obra pela página da franquia (link de volta acima do título).
@@ -516,22 +604,37 @@ impl Render for TitleView {
                 }))));
             }
             if releases.len() > 1 {
-                let season_path = self.season_path();
+                // Só a versão aberta foi listada: as outras ficam sem contagem.
+                let count = files.as_ref().filter(|_| self.album.is_none()).map(|f| video_files(f).len()).filter(|&n| n > 0);
                 options = options.child(option_group("Versão", cx).child(h_flex().flex_wrap().gap_2().children(releases.iter().map(|r| {
-                    let tags = release_tags(&r.name);
-                    let target = join_path(&season_path, &r.name);
-                    let st = self.state.clone();
-                    option_button(
-                        ElementId::Name(format!("release:{}", r.name).into()),
-                        if tags.is_empty() { folder_title(&r.name) } else { tags.join(" ") },
-                        Some(&r.name) == release_name.as_ref(),
-                    )
-                    .on_click(move |_, _, cx| st.update(cx, |s, cx| s.go(target.clone(), cx)))
+                    let on = Some(&r.name) == selected.as_ref();
+                    let target = if r.name == LOOSE_FILES_VERSION { work_path.clone() } else { join_path(&work_path, &r.name) };
+                    let (st, work, folder) = (self.state.clone(), work_path.clone(), r.name.clone());
+                    version_card(ElementId::Name(format!("release:{}", r.name).into()), &label_of(&r.name, &work_title), count.filter(|_| on), on, cx)
+                        .on_click(move |_, _, cx| {
+                            st.update(cx, |s, cx| {
+                                s.core.prefs().set_version(&work, &folder);
+                                s.go(target.clone(), cx);
+                            })
+                        })
                 }))));
             }
             if !single_tags.is_empty() {
                 options = options.child(option_group("Versão", cx).child(div().pt_1().text_sm().text_color(theme.muted_foreground).child(single_tags.join(" "))));
             }
+            let extras = self.work_dirs().1;
+            let extras_section = (!extras.is_empty()).then(|| {
+                v_flex().gap_2().child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child("Extras")).child(h_flex().flex_wrap().gap_2().children(extras.iter().map(|e| {
+                    let target = join_path(&work_path, &e.name);
+                    let st = self.state.clone();
+                    Button::new(ElementId::Name(format!("extra:{}", e.name).into()))
+                        .outline()
+                        .small()
+                        .icon(IconName::Folder)
+                        .label(folder_title(&e.name))
+                        .on_click(move |_, _, cx| st.update(cx, |s, cx| s.go(target.clone(), cx)))
+                })))
+            });
             let body = match (&self.files_listing, files.clone()) {
                 (Some(Err(e)), _) => empty_state(IconName::WifiOff, "Não foi possível abrir os arquivos", Some(e.clone().into()), cx).into_any_element(),
                 (_, None) => Skeleton::new().h_72().rounded(theme.radius_lg).into_any_element(),
@@ -550,7 +653,7 @@ impl Render for TitleView {
                     file_list(&files_path, &list, Some(on_play), Some(on_read), cx).into_any_element()
                 }
             };
-            v_flex().gap_5().child(options).child(body)
+            v_flex().gap_5().child(options).child(body).children(extras_section)
         };
 
         let panel: AnyElement = match (active_tab, &full) {
@@ -792,6 +895,7 @@ fn related(d: &MediaDetail, width: f32, rem: f32, cx: &mut gpui_kit::App) -> gpu
 type FactGroup<'a> = (&'a str, Vec<(&'a str, Option<String>)>);
 
 fn facts(d: &MediaDetail, cx: &gpui_kit::App) -> gpui_kit::Div {
+    let site = if d.summary.is_mal_only() { "MyAnimeList" } else { "AniList" };
     let theme = cx.theme().clone();
     let m = &d.summary;
     let groups: Vec<FactGroup> = vec![
@@ -817,7 +921,7 @@ fn facts(d: &MediaDetail, cx: &gpui_kit::App) -> gpui_kit::Div {
             ],
         ),
         (
-            "AniList",
+            site,
             vec![
                 ("Nota média", m.average_score.map(|s| format!("{s}%"))),
                 ("Popularidade", m.popularity.map(|p| format!("{} pessoas", text::number(p)))),
@@ -852,4 +956,44 @@ fn facts(d: &MediaDetail, cx: &gpui_kit::App) -> gpui_kit::Div {
                 ),
             )
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dir(name: &str) -> FileEntry {
+        FileEntry { name: name.to_owned(), is_directory: true, size: 0, modified: String::new(), extension: None }
+    }
+
+    fn smile() -> Vec<FileEntry> {
+        vec![
+            dir("[Aenianos] Smile Precure [1280x720][hi10p]"),
+            dir("[DragsterPS] Glitter Force S01 e S02 [1080p] [Multi-Audio] [Multi-Subs]"),
+            dir("Extras"),
+        ]
+    }
+
+    #[test]
+    fn split_work_dirs_separates_extras() {
+        let (versions, extras) = split_work_dirs(smile());
+        assert_eq!(versions.len(), 2);
+        assert_eq!(extras.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["Extras"]);
+    }
+
+    #[test]
+    fn default_version_prefers_remembered() {
+        let (versions, _) = split_work_dirs(smile());
+        let aenianos = versions[0].name.clone();
+        assert_eq!(default_version(&versions, Some(&aenianos), "Smile Precure!"), Some(aenianos));
+    }
+
+    #[test]
+    fn default_version_falls_back_to_best_resolution() {
+        let (versions, _) = split_work_dirs(smile());
+        let glitter = versions[1].name.clone();
+        assert_eq!(default_version(&versions, Some("sumiu"), "Smile Precure!"), Some(glitter.clone()));
+        assert_eq!(default_version(&versions, None, "Smile Precure!"), Some(glitter));
+        assert_eq!(default_version(&[], None, "Smile Precure!"), None);
+    }
 }

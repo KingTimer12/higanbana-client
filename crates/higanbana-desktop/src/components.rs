@@ -10,6 +10,7 @@ use gpui_kit::component::{
     button::ButtonVariants as _,
     h_flex,
     progress::Progress,
+    tag::Tag,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _,
 };
 use gpui_kit::{
@@ -19,13 +20,13 @@ use gpui_kit::{
 };
 use higanbana_core::{
     anilist::{text, types::MediaSummary, MediaType},
-    library::{folder_title, folder_year, join_path, natural_cmp, parse_episode, split_path},
+    library::{folder_title, folder_year, join_path, natural_cmp, parse_episode, split_path, VersionLabel},
     nuvem::FileEntry,
     player::logic::VIDEO_EXT,
 };
 
 use crate::{
-    interact::hover_fade,
+    interact::{hover_fade, hover_layer},
     state::{state, AppState, DlStatus, Img},
     theme::{self, ProductColors as _},
     ui::truncate,
@@ -678,6 +679,45 @@ pub fn option_button(
         .outline()
         .label(label)
         .selected(selected)
+}
+
+/// Cartão de uma versão (release) da obra: nome em destaque e etiquetas de
+/// resolução, fonte, áudio e episódios. O clique vem de quem usa.
+pub fn version_card(
+    id: impl Into<ElementId>,
+    label: &VersionLabel,
+    episodes: Option<usize>,
+    selected: bool,
+    cx: &App,
+) -> Stateful<Div> {
+    let theme = cx.theme();
+    let tags = [label.resolution.clone(), label.source.clone(), label.audio.clone(), episodes.map(|n| format!("{n} ep"))];
+    v_flex()
+        .id(id)
+        .relative()
+        .min_w_40()
+        .max_w_80()
+        .gap_1()
+        .px_3()
+        .py_2()
+        .rounded(theme.radius_lg)
+        .border_1()
+        .cursor_pointer()
+        .map(|d| {
+            if selected {
+                d.border_color(theme.primary).bg(theme.primary.opacity(0.1))
+            } else {
+                d.border_color(theme.border).bg(theme.muted)
+            }
+        })
+        .child(truncate(label.name.clone()).text_sm().font_weight(FontWeight::SEMIBOLD))
+        .child(
+            h_flex()
+                .flex_wrap()
+                .gap_1()
+                .children(tags.into_iter().flatten().map(|t| Tag::secondary().xsmall().child(t))),
+        )
+        .when(!selected, |d| d.child(hover_layer("ring").border(theme.ring).radius(theme.radius_lg)))
 }
 
 /// Título de seção com algo à direita.
