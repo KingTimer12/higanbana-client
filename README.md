@@ -23,6 +23,7 @@ Aplicativo desktop não oficial para navegar e baixar do acervo da [Anitsu](http
   - legenda e áudio lembrados por release.
 - **Ler mangá sem baixar:** abre `.cbz`/`.zip`/`.cbr`/`.rar` da nuvem página por página, em página única, página dupla ou rolagem contínua, da direita para a esquerda ou da esquerda para a direita, e continua de onde parou.
 - **Ouvir OSTs:** cada álbum tem encarte com capa, faixas e discos. A barra de música fica embaixo da janela enquanto navega, com aleatório, repetir, volume igualado entre álbuns e as teclas de mídia do teclado.
+- **Episódios com miniatura:** título, nota e miniatura de cada episódio pelo TMDB, em grade ou lista (opcional, veja abaixo).
 - **Downloads:** episódio por episódio ou "Baixar todos", com fila (2 ao mesmo tempo) e progresso na barra de título.
 
 ## Requisitos
@@ -44,6 +45,18 @@ No build, a chave é embutida no executável mascarada, sem aparecer em texto pu
 ### Motor de vídeo (mpv)
 
 O player de vídeo usa o [mpv](https://mpv.io/) (libmpv), carregado em tempo de execução e desenhando numa janela filha embaixo da interface GPUI. As DLLs não ficam no repositório. Ponha `libmpv-2.dll` em `crates/higanbana-desktop/lib/` (pasta no `.gitignore`) ou ao lado do executável. Use uma build **LGPL** da libmpv ([zhongfly/mpv-winbuild](https://github.com/zhongfly/mpv-winbuild)). Sem a DLL, o app abre normalmente e só o player avisa que falta o motor.
+
+### Episódios (TMDB)
+
+Na aba Episódios de um anime, cada arquivo de vídeo que casa com um episódio do [TMDB](https://www.themoviedb.org/) mostra miniatura, título em português (ou em inglês, quando não há tradução), data de exibição, nota e duração. O TMDB só é consultado quando você abre a página da obra, e as miniaturas carregam conforme aparecem na tela.
+
+1. Crie uma conta no TMDB e gere as credenciais da API em *Configurações › API*.
+2. No `.env` (copiado de `.env.example`), preencha `TMDB_TOKEN` com o *API Read Access Token* (v4, preferido) e, se quiser, `TMDB_KEY` com a *API Key* (v3, usada só quando não há token). Também valem variáveis de ambiente com os mesmos nomes.
+3. Compile de novo: como a chave da Anitsu, as credenciais são embutidas no executável mascaradas.
+
+Sem token o build continua e o app funciona normalmente: a aba mostra os mesmos cards com miniatura neutra e "Episódio N" (ou o nome do arquivo), sem nota. O mesmo acontece quando o TMDB está fora do ar ou não acha a obra.
+
+O botão de ícone à direita, acima dos episódios, alterna entre **grade** (cards com miniatura, estilo Crunchyroll) e **lista** (miniatura, título, nota e sinopse curta). A escolha vale para todas as obras e fica salva.
 
 ### Comandos
 
