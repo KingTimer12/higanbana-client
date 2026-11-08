@@ -692,6 +692,30 @@ pub fn section_title(title: impl Into<SharedString>, aside: Option<AnyElement>) 
         .children(aside)
 }
 
+/// Pôster de um título da nuvem numa grade: busca os metadados quando aparece
+/// na tela e abre `target` ao clicar.
+pub fn title_card(id: ElementId, name: &str, target: String, media: MediaType, width: Pixels, cx: &mut App) -> Div {
+    let s = state(cx);
+    let looked = s.read(cx).lookup(name, media);
+    let card = poster(
+        PosterProps {
+            id,
+            name: name.to_owned(),
+            media: looked.clone().flatten(),
+            loading: looked.is_none(),
+            width,
+            badge: false,
+            dimmed: false,
+        },
+        cx,
+    )
+    .on_click(move |_, _, cx| s.update(cx, |s, cx| s.go(target.clone(), cx)));
+    div()
+        .relative()
+        .child(card)
+        .when(looked.is_none(), |d| d.child(when_visible(400., want_lookup(name.to_owned(), media))))
+}
+
 pub fn want_lookup(name: String, media: MediaType) -> impl FnOnce(&mut App) {
     move |cx| state(cx).update(cx, |s: &mut AppState, cx| s.want_lookup(&name, media, cx))
 }

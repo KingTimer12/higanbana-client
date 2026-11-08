@@ -19,7 +19,7 @@ use gpui_kit::component::{
     sidebar::{Sidebar, SidebarFooter, SidebarMenu, SidebarMenuItem},
 };
 use higanbana_core::{
-    library::{media_for_kind, split_path},
+    library::{media_for_kind, raw_path, split_path},
     nuvem::{SearchKind, SearchResult},
 };
 
@@ -379,7 +379,10 @@ pub fn sort_sections(mut names: Vec<String>) -> Vec<String> {
 
 pub fn sidebar(state: &Entity<AppState>, sections: &[String], cx: &mut App) -> impl IntoElement {
     let s = state.read(cx);
-    let current = split_path(s.path()).first().map(|s| s.to_string()).unwrap_or_default();
+    // `raw:Animes/...` continua dentro da seção Animes.
+    let raw = raw_path("");
+    let path = s.path().strip_prefix(raw.as_str()).unwrap_or(s.path());
+    let current = split_path(path).first().map(|s| s.to_string()).unwrap_or_default();
     let user = s.user.clone();
     let core = s.core.clone();
     let go = |target: String| {

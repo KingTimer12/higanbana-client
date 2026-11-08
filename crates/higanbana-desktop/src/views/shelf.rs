@@ -18,7 +18,7 @@ use higanbana_core::{
 };
 
 use crate::{
-    components::{breadcrumbs, columns, content_width, poster, want_lookup, when_visible, PosterProps},
+    components::{breadcrumbs, columns, content_width, title_card},
     state::{AppState, state},
     ui::empty_state,
     views::load_listing,
@@ -111,23 +111,8 @@ impl Render for ShelfView {
             Some(Err(e)) => empty_state(IconName::WifiOff, "Não foi possível abrir esta pasta", Some(e.clone().into()), cx),
             Some(Ok(_)) if titles.is_empty() => empty_state(IconName::Search, format!("Nenhum título com “{query}” em {name}"), None, cx),
             Some(Ok(_)) => div().grid().grid_cols(cols as u16).gap_x_5().gap_y_8().children(titles.into_iter().map(|t| {
-                let looked = self.state.read(cx).lookup(&t.name, self.media);
-                let target = join_path(&self.path, &t.name);
-                let st = self.state.clone();
-                let card = poster(
-                    PosterProps {
-                        id: ElementId::Name(format!("title:{}", t.name).into()),
-                        name: t.name.clone(),
-                        media: looked.clone().flatten(),
-                        loading: looked.is_none(),
-                        width: card_w,
-                        badge: false,
-                        dimmed: false,
-                    },
-                    cx,
-                )
-                .on_click(move |_, _, cx| st.update(cx, |s, cx| s.go(target.clone(), cx)));
-                div().relative().child(card).when(looked.is_none(), |d| d.child(when_visible(400., want_lookup(t.name.clone(), self.media))))
+                let id = ElementId::Name(format!("title:{}", t.name).into());
+                title_card(id, &t.name, join_path(&self.path, &t.name), self.media, card_w, cx)
             })),
         };
         let count = match &self.listing {

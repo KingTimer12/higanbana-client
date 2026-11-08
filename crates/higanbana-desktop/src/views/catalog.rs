@@ -6,12 +6,12 @@
 //! Filhos diretos do contêiner rolável: cabeçalho, uma seção por letra e o
 //! rodapé que pede a próxima letra.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use crate::interact::Button;
 use gpui_kit::{
     App, Bounds, Context, ElementId, Entity, FontWeight, IntoElement, ParentElement, Pixels, Render, ScrollHandle,
-    Styled, Subscription, Window, assets::IconName, div, point, prelude::*, px,
+    Styled, Subscription, Task, Window, assets::IconName, div, point, prelude::*, px,
 };
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::{
@@ -26,12 +26,14 @@ use higanbana_core::{
 };
 
 use crate::{
-    components::{breadcrumbs, columns, content_width, poster, want_lookup, when_visible, PosterProps},
+    components::{breadcrumbs, columns, content_width, title_card, when_visible},
     state::{AppState, state},
     ui::empty_state,
 };
 
 const ROOT: &str = "Animes";
+/// Pouco mais que a espera de uma letra com falha (30 s em `catalog_state`).
+const RETRY_CHECK: Duration = Duration::from_secs(31);
 
 /// Rótulo da letra no índice lateral: `0-9` → `#`, `Letra F` → `F`.
 fn rail_label(letter: &str) -> &str {
@@ -60,6 +62,16 @@ fn search_sections<'a>(
 /// O elemento está fora da faixa `[top, bottom]` (coordenadas sem rolagem).
 fn outside(bounds: Bounds<Pixels>, top: Pixels, bottom: Pixels) -> bool {
     bounds.bottom() < top || bounds.top() > bottom
+}
+
+/// Filho (do contêiner rolável) que mostra hoje a letra que estava no topo.
+///
+/// `old`/`new` são as letras das seções do quadro anterior e do atual; `top` é o
+/// filho do topo no quadro anterior (0 = cabeçalho, seções a partir de 1).
+/// `None` quando o topo era o cabeçalho ou a letra saiu da tela (busca).
+fn anchor_index(old: &[usize], new: &[usize], top: usize) -> Option<usize> {
+    let letter = *old.get(top.checked_sub(1)?)?;
+    new.iter().position(|l| *l == letter).map(|pos| 1 + pos)
 }
 
 enum Body {
@@ -99,6 +111,8 @@ pub struct CatalogView {
     shown: Vec<SectionKey>,
     /// Um salto acabou de ser pedido: não restaurar a posição anterior.
     jumped: bool,
+    /// Redesenho agendado para tentar de novo as letras que falharam.
+    retry: Option<Task<()>>,
     _subs: Vec<Subscription>,
 }
 
@@ -129,10 +143,14 @@ impl CatalogView {
             found: None,
             shown: Vec::new(),
             jumped: false,
+            retry: None,
             _subs: subs,
         };
-        let start = letter.and_then(|l| LETTERS.iter().position(|x| *x == l)).unwrap_or(0);
-        view.jump(start, cx);
+        // Sem letra a tela abre no topo (cabeçalho e busca à vista); com letra, já rolada até ela.
+        match letter.and_then(|l| LETTERS.iter().position(|x| *x == l)) {
+            Some(start) => view.jump(start, cx),
+            None => view.state.update(cx, |s, cx| s.want_anime_letter(LETTERS[0], cx)),
+        }
         view
     }
 
@@ -206,19 +224,16 @@ impl CatalogView {
             return;
         }
         let (top, off) = self.scroll.logical_scroll_top();
-        if top == 0 {
-            return;
-        }
-        let above = top - 1;
-        let changed = self.shown.len() < above
-            || keys.len() < above
-            || self.shown[..above] != keys[..above];
-        if !changed {
+        let old: Vec<usize> = self.shown.iter().map(|k| k.letter).collect();
+        let new: Vec<usize> = keys.iter().map(|k| k.letter).collect();
+        let Some(item) = anchor_index(&old, &new, top) else { return };
+        // Só reposiciona se algo acima da seção do topo mudou (entrou, saiu ou cresceu).
+        if self.shown[..top - 1] == keys[..item - 1] {
             return;
         }
         let handle = self.scroll.clone();
         window.on_next_frame(move |window, _| {
-            if let Some(b) = handle.bounds_for_item(top) {
+            if let Some(b) = handle.bounds_for_item(item) {
                 let x = handle.offset().x;
                 handle.set_offset(point(x, handle.bounds().top() - b.top() + off));
                 window.refresh();
@@ -257,26 +272,8 @@ impl CatalogView {
                 .into_any_element(),
             Body::Entries(entries) => grid()
                 .children(entries.iter().map(|e| {
-                    let looked = self.state.read(cx).lookup(&e.name, MediaType::Anime);
-                    let target = e.path.clone();
-                    let st = self.state.clone();
-                    let card = poster(
-                        PosterProps {
-                            id: ElementId::Name(format!("anime:{}", e.path).into()),
-                            name: e.name.clone(),
-                            media: looked.clone().flatten(),
-                            loading: looked.is_none(),
-                            width: card_w,
-                            badge: false,
-                            dimmed: false,
-                        },
-                        cx,
-                    )
-                    .on_click(move |_, _, cx| st.update(cx, |s, cx| s.go(target.clone(), cx)));
-                    div()
-                        .relative()
-                        .child(card)
-                        .when(looked.is_none(), |d| d.child(when_visible(400., want_lookup(e.name.clone(), MediaType::Anime))))
+                    let id = ElementId::Name(format!("anime:{}", e.path).into());
+                    title_card(id, &e.name, e.path.clone(), MediaType::Anime, card_w, cx)
                 }))
                 .into_any_element(),
             Body::Loading => grid()
@@ -341,6 +338,16 @@ impl Render for CatalogView {
         let current = self.shown.get(self.scroll.top_item().saturating_sub(1)).map(|k| k.letter);
         let present: Vec<usize> = keys.iter().map(|k| k.letter).collect();
         let last_loaded = matches!(sections.last().map(|s| &s.body), Some(Body::Entries(_)));
+        // Letra com falha: redesenha depois da espera para o aviso visível pedir de novo.
+        if self.retry.is_none() && sections.iter().any(|s| matches!(s.body, Body::Failed(_))) {
+            self.retry = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(RETRY_CHECK).await;
+                let _ = this.update(cx, |v, cx| {
+                    v.retry = None;
+                    cx.notify();
+                });
+            }));
+        }
 
         let mut children: Vec<gpui_kit::AnyElement> = Vec::with_capacity(sections.len() + 2);
         children.push(self.render_header(&query, width, indexed, total, cx));
@@ -374,7 +381,8 @@ impl Render for CatalogView {
         self.shown = keys;
 
         let searching = !query.is_empty();
-        let rail = div().id("catalog-rail").flex_none().w(px(rail_w)).h_full().overflow_y_scroll().child(
+        // Coluna flex: a margem automática do filho centraliza o índice e, se não couber, ele rola sem cortar o topo.
+        let rail = v_flex().id("catalog-rail").flex_none().items_center().w(px(rail_w)).h_full().overflow_y_scroll().child(
             v_flex().my_auto().py_4().items_center().children(LETTERS.iter().enumerate().map(|(ix, l)| {
                 Button::new(ElementId::Name(format!("rail:{l}").into()))
                     .ghost()
@@ -451,6 +459,20 @@ mod tests {
         let names: Vec<(usize, Vec<&str>)> =
             found.iter().map(|(ix, e)| (*ix, e.iter().map(|e| e.name.as_str()).collect())).collect();
         assert_eq!(names, vec![(6, vec!["Fresh Precure!"]), (8, vec!["Heartcatch PreCure!"])]);
+    }
+
+    #[test]
+    fn anchors_by_letter() {
+        // Topo no cabeçalho: nada a manter.
+        assert_eq!(anchor_index(&[6, 8], &[6, 8], 0), None);
+        // Sem busca, letras só crescem no fim: mesmo filho.
+        assert_eq!(anchor_index(&[0, 1, 2], &[0, 1, 2, 3], 3), Some(3));
+        // Busca: F (6) entrou acima de H (8), que estava no topo → H agora é o filho 3.
+        assert_eq!(anchor_index(&[2, 8, 14], &[2, 6, 8, 14], 2), Some(3));
+        // A letra do topo sumiu dos resultados.
+        assert_eq!(anchor_index(&[2, 8], &[2, 14], 2), None);
+        // Topo além das seções conhecidas (rodapé/estado vazio).
+        assert_eq!(anchor_index(&[2], &[2], 5), None);
     }
 
     #[test]
