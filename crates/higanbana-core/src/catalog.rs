@@ -126,8 +126,12 @@ impl Catalog {
         Ok(near.into_iter().next().map(|(_, p)| p))
     }
 
-    /// Confere um título no acervo. Falha de rede não é guardada.
+    /// Confere um título no acervo. Falha de rede não é guardada. Obras só da MAL
+    /// (id negativo) não são conferidas.
     pub async fn check(&self, index: &AnimeIndex, cloud: &Cloud, anilist: &AniList, m: &MediaSummary) -> Option<String> {
+        if m.is_mal_only() {
+            return None;
+        }
         if let Some(known) = self.known(m.id) {
             return known;
         }

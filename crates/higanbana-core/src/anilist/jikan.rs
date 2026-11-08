@@ -12,7 +12,8 @@ use tokio::sync::Mutex;
 use super::error::{AniListError, AniListResult};
 
 const ENDPOINT: &str = "https://api.jikan.moe/v4";
-const MIN_INTERVAL: Duration = Duration::from_secs(1);
+/// Um pouco acima de 1 s: o teto da Jikan é 1 requisição por segundo.
+const MIN_INTERVAL: Duration = Duration::from_millis(1100);
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 const MAX_ATTEMPTS: usize = 3;
 

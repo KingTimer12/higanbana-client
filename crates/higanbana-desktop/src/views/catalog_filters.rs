@@ -21,7 +21,7 @@ use higanbana_core::{
     anilist::{MediaType, types::MediaSummary},
     anime_index::{IndexEntry, LETTERS},
     catalog_filter::{Filters, Season, Sort, Verdict, judge, sort_key_score, sort_key_year},
-    library::{WorkKind, join_path, split_path},
+    library::{WorkKind, is_dated, join_path, split_path},
     nuvem::{SearchKind, SearchResult},
 };
 
@@ -197,9 +197,16 @@ pub fn filtered_works(works: &[Work], f: &Filters, sort: Sort) -> Vec<IndexEntry
     found.into_iter().map(|w| w.entry.clone()).collect()
 }
 
-/// Resultados da busca na nuvem que são obras dentro de franquias (`Animes/Letra/Franquia/Obra`).
+/// Resultados da busca na nuvem que são obras dentro de franquias (`Animes/Letra/Franquia/[Ano] Obra`).
+/// Pastas mais fundas (versões, extras, episódios) e subpastas sem ano ficam de fora.
 pub fn franchise_results(results: Vec<SearchResult>) -> Vec<SearchResult> {
-    results.into_iter().filter(|r| r.kind == SearchKind::Anime && split_path(&r.path).len() > 3).collect()
+    results
+        .into_iter()
+        .filter(|r| {
+            let parts = split_path(&r.path);
+            r.kind == SearchKind::Anime && parts.len() == 4 && is_dated(parts[3])
+        })
+        .collect()
 }
 
 /// Menus da barra que abrem num popover.
@@ -655,6 +662,11 @@ mod tests {
             r("Animes/Letra P/Precure/[2010] Heartcatch Precure!", SearchKind::Anime),
             r("Mangas/Letra P/Precure/Vol 1", SearchKind::Manga),
             r("/Animes/Letra H/Hunter x Hunter/[2011] Hunter x Hunter/", SearchKind::Anime),
+            // Versão, extras e episódios dentro da obra não são obras.
+            r("Animes/Letra P/Precure/[2010] Heartcatch Precure!/[BD] 1080p", SearchKind::Anime),
+            r("Animes/Letra P/Precure/[2010] Heartcatch Precure!/Extras", SearchKind::Anime),
+            // Subpasta da franquia sem ano.
+            r("Animes/Letra P/Precure/Extras", SearchKind::Anime),
         ]);
         let paths: Vec<&str> = found.iter().map(|r| r.path.as_str()).collect();
         assert_eq!(paths, vec!["Animes/Letra P/Precure/[2010] Heartcatch Precure!", "/Animes/Letra H/Hunter x Hunter/[2011] Hunter x Hunter/"]);

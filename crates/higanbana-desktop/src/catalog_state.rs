@@ -104,7 +104,9 @@ impl AppState {
         }
         let core = self.core.clone();
         self.cat.index_task = Some(cx.spawn(async move |this, cx| {
-            let mut shown = core.anime_index().progress();
+            // Progresso e pausa da nuvem (429): mudou, redesenha.
+            let look = |core: &higanbana_core::Core| (core.anime_index().progress(), core.cloud().backing_off_until().is_some());
+            let mut shown = look(&core);
             loop {
                 let c = core.clone();
                 let task = core.spawn(async move {
@@ -113,7 +115,7 @@ impl AppState {
                 });
                 while !task.is_finished() {
                     cx.background_executor().timer(PROGRESS_EVERY).await;
-                    let now = core.anime_index().progress();
+                    let now = look(&core);
                     let changed = now != shown;
                     if this.update(cx, |s, cx| if changed && !s.cat.playing { cx.notify() }).is_err() {
                         return;
@@ -122,11 +124,21 @@ impl AppState {
                         shown = now;
                     }
                 }
-                let (done, total) = core.anime_index().progress();
+                let now = look(&core);
+                let (done, total) = now.0;
                 let finished = matches!(task.await, Ok(Ok(()))) && done == total;
-                let changed = (done, total) != shown;
-                shown = (done, total);
-                if this.update(cx, |_, cx| if changed { cx.notify() }).is_err() || finished {
+                let changed = now != shown;
+                shown = now;
+                let updated = this.update(cx, |s, cx| {
+                    // Terminou: libera a vaga para reabrir o catálogo recomeçar depois do vencimento (12 h).
+                    if finished && let Some(task) = s.cat.index_task.take() {
+                        task.detach();
+                    }
+                    if changed {
+                        cx.notify();
+                    }
+                });
+                if updated.is_err() || finished {
                     return;
                 }
                 cx.background_executor().timer(INDEX_RETRY).await;
@@ -182,6 +194,11 @@ impl AppState {
 
     pub fn index_progress(&self) -> (usize, usize) {
         self.core.anime_index().progress()
+    }
+
+    /// Até quando a nuvem pediu pausa (HTTP 429), se ainda estiver em vigor.
+    pub fn cloud_paused_until(&self) -> Option<Instant> {
+        self.core.cloud().backing_off_until()
     }
 
     /// Enfileira aos poucos os nomes das letras que chegam (40 a cada 3 s); não roda com vídeo.

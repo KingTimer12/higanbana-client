@@ -169,6 +169,8 @@ pub struct CatalogView {
     jumped: bool,
     /// Redesenho agendado para tentar de novo as letras que falharam.
     retry: Option<Task<()>>,
+    /// Redesenho agendado para o fim da pausa pedida pela nuvem (429).
+    pause_end: Option<Task<()>>,
     _subs: Vec<Subscription>,
 }
 
@@ -216,6 +218,7 @@ impl CatalogView {
             shown: Vec::new(),
             jumped: false,
             retry: None,
+            pause_end: None,
             _subs: subs,
         };
         // Com letra na rota, já rolada até ela; sem, volta aonde estava (ou ao topo).
@@ -543,8 +546,22 @@ impl Render for CatalogView {
             }));
         }
 
+        // Pausa da nuvem (429): aviso enquanto durar e redesenho quando acabar.
+        let paused_until = self.state.read(cx).cloud_paused_until();
+        if let Some(until) = paused_until
+            && self.pause_end.is_none()
+        {
+            self.pause_end = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(until.saturating_duration_since(std::time::Instant::now())).await;
+                let _ = this.update(cx, |v, cx| {
+                    v.pause_end = None;
+                    cx.notify();
+                });
+            }));
+        }
+
         let mut children: Vec<gpui_kit::AnyElement> = Vec::with_capacity(sections.len() + 2);
-        children.push(self.render_header(&query, width, (indexed, total), flat_status, (cols, card_w), cx));
+        children.push(self.render_header(&query, width, (indexed, total), flat_status, (cols, card_w), paused_until.is_some(), cx));
         for (pos, section) in sections.into_iter().enumerate() {
             let same = self.shown.get(pos) == Some(&keys[pos]);
             match measured.get(pos).copied().flatten() {
@@ -627,6 +644,7 @@ impl CatalogView {
         (indexed, total): (usize, usize),
         flat_status: Option<(usize, (usize, usize))>,
         (cols, card_w): (usize, Pixels),
+        cloud_paused: bool,
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let theme = cx.theme().clone();
@@ -679,6 +697,9 @@ impl CatalogView {
             })
             .children(franchise)
             .when(self.cloud_failed, |d| d.child(div().text_xs().text_color(theme.muted_foreground).child("Busca na nuvem indisponível agora")))
+            .when(cloud_paused, |d| {
+                d.child(div().text_xs().text_color(theme.muted_foreground).child("A nuvem pediu uma pausa; retomando em instantes"))
+            })
             .into_any_element()
     }
 }
