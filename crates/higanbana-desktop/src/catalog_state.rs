@@ -19,7 +19,8 @@ use crate::state::AppState;
 
 /// Nomes enfileirados a cada rodada: um lote, uma requisição do AniList.
 const CRAWL_BATCH: usize = 18;
-const CRAWL_EVERY: Duration = Duration::from_secs(3);
+/// Rodadas curtas: o rastreio reage logo a um filtro ligado; o ritmo das requisições é do cliente do AniList.
+const CRAWL_EVERY: Duration = Duration::from_secs(1);
 const PROGRESS_EVERY: Duration = Duration::from_millis(500);
 /// Espera antes de retomar a indexação depois de uma falha.
 const INDEX_RETRY: Duration = Duration::from_secs(30);
@@ -74,6 +75,12 @@ pub struct CatalogPlace {
     pub top: Option<usize>,
     /// Quanto a tela estava rolada, em pixels (busca ou grade única).
     pub offset: f32,
+}
+
+/// O rastreio só trabalha quando a tela precisa dos metadados de todas as obras:
+/// filtro que depende deles ou ordenação por ano/nota. Busca e rolagem pedem só os cards visíveis.
+pub fn crawl_wanted(choice: &CatalogChoice) -> bool {
+    choice.filters.needs_metadata() || choice.sort != Sort::Az
 }
 
 /// Tira até `max` nomes do começo, em ordem; o que saiu não volta.
@@ -218,9 +225,10 @@ impl AppState {
     }
 
     /// Uma rodada; `true` quando não há mais nada a fazer. Espera a resposta
-    /// do lote anterior (no máximo um lote do rastreio em andamento).
+    /// do lote anterior (no máximo um lote do rastreio em andamento) e fica
+    /// parado enquanto a escolha da tela não precisa de metadados.
     fn crawl_step(&mut self, cx: &mut Context<Self>) -> bool {
-        if self.cat.playing || self.lookups_busy() {
+        if !crawl_wanted(&self.cat.view) || self.cat.playing || self.lookups_busy() {
             return false;
         }
         for letter in LETTERS {
@@ -330,6 +338,18 @@ mod tests {
         settle_crawl(&mut pending, &mut sent, &names(&["b"]), false);
         assert_eq!(pending, names(&["a", "c"]));
         assert!(sent.is_empty());
+    }
+
+    #[test]
+    fn crawl_only_when_metadata_is_needed() {
+        let choice = |filters: Filters, sort: Sort| CatalogChoice { filters, sort, place: CatalogPlace::default() };
+        assert!(!crawl_wanted(&CatalogChoice::default()));
+        // Busca por nome e Dublado não dependem de metadados.
+        assert!(!crawl_wanted(&choice(Filters { query: "naruto".into(), dubbed: true, ..Default::default() }, Sort::Az)));
+        assert!(crawl_wanted(&choice(Filters { genres: vec!["Comedy".into()], ..Default::default() }, Sort::Az)));
+        assert!(crawl_wanted(&choice(Filters { years: Some((2009, 2011)), ..Default::default() }, Sort::Az)));
+        assert!(crawl_wanted(&choice(Filters::default(), Sort::Year)));
+        assert!(crawl_wanted(&choice(Filters::default(), Sort::Score)));
     }
 
     #[test]
