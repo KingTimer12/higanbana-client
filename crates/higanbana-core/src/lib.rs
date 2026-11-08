@@ -6,6 +6,7 @@
 //! A sessão nunca sai daqui: a interface só vê caminhos, bytes e estados.
 
 pub mod anilist;
+pub mod anime_index;
 pub mod auth;
 pub mod catalog;
 mod cloud;
