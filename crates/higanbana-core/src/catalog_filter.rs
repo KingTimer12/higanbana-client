@@ -1,5 +1,9 @@
 //! Filtros e ordenação do catálogo de Animes (lógica pura, sem rede).
 
+use std::sync::LazyLock;
+
+use regex::Regex;
+
 use crate::{
     anilist::types::MediaSummary,
     library::{WorkKind, norm},
@@ -25,7 +29,7 @@ impl Season {
     }
 }
 
-#[derive(Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Filters {
     pub query: String,
     pub kinds: Vec<WorkKind>,
@@ -96,9 +100,14 @@ pub fn judge(name: &str, meta: Option<&MediaSummary>, inner: &[MediaSummary], f:
     if meta.into_iter().chain(inner).any(|m| f.matches(m)) { Verdict::Pass } else { Verdict::Fail }
 }
 
+/// Etiqueta de áudio: `DUAL`, `Dublado` ou `Multi-Audio` entre `[]`/`()`; as duas
+/// últimas também como palavra solta. `Dual` solto não conta (há títulos como
+/// "Dual Parallel Trouble Adventures").
 pub fn is_dubbed(name: &str) -> bool {
-    let n = name.to_lowercase();
-    ["dual", "dublado", "multi-audio"].iter().any(|t| n.contains(t))
+    static TAG: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)[\[(]\s*(?:dual|dublado|multi-audio)\s*[\])]|(?:^|[^[:alnum:]])(?:dublado|multi-audio)(?:[^[:alnum:]]|$)").unwrap()
+    });
+    TAG.is_match(name)
 }
 
 /// Chave para ordenar do mais novo ao mais antigo; sem ano vai para o fim.
@@ -134,7 +143,24 @@ mod tests {
         let y = Filters { years: Some((2009, 2011)), seasons: vec![Season::Winter], ..Default::default() };
         assert_eq!(judge("x", Some(&tv2010), &[], &y), Verdict::Pass);
         assert!(is_dubbed("Naruto [DUAL]") && !is_dubbed("Naruto"));
+        let two = Filters { genres: vec!["Mahou Shoujo".into(), "Action".into()], ..Default::default() };
+        assert_eq!(judge("x", Some(&tv2010), &[], &two), Verdict::Fail);
+        let late = Filters { years: Some((2015, 2020)), ..Default::default() };
+        assert_eq!(judge("x", Some(&tv2010), &[], &late), Verdict::Fail);
+        let summer = Filters { seasons: vec![Season::Summer], ..Default::default() };
+        assert_eq!(judge("x", Some(&tv2010), &[], &summer), Verdict::Fail);
         assert!(!Filters::default().needs_metadata());
         assert!(f.needs_metadata());
+    }
+
+    #[test]
+    fn dubbed_only_by_tag() {
+        assert!(!is_dubbed("Dual Parallel Trouble Adventures"));
+        assert!(is_dubbed("Naruto [DUAL]"));
+        assert!(is_dubbed("X [Multi-Audio] [1080p]"));
+        assert!(is_dubbed("[DragsterPS] Glitter Force S01 [1080p] [Multi-Audio]"));
+        assert!(is_dubbed("Bleach (Dublado)"));
+        assert!(is_dubbed("Bleach Dublado 720p"));
+        assert!(!is_dubbed("Dualist"));
     }
 }

@@ -19,15 +19,22 @@ impl Prefs {
         self.versions.lock().unwrap().get(work_path).cloned()
     }
 
+    /// Grava num arquivo temporário e renomeia, para nunca deixar JSON pela metade.
+    fn save(&self, versions: &HashMap<String, String>) -> std::io::Result<()> {
+        if let Some(dir) = self.file.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let tmp = self.file.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec(versions)?)?;
+        std::fs::rename(&tmp, &self.file)
+    }
+
     /// Lembra a versão escolhida e grava em disco na hora.
     pub fn set_version(&self, work_path: &str, folder: &str) {
         let mut versions = self.versions.lock().unwrap();
         versions.insert(work_path.to_string(), folder.to_string());
-        if let Some(dir) = self.file.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        if let Ok(bytes) = serde_json::to_vec(&*versions) {
-            let _ = std::fs::write(&self.file, bytes);
+        if let Err(e) = self.save(&versions) {
+            eprintln!("preferências: não salvou {}: {e}", self.file.display());
         }
     }
 }
