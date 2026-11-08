@@ -3,12 +3,15 @@
 //! episódio; sem casamento, miniatura neutra e o rótulo de hoje. Subpastas e
 //! arquivos que não são vídeo continuam na lista compacta, abaixo.
 
+use std::{sync::Arc, time::Duration};
+
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, button::ButtonVariants as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Icon, Size, Sizable as _, Theme, button::ButtonVariants as _, h_flex, v_flex};
 use gpui_kit::{
-    AnyElement, App, Div, ElementId, Stateful, FontWeight, IntoElement, ParentElement, SharedString, Styled, assets::IconName, div,
-    prelude::*, px, relative, rems,
+    AnimationExt as _, AnyElement, App, BoxShadow, Bounds, Corners, Div, ElementId, FontWeight, Hsla, IntoElement, ObjectFit,
+    ParentElement, PathBuilder, Pixels, SharedString, Stateful, Styled, assets::IconName, canvas, div, linear_color_stop,
+    linear_gradient, point, prelude::*, px, relative, rems, size,
 };
 use higanbana_core::{
     anilist::{text, types::FuzzyDate},
@@ -21,13 +24,28 @@ use higanbana_core::{
 
 use crate::{
     components::{FileAction, download_button, file_list, format_bytes, rounded_image, stop_click, when_visible},
-    interact::{Button, hover_fade, hover_layer},
+    interact::{Button, hover_anim, hover_fade, hover_layer},
+    motion::{QUICK, ease_out_back, ease_out_cubic, enter},
     state::{Img, state},
     theme,
 };
 
 /// Tamanho do still pedido ao TMDB (grade e lista).
 const STILL_SIZE: &str = "w300";
+/// Hover dos cards (cantos, véu, pétala, traço, zoom): curto, desacelerando.
+const CARD_HOVER: Duration = Duration::from_millis(420);
+/// Cantos da miniatura da grade, estreito e largo alternados como uma pétala;
+/// no hover eles trocam de lugar.
+const PETAL_TIGHT: f32 = 4.;
+const PETAL_WIDE: f32 = 22.;
+/// Pétala do ▶: diâmetro aberto e distância do centro dela ao canto da miniatura
+/// (o resto fica para fora, cortado).
+const PETAL_SIZE: f32 = 90.;
+const PETAL_INSET: f32 = 15.;
+/// Zoom da imagem no hover.
+const GRID_ZOOM: f32 = 1.06;
+/// Altura da barra de progresso.
+const BAR_HEIGHT: f32 = 3.;
 /// Grupo de hover do card: o ▶ aparece ao passar o mouse em qualquer parte dele.
 const CARD_GROUP: &str = "ep-card";
 
@@ -187,7 +205,7 @@ pub fn episode_list(
             .grid_cols(cols.max(1) as u16)
             .gap_x_4()
             .gap_y_6()
-            .children(items.into_iter().map(|it| grid_card(it, loading, &on_play, cx)))
+            .children(items.into_iter().map(|it| grid_card(it, loading, &on_play)))
             .into_any_element(),
         EpisodeLayout::List => {
             let border = cx.theme().border;
@@ -206,39 +224,149 @@ pub fn episode_list(
         .when(!others.is_empty(), |d| d.child(div().pt_3().child(file_list(dir, &others, None, on_read, cx))))
 }
 
-/// Card da grade: miniatura 16:9 e, embaixo, rótulo, título, nota e download.
-fn grid_card(it: Item, loading: bool, on_play: &FileAction, cx: &mut App) -> AnyElement {
-    let theme = cx.theme().clone();
-    let (act, f) = (on_play.clone(), it.file.clone());
-    let actions = actions(&it, on_play, cx);
-    let thumb = thumbnail(&it, loading, cx);
-    let name = it.key.clone();
-    v_flex()
-        .id(ElementId::Name(format!("ep-card:{}", it.key).into()))
-        .group(CARD_GROUP)
-        .min_w_0()
-        .gap_2()
-        .cursor_pointer()
-        .tooltip(move |window, cx| Tooltip::new(name.clone()).build(window, cx))
-        .on_click(move |_, w, cx| act(&f, w, cx))
-        .child(thumb)
+/// Card da grade ("Higanbana"): miniatura com cantos de pétala e, embaixo,
+/// número grande, título, traço vermelho, nota e download. No hover os cantos
+/// trocam, um véu vermelho cobre a imagem (que dá zoom), uma pétala com ▶
+/// desabrocha no canto e o traço se estende.
+fn grid_card(it: Item, loading: bool, on_play: &FileAction) -> AnyElement {
+    let on_play = on_play.clone();
+    let hover_id = ElementId::Name(format!("ep-card-hover:{}", it.key).into());
+    hover_anim(hover_id, CARD_HOVER, move |t, _, cx| {
+        let e = ease_out_cubic(t);
+        let theme = cx.theme().clone();
+        let radii = petal_corners(e);
+        let actions = actions(&it, &on_play, cx);
+        let image = still(&it, loading, radii, lerp(1., GRID_ZOOM, e), cx);
+        let (act, f) = (on_play.clone(), it.file.clone());
+        let name = it.key.clone();
+
+        let frame = corners(div().relative().w_full().aspect_ratio(16. / 9.).overflow_hidden().bg(theme.muted), radii)
+            .when(e > 0., |d| {
+                d.shadow(vec![BoxShadow {
+                    color: theme.primary.opacity(e),
+                    offset: point(px(0.), px(14.)),
+                    blur_radius: px(30.),
+                    spread_radius: px(-14.),
+                    inset: false,
+                }])
+            })
+            .child(image)
+            // Véu vermelho na diagonal.
+            .when(e > 0., |d| {
+                d.child(corners(div().absolute().top_0().left_0().size_full(), radii).bg(linear_gradient(
+                    135.,
+                    linear_color_stop(theme.primary.opacity(0.), 0.4),
+                    linear_color_stop(theme.primary.opacity(0.33 * e), 1.),
+                )))
+            })
+            .when(t > 0., |d| d.child(petal(t, &theme)))
+            .children(it.seen.filter(|&f| f > 0.).map(|f| progress_strip(f, radii, &theme)))
+            .child(ring(radii, theme.border.opacity(1. - e), theme.primary.opacity(0.55 * e)));
+
+        let meta: Vec<AnyElement> = [
+            it.score.clone().map(|s| score(s, cx).into_any_element()),
+            it.minutes.map(|m| div().text_color(theme.muted_foreground).child(format!("{m} min")).into_any_element()),
+            it.watched.then(|| watched(&theme).into_any_element()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+
+        v_flex()
+            .id(ElementId::Name(format!("ep-card:{}", it.key).into()))
+            .min_w_0()
+            .gap_2p5()
+            .cursor_pointer()
+            .tooltip(move |window, cx| Tooltip::new(name.clone()).build(window, cx))
+            .on_click(move |_, w, cx| act(&f, w, cx))
+            .child(frame)
+            .child(
+                h_flex()
+                    .items_start()
+                    .gap_2()
+                    .child(
+                        h_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .items_baseline()
+                            .gap_2p5()
+                            .children(head_number(&it.label).map(|n| {
+                                div()
+                                    .flex_none()
+                                    .min_w(rems(1.75))
+                                    .text_xl()
+                                    .font_weight(FontWeight::EXTRA_BOLD)
+                                    .line_height(relative(1.))
+                                    .text_color(theme.primary)
+                                    .child(n)
+                            }))
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .gap_0p5()
+                                    .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).line_clamp(2).child(it.title.clone()))
+                                    .children(it.note.clone().map(|n| note(n, cx))),
+                            ),
+                    )
+                    .child(actions),
+            )
+            // Traço que sai do número e se estende no hover.
+            .child(div().h(px(1.)).w(relative(lerp(0.15, 1., e))).bg(linear_gradient(
+                90.,
+                linear_color_stop(theme.primary, 0.),
+                linear_color_stop(theme.primary.opacity(0.), 1.),
+            )))
+            .when(!meta.is_empty(), |d| d.child(h_flex().gap_2p5().text_xs().children(meta)))
+    })
+    .into_any_element()
+}
+
+/// Pétala com ▶ no canto de baixo à direita da miniatura, com a ponta virada
+/// para o centro da imagem. `t` é o hover linear: cresce passando um pouco do
+/// tamanho e volta, enquanto aparece. Só decora: o ▶ "Assistir" do card é o
+/// caminho pelo teclado.
+fn petal(t: f32, theme: &Theme) -> Div {
+    let scale = lerp(0.2, 1., ease_out_back(t));
+    let side = PETAL_SIZE * scale;
+    let round = px(side / 2.);
+    let offset = px(PETAL_INSET - side / 2.);
+    let icon = 16. * scale;
+    // ▶ no meio da parte que fica à vista (o quarto de cima à esquerda).
+    let at = px(side * (35. / 90.) - icon / 2.);
+    div()
+        .absolute()
+        .right(offset)
+        .bottom(offset)
+        .size(px(side))
+        .rounded_tr(round)
+        .rounded_br(round)
+        .rounded_bl(round)
+        .opacity((t * 1.5).min(1.))
+        .bg(linear_gradient(135., linear_color_stop(theme.primary_hover, 0.), linear_color_stop(theme.primary_active, 1.)))
         .child(
-            h_flex()
-                .items_start()
-                .gap_2()
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w_0()
-                        .gap_0p5()
-                        .when(!it.label.is_empty(), |d| d.child(div().text_xs().text_color(theme.muted_foreground).child(it.label.clone())))
-                        .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).line_clamp(2).child(it.title.clone()))
-                        .children(it.note.clone().map(|n| note(n, cx)))
-                        .children(it.score.clone().map(|s| score(s, cx))),
-                )
-                .child(actions),
+            div()
+                .absolute()
+                .left(at)
+                .top(at)
+                .child(Icon::new(IconName::Play).with_size(Size::Size(px(icon))).text_color(theme.primary_foreground)),
         )
-        .into_any_element()
+}
+
+/// Contorno de 1 px que troca de cor no hover (as duas cores se cruzam).
+fn ring(radii: Corners<Pixels>, rest: Hsla, hover: Hsla) -> Div {
+    div().absolute().top_0().left_0().size_full().children([rest, hover].into_iter().filter(|c| c.a > 0.).map(move |c| {
+        corners(div().absolute().top_0().left_0().size_full().border_1().border_color(c), radii)
+    }))
+}
+
+/// "✓ Visto": ícone e texto, não só cor.
+fn watched(theme: &Theme) -> Div {
+    h_flex()
+        .gap_1()
+        .text_color(theme.muted_foreground)
+        .child(Icon::new(IconName::Check).xsmall().text_color(theme.success_foreground))
+        .child("Visto")
 }
 
 /// Linha da lista: miniatura à esquerda; rótulo · data, título, nota e sinopse; download à direita.
@@ -319,6 +447,137 @@ fn score(label: String, cx: &App) -> Div {
         .font_weight(FontWeight::MEDIUM)
         .child(Icon::new(IconName::Star).xsmall().text_color(cx.theme().yellow))
         .child(label)
+}
+
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
+/// Aplica raios por canto (os helpers do GPUI só têm o mesmo raio nos quatro).
+fn corners<E: Styled>(e: E, r: Corners<Pixels>) -> E {
+    e.rounded_tl(r.top_left).rounded_tr(r.top_right).rounded_br(r.bottom_right).rounded_bl(r.bottom_left)
+}
+
+/// Raios da miniatura da grade com o hover em `t` (0–1): em repouso estreito
+/// em cima à esquerda e embaixo à direita; no hover cheio os cantos trocam.
+fn petal_corners(t: f32) -> Corners<Pixels> {
+    let (a, b) = (lerp(PETAL_TIGHT, PETAL_WIDE, t), lerp(PETAL_WIDE, PETAL_TIGHT, t));
+    Corners { top_left: px(a), top_right: px(b), bottom_right: px(a), bottom_left: px(b) }
+}
+
+/// Número grande do card da grade: "E1" vira "01". Sem número, nada.
+fn head_number(label: &str) -> Option<String> {
+    label.strip_prefix('E')?.parse::<u32>().ok().map(|n| format!("{n:02}"))
+}
+
+/// Imagem da miniatura: still do TMDB (pedido só quando aparece na tela) com
+/// `zoom`, esqueleto enquanto o TMDB responde ou fundo neutro sem dados. O
+/// recorte do pai é retangular, então os cantos vão em cada camada.
+fn still(it: &Item, loading: bool, radii: Corners<Pixels>, zoom: f32, cx: &mut App) -> AnyElement {
+    match (&it.still, loading) {
+        (_, true) => corners(Skeleton::new().size_full(), radii).into_any_element(),
+        (None, false) => corners(neutral(cx), radii).into_any_element(),
+        (Some(url), false) => match state(cx).read(cx).cached_image(url) {
+            Some(Img::Ready(image)) => div()
+                .size_full()
+                .child(zoomed_image(image, zoom, radii))
+                .with_animation(SharedString::from(format!("img-in:{url}")), enter(QUICK), |d, t| d.opacity(t))
+                .into_any_element(),
+            Some(Img::Failed) => corners(neutral(cx), radii).into_any_element(),
+            Some(Img::Loading) => div().size_full().into_any_element(),
+            None => {
+                let url = url.clone();
+                div()
+                    .size_full()
+                    .child(when_visible(300., move |cx: &mut App| {
+                        state(cx).update(cx, |s, cx| {
+                            s.image(&url, cx);
+                        })
+                    }))
+                    .into_any_element()
+            }
+        },
+    }
+}
+
+/// Imagem cobrindo a área toda, ampliada `zoom` vezes a partir do centro e
+/// recortada na própria área com os cantos `radii`. Pintada à mão porque um
+/// `img` maior que o pai perde o arredondamento (o recorte do pai é reto).
+fn zoomed_image(image: Arc<gpui_kit::Image>, zoom: f32, radii: Corners<Pixels>) -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, cx| {
+            let Some(data) = image.use_render_image(window, cx) else {
+                return;
+            };
+            let cover = ObjectFit::Cover.get_bounds(bounds, data.size(0));
+            window.paint_image(bounds, scale_about_center(cover, zoom), radii, data, 0, false).ok();
+        },
+    )
+    .size_full()
+}
+
+/// `b` ampliado `k` vezes, com o mesmo centro.
+fn scale_about_center(b: Bounds<Pixels>, k: f32) -> Bounds<Pixels> {
+    let grown = size(b.size.width * k, b.size.height * k);
+    Bounds {
+        origin: point(b.origin.x - (grown.width - b.size.width) / 2., b.origin.y - (grown.height - b.size.height) / 2.),
+        size: grown,
+    }
+}
+
+/// Faixa de baixo de um retângulo `w`×`h` de cantos de baixo `bl`/`br`, com
+/// `bar` de altura e cheia até `fraction` da largura: os pontos do polígono,
+/// seguindo a curva dos cantos (o recorte do pai é reto, e uma barra reta
+/// vazaria para fora do canto arredondado).
+fn bottom_strip(w: f32, h: f32, bl: f32, br: f32, bar: f32, fraction: f32) -> Vec<(f32, f32)> {
+    let end = w * fraction.clamp(0., 1.);
+    if end <= 0. || w <= 0. || h <= 0. {
+        return Vec::new();
+    }
+    let limit = (w / 2.).min(h / 2.);
+    let (bl, br) = (bl.clamp(0., limit), br.clamp(0., limit));
+    // Quanto o canto de raio `r` come da borda na altura `y`.
+    let inset = |r: f32, y: f32| {
+        let dy = y - (h - r);
+        if r <= 0. || dy <= 0. { 0. } else { r - (r * r - dy * dy).max(0.).sqrt() }
+    };
+    const STEPS: usize = 6;
+    let ys: Vec<f32> = (0..=STEPS).map(|i| h - bar + bar * i as f32 / STEPS as f32).collect();
+    let left = ys.iter().map(|&y| (inset(bl, y), y));
+    let right = ys.iter().rev().map(|&y| ((w - inset(br, y)).min(end).max(inset(bl, y)), y));
+    left.chain(right).collect()
+}
+
+/// Barra de progresso no pé da miniatura (trilho claro e parte vista na cor da
+/// marca), recortada pelos cantos de baixo.
+fn progress_strip(fraction: f32, radii: Corners<Pixels>, theme: &Theme) -> impl IntoElement {
+    let (bl, br) = (f32::from(radii.bottom_left), f32::from(radii.bottom_right));
+    let layers = [(1., theme::media_track(0.3)), (fraction, theme.primary)];
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+            for (f, color) in layers {
+                let points: Vec<_> = bottom_strip(w, h, bl, br, BAR_HEIGHT, f)
+                    .into_iter()
+                    .map(|(x, y)| point(bounds.origin.x + px(x), bounds.origin.y + px(y)))
+                    .collect();
+                if points.len() < 3 {
+                    continue;
+                }
+                let mut path = PathBuilder::fill();
+                path.add_polygon(&points, true);
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, color);
+                }
+            }
+        },
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
 }
 
 /// Miniatura 16:9: still do TMDB (carregado só quando aparece na tela), esqueleto
@@ -495,6 +754,53 @@ mod tests {
     fn unique_or_empty_labels_need_nothing() {
         let items = pairs(&[("", "Abertura.mkv"), ("", "Encerramento.mkv"), ("E3", "Show - 03.mkv")]);
         assert_eq!(disambiguators(&items), [None, None, None]);
+    }
+
+    #[test]
+    fn petal_corners_swap_on_hover() {
+        let rest = petal_corners(0.);
+        let hover = petal_corners(1.);
+        assert_eq!((rest.top_left, rest.top_right, rest.bottom_right, rest.bottom_left), (px(4.), px(22.), px(4.), px(22.)));
+        assert_eq!((hover.top_left, hover.top_right, hover.bottom_right, hover.bottom_left), (px(22.), px(4.), px(22.), px(4.)));
+        assert_eq!(petal_corners(0.5).top_left, px(13.), "no meio, os dois cantos se encontram");
+    }
+
+    #[test]
+    fn head_number_pads_the_label() {
+        assert_eq!(head_number("E1").as_deref(), Some("01"));
+        assert_eq!(head_number("E12").as_deref(), Some("12"));
+        assert_eq!(head_number("E105").as_deref(), Some("105"));
+        assert_eq!(head_number(""), None);
+    }
+
+    #[test]
+    fn zoom_keeps_the_center() {
+        let b = Bounds { origin: point(px(10.), px(20.)), size: size(px(100.), px(50.)) };
+        let z = scale_about_center(b, 1.2);
+        let near = |a: Pixels, b: f32| (f32::from(a) - b).abs() < 1e-3;
+        assert!(near(z.size.width, 120.) && near(z.size.height, 60.), "{z:?}");
+        assert!(near(z.center().x, 60.) && near(z.center().y, 45.), "{z:?}");
+        assert_eq!(scale_about_center(b, 1.), b);
+    }
+
+    #[test]
+    fn strip_without_radius_is_the_bottom_rectangle() {
+        let pts = bottom_strip(100., 50., 0., 0., 3., 0.4);
+        let xs: Vec<f32> = pts.iter().map(|p| p.0).collect();
+        assert!(xs.iter().all(|&x| x == 0. || x == 40.), "{xs:?}");
+        assert!(pts.iter().all(|p| (47. ..=50.).contains(&p.1)));
+    }
+
+    #[test]
+    fn strip_follows_the_rounded_corners() {
+        let pts = bottom_strip(200., 100., 22., 4., 3., 1.);
+        // Na base, a faixa começa onde a curva do canto de 22 px encosta embaixo.
+        let bottom_left = pts.iter().find(|p| p.1 == 100.).unwrap();
+        assert!((bottom_left.0 - 22.).abs() < 1e-3, "{bottom_left:?}");
+        // E termina antes do canto direito, de 4 px.
+        let bottom_right = pts.iter().rev().find(|p| p.1 == 100.).unwrap();
+        assert!((bottom_right.0 - 196.).abs() < 1e-3, "{bottom_right:?}");
+        assert!(bottom_strip(200., 100., 22., 4., 3., 0.).is_empty(), "nada visto, nada pintado");
     }
 
     #[test]
