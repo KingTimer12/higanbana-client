@@ -1,5 +1,6 @@
 //! Moldura da janela: barra de título, busca (paleta), downloads e barra lateral.
 
+use crate::interact::Button;
 use std::time::Duration;
 
 use gpui_kit::{
@@ -10,7 +11,7 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Icon, IndexPath, Sizable as _, WindowExt as _, h_flex, v_flex,
     avatar::Avatar,
-    button::{Button, ButtonVariants as _},
+    button::ButtonVariants as _,
     command::{Command, CommandGroup, CommandItem, CommandState},
     kbd::Kbd,
     popover::Popover,
@@ -23,7 +24,7 @@ use higanbana_core::{
 };
 
 use crate::{
-    components::{format_bytes, remote_image, section_label, section_meta, section_order},
+    components::{format_bytes, rounded_image, section_label, section_meta, section_order},
     state::{AppState, DlStatus, state},
     ui::{empty_state, truncate},
 };
@@ -171,7 +172,7 @@ impl SearchPalette {
                         .rounded(theme.radius)
                         .bg(theme.muted)
                         .child(match &thumb {
-                            Some(url) => remote_image(Some(url), cx),
+                            Some(url) => rounded_image(Some(url), Some(theme.radius), cx),
                             None => Icon::new(IconName::Folder).small().text_color(theme.muted_foreground).into_any_element(),
                         }),
                 )
@@ -385,10 +386,10 @@ pub fn sidebar(state: &Entity<AppState>, sections: &[String], cx: &mut App) -> i
         let st = state.clone();
         move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| st.update(cx, |s, cx| s.go(target.clone(), cx))
     };
-    let mut menu = SidebarMenu::new().child(SidebarMenuItem::new("Início").icon(IconName::House).active(current.is_empty()).on_click(go(String::new())));
+    let mut menu = SidebarMenu::new().child(SidebarMenuItem::new("Início").cursor_pointer().icon(IconName::House).active(current.is_empty()).on_click(go(String::new())));
     for name in sections {
         let (icon, _) = section_meta(name);
-        menu = menu.child(SidebarMenuItem::new(section_label(name)).icon(icon).active(current == *name).on_click(go(name.clone())));
+        menu = menu.child(SidebarMenuItem::new(section_label(name)).cursor_pointer().icon(icon).active(current == *name).on_click(go(name.clone())));
     }
     let avatar = user.as_ref().and_then(|u| u.avatar.clone());
     let name = user.map(|u| u.name).unwrap_or_default();
@@ -397,7 +398,7 @@ pub fn sidebar(state: &Entity<AppState>, sections: &[String], cx: &mut App) -> i
             .w_full()
             .gap_2()
             .child(match avatar {
-                Some(url) => div().size_8().flex_none().rounded_full().overflow_hidden().bg(cx.theme().muted).child(remote_image(Some(&url), cx)).into_any_element(),
+                Some(url) => div().size_8().flex_none().rounded_full().overflow_hidden().bg(cx.theme().muted).child(rounded_image(Some(&url), Some(gpui_kit::px(999.)), cx)).into_any_element(),
                 None => Avatar::new().name(name.clone()).small().into_any_element(),
             })
             .child(

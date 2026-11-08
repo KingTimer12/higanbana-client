@@ -1,5 +1,7 @@
 //! Encarte do álbum ("encarte de CD japonês"): capa com obi, faixas por disco, arquivos.
 
+use crate::interact::hover_layer;
+use crate::interact::Button;
 use base64::Engine as _;
 use gpui_kit::{
     Context, ElementId, Entity, EventEmitter, FontWeight, IntoElement, ObjectFit, ParentElement, Render, Styled,
@@ -8,7 +10,7 @@ use gpui_kit::{
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::{
     ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex,
-    button::{Button, ButtonVariants as _},
+    button::ButtonVariants as _,
     tab::{Tab, TabBar},
 };
 use higanbana_core::{
@@ -252,7 +254,9 @@ impl Render for AlbumView {
                                 .px_3()
                                 .py_2()
                                 .rounded(theme.radius)
-                                .map(|x| if on { x.bg(theme.list_active) } else { x.hover(|s| s.bg(theme.list_hover)) })
+                                .relative()
+                                .cursor_pointer()
+                                .map(|x| if on { x.bg(theme.list_active) } else { x.child(hover_layer("hover").fill(theme.list_hover).radius(theme.radius)) })
                                 .child(
                                     div()
                                         .w_10()
@@ -261,7 +265,7 @@ impl Render for AlbumView {
                                         .font_weight(FontWeight::BOLD)
                                         .text_color(if on { theme.primary_ink() } else { theme.muted_foreground })
                                         .child(if on && playing {
-                                            Icon::new(IconName::AudioLines).text_color(theme.primary_ink()).into_any_element()
+                                            crate::motion::playing_bars(theme.primary_ink()).into_any_element()
                                         } else {
                                             div().child(pad(t.number, i)).into_any_element()
                                         }),
@@ -298,8 +302,8 @@ impl Render for AlbumView {
                                 v.tab = if *ix == 0 { Section::Tracks } else { Section::Files };
                                 cx.notify();
                             }))
-                            .child(Tab::new().label("Faixas"))
-                            .child(Tab::new().label(format!("Arquivos {}", a.others.len()))),
+                            .child(Tab::new().cursor_pointer().label("Faixas"))
+                            .child(Tab::new().cursor_pointer().label(format!("Arquivos {}", a.others.len()))),
                     )
                     .child(body),
             )

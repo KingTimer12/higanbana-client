@@ -1,6 +1,8 @@
 //! Leitor de mangá. Os controles moram nas margens (lombada à esquerda, número
 //! da página à direita, fio de progresso embaixo); nada flutua sobre a página.
 
+use crate::interact::{hover_layer, radios};
+use crate::interact::Button;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -10,11 +12,11 @@ use std::{
 use gpui_kit::{
     AnyElement, App, ClickEvent, Context, Div, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, IntoElement,
     KeyDownEvent, Keystroke, ObjectFit, ParentElement, Render, ScrollHandle, SharedString, Stateful, Styled, Subscription,
-    Task, Window, assets::IconName, div, img, point, prelude::*, px, relative, rems,
+    Task, Window, AnimationExt as _, assets::IconName, div, img, point, prelude::*, px, relative, rems,
 };
 use gpui_kit::component::{
     ActiveTheme as _, Icon, Sizable as _, TitleBar, h_flex, v_flex,
-    button::{Button, ButtonVariants as _},
+    button::ButtonVariants as _,
     input::{Input, InputEvent, InputState},
     kbd::Kbd,
     radio::RadioGroup,
@@ -40,6 +42,7 @@ use higanbana_core::{
 
 use super::ReadTarget;
 use crate::{
+    motion,
     state::{AppState, DlStatus, Img, state},
     theme::ProductColors as _,
     ui::truncate,
@@ -846,7 +849,7 @@ impl ReaderView {
         t
     }
 
-    fn index_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn index_panel(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let theme = cx.theme().clone();
         let q = self.filter.read(cx).value().trim().to_lowercase();
         let chapters = self.chapters();
@@ -890,7 +893,9 @@ impl ReaderView {
                             .px_2()
                             .py_1p5()
                             .rounded(theme.radius)
-                            .map(|d| if here { d.bg(theme.list_active) } else { d.hover(|s| s.bg(theme.list_hover)) })
+                            .relative()
+                            .cursor_pointer()
+                            .map(|d| if here { d.bg(theme.list_active) } else { d.child(hover_layer("hover").fill(theme.list_hover).radius(theme.radius)) })
                             .child(match &l.number {
                                 Some(num) => h_flex()
                                     .items_baseline()
@@ -909,7 +914,7 @@ impl ReaderView {
             )
     }
 
-    fn pages_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn pages_panel(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let total = self.total();
         let current = self.page();
         panel("pages-panel", cx)
@@ -941,7 +946,7 @@ impl ReaderView {
             })))
     }
 
-    fn options_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn options_panel(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let theme = cx.theme().clone();
         let mode_label = |m: ReadMode| match m {
             ReadMode::Single => (IconName::RectangleVertical, "Página única"),
@@ -982,7 +987,7 @@ impl ReaderView {
                                     .on_click(cx.listener(move |v, _, _, cx| v.set_mode(m, cx)))
                             })))
                             .child(
-                                v_flex().mt_5().gap_1().child(Switch::new("seam").label("Emendar capítulos").checked(self.settings.seam).on_change(cx.listener(
+                                v_flex().mt_5().gap_1().child(Switch::new("seam").cursor_pointer().label("Emendar capítulos").checked(self.settings.seam).on_change(cx.listener(
                                     |v, on: &bool, _, cx| {
                                         let on = *on;
                                         v.set_settings(|s| s.seam = on, cx);
@@ -994,7 +999,7 @@ impl ReaderView {
                         v_flex()
                             .w(rems(12.5))
                             .child(panel_heading("Direção", cx))
-                            .child(RadioGroup::vertical("direction").children(["Direita → esquerda", "Esquerda → direita"]).selected_index(Some(dir_ix)).on_change(cx.listener(
+                            .child(RadioGroup::vertical("direction").children(radios(["Direita → esquerda", "Esquerda → direita"])).selected_index(Some(dir_ix)).on_change(cx.listener(
                                 |v, ix: &usize, _, cx| v.set_direction(if *ix == 0 { Direction::Rtl } else { Direction::Ltr }, cx),
                             )))
                             .child(hint("Lembrada para este título. Títulos novos começam da direita para a esquerda.")),
@@ -1003,7 +1008,7 @@ impl ReaderView {
                         v_flex()
                             .w(rems(13.75))
                             .child(panel_heading("Progresso", cx))
-                            .child(RadioGroup::vertical("progress-style").children(STYLES.map(|(_, label, _)| label)).selected_index(Some(style_ix)).on_change(cx.listener(
+                            .child(RadioGroup::vertical("progress-style").children(radios(STYLES.map(|(_, label, _)| label))).selected_index(Some(style_ix)).on_change(cx.listener(
                                 |v, ix: &usize, _, cx| {
                                     let p = STYLES[*ix].0;
                                     v.set_settings(|s| s.progress = p, cx);
@@ -1160,7 +1165,9 @@ impl Render for ReaderView {
                                     .px_1p5()
                                     .py_1()
                                     .rounded(theme.radius)
-                                    .hover(|d| d.bg(theme.list_hover))
+                                    .relative()
+                                    .cursor_pointer()
+                                    .child(hover_layer("hover").fill(theme.list_hover).radius(theme.radius))
                                     .child(div().text_xs().text_color(theme.muted_foreground).child(kind.to_uppercase()))
                                     .child(
                                         div()
@@ -1210,12 +1217,29 @@ impl Render for ReaderView {
                             }))
                             .child(body)
                             .when(self.end && !self.is_strip(), |d| {
-                                d.child(div().absolute().inset_0().bg(theme.background.opacity(0.85)).flex().items_center().justify_center().child(self.chapter_end(chapter, cx)))
+                                d.child(
+                                    div()
+                                        .absolute()
+                                        .inset_0()
+                                        .bg(theme.background.opacity(0.85))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .child(self.chapter_end(chapter, cx))
+                                        .with_animation(SharedString::from(format!("end-in:{chapter}")), motion::enter(motion::BASE), |e, t| e.opacity(t)),
+                                )
                             })
                             .when(show_thread, |d| d.child(self.thread(cx)))
-                            .when(self.panel == Some(Panel::Index), |d| d.child(self.index_panel(cx)))
-                            .when(self.panel == Some(Panel::Pages) && total > 0, |d| d.child(self.pages_panel(cx)))
-                            .when(self.panel == Some(Panel::Options), |d| d.child(self.options_panel(cx))),
+                            // Painéis aparecem com fade curto.
+                            .when(self.panel == Some(Panel::Index), |d| {
+                                d.child(self.index_panel(cx).with_animation("index-in", motion::enter(motion::QUICK), |e, t| e.opacity(t)))
+                            })
+                            .when(self.panel == Some(Panel::Pages) && total > 0, |d| {
+                                d.child(self.pages_panel(cx).with_animation("pages-in", motion::enter(motion::QUICK), |e, t| e.opacity(t)))
+                            })
+                            .when(self.panel == Some(Panel::Options), |d| {
+                                d.child(self.options_panel(cx).with_animation("options-in", motion::enter(motion::QUICK), |e, t| e.opacity(t)))
+                            }),
                     )
                     // Margem direita: número da página, opções, direção
                     .child(
@@ -1235,7 +1259,9 @@ impl Render for ReaderView {
                                     .items_center()
                                     .px_1()
                                     .rounded(theme.radius)
-                                    .hover(|d| d.bg(theme.list_hover))
+                                    .relative()
+                                    .cursor_pointer()
+                                    .child(hover_layer("hover").fill(theme.list_hover).radius(theme.radius))
                                     .when(!show_number, |d| d.opacity(0.))
                                     .child(div().text_size(rems(if page_text.len() > 3 { 1.375 } else { 2.5 })).line_height(relative(1.)).font_weight(FontWeight::BLACK).child(page_text))
                                     .child(div().mt_1().text_xs().text_color(theme.muted_foreground).child(format!("de {}", if total > 0 { total.to_string() } else { "—".into() })))

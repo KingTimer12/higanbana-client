@@ -1,5 +1,6 @@
 //! Entrada: parede de capas da temporada e "Entrar com Discord".
 
+use crate::interact::Button;
 use gpui_kit::{
     Context, Entity, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Window, assets::IconName, div,
     prelude::*, px, relative,
@@ -7,7 +8,7 @@ use gpui_kit::{
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{
     ActiveTheme as _, Sizable as _, h_flex, v_flex,
-    button::{Button, ButtonVariants as _},
+    button::ButtonVariants as _,
 };
 use higanbana_core::anilist::types::MediaSummary;
 

@@ -143,9 +143,11 @@ pub fn strip_ext(file_name: &str) -> &str {
 /// `[Troidex] B-The Beginning - Ep. 01 [BD-Rip_1080p_H264_Dual].mkv` → `01`.
 pub fn parse_episode(file_name: &str) -> EpisodeName {
     let base = strip_ext(file_name);
+    // Alguns grupos trocam espaço por `_` (`Show_-_01_[BD]`).
+    let spaced = base.replace('_', " ");
     let number = EP_WORD
-        .captures(base)
-        .or_else(|| EP_DASH.captures(base))
+        .captures(&spaced)
+        .or_else(|| EP_DASH.captures(&spaced))
         .map(|c| c[1].to_owned());
     let label = folder_title(base);
     // Último grupo entre colchetes costuma ser a qualidade; o primeiro, o grupo de fansub.
@@ -251,6 +253,8 @@ mod tests {
         assert_eq!(parse_episode("Show - 12 [1080p].mkv").number.as_deref(), Some("12"));
         assert_eq!(parse_episode("Show Episódio 3.mp4").number.as_deref(), Some("3"));
         assert_eq!(parse_episode("[G] Filme [1080p].mkv").quality.as_deref(), Some("1080p"));
+        let u = parse_episode("[#AnimeNSK]_Caligula_-_01_[BD_1920x1080]_[HEVC_10Bit]_(FB10B460).mkv");
+        assert_eq!(u.number.as_deref(), Some("01"));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Pasta comum. Só pastas de nome curto (ex.: `Letra A`, `0-9`) viram índice em
 //! blocos; pasta com músicas vira encarte.
 
+use crate::interact::hover_layer;
 use std::rc::Rc;
 
 use gpui_kit::{
@@ -127,9 +128,11 @@ impl Render for FolderView {
                                 .border_color(theme.border)
                                 .bg(theme.group_box)
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .hover(|d| d.bg(theme.secondary_hover).border_color(theme.ring))
+                                .relative()
+                                .cursor_pointer()
                                 .map(|d| if big { d.text_2xl() } else { d.text_sm() })
                                 .child(short)
+                                .child(hover_layer("ring").border(theme.ring).radius(theme.radius_lg))
                                 .on_click(move |_, _, cx| st.update(cx, |s, cx| s.go(target.clone(), cx)))
                         }))
                         .into_any_element()
