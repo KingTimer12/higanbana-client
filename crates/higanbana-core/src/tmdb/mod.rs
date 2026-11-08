@@ -6,7 +6,10 @@
 pub mod client;
 pub mod credentials;
 pub mod matching;
+pub mod service;
 pub mod types;
+
+pub use service::{EpisodeView, Tmdb, WorkEpisodes, work_key};
 
 use thiserror::Error;
 
