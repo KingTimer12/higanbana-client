@@ -98,6 +98,8 @@ pub struct AppState {
     index: usize,
     images: HashMap<String, Img>,
     lookups: HashMap<(MediaType, String), Option<Option<MediaSummary>>>,
+    /// Muda a cada lote de respostas do AniList (nomes resolvidos).
+    lookups_gen: u64,
     lookup_queue: Vec<(MediaType, String)>,
     lookup_task: Option<Task<()>>,
     catalog: HashMap<i64, Option<Option<String>>>,
@@ -130,6 +132,7 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             index: 0,
             images: HashMap::new(),
             lookups: HashMap::new(),
+            lookups_gen: 0,
             lookup_queue: Vec::new(),
             lookup_task: None,
             catalog: HashMap::new(),
@@ -291,6 +294,11 @@ impl AppState {
         self.lookups.get(&(media, name.to_owned())).cloned().flatten()
     }
 
+    /// Muda sempre que algum nome passa a ter resposta.
+    pub(crate) fn lookups_gen(&self) -> u64 {
+        self.lookups_gen
+    }
+
     /// Como `lookup`, sem copiar (para varrer o índice inteiro).
     pub fn lookup_ref(&self, name: &str, media: MediaType) -> Option<Option<&MediaSummary>> {
         self.lookups.get(&(media, name.to_owned())).and_then(Option::as_ref).map(Option::as_ref)
@@ -338,6 +346,7 @@ impl AppState {
             let _ = this.update(cx, |s, cx| {
                 match result {
                     Some(list) => {
+                        s.lookups_gen += 1;
                         let mut retry = Vec::new();
                         for (key, v) in batch.into_iter().zip(list) {
                             match v {

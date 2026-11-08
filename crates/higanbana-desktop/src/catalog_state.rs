@@ -2,6 +2,7 @@
 //! e pausa enquanto há vídeo tocando.
 
 use std::{
+    cell::Cell,
     collections::{HashMap, HashSet},
     sync::Arc,
     time::{Duration, Instant},
@@ -11,6 +12,7 @@ use gpui_kit::{Context, Task};
 use higanbana_core::{
     anilist::{MediaType, types::MediaSummary},
     anime_index::{IndexEntry, LETTERS},
+    catalog_filter::{Filters, Sort},
 };
 
 use crate::state::AppState;
@@ -24,6 +26,9 @@ const INDEX_RETRY: Duration = Duration::from_secs(30);
 /// Espera antes de pedir de novo uma letra que falhou.
 const LETTER_COOLDOWN: Duration = Duration::from_secs(30);
 
+/// (letras carregadas, geração das respostas) e o `metadata_progress` medido com elas.
+type MetaProgress = ((usize, u64), (usize, usize));
+
 /// Campos do catálogo dentro de `AppState`.
 #[derive(Default)]
 pub struct CatalogState {
@@ -35,6 +40,25 @@ pub struct CatalogState {
     pending: Vec<String>,
     playing: bool,
     inner_works: HashMap<String, Vec<String>>,
+    /// Muda a cada `set_inner_works`.
+    inner_gen: u64,
+    /// `metadata_progress` em cache: (letras carregadas, geração das respostas) → resultado.
+    meta_progress: Cell<Option<MetaProgress>>,
+    /// Filtros, ordenação e busca do catálogo: sobrevivem a abrir uma obra e voltar.
+    view: CatalogChoice,
+}
+
+/// O que a pessoa escolheu na tela do catálogo (`filters.query` é o texto da busca).
+#[derive(Clone)]
+pub struct CatalogChoice {
+    pub filters: Filters,
+    pub sort: Sort,
+}
+
+impl Default for CatalogChoice {
+    fn default() -> Self {
+        Self { filters: Filters::default(), sort: Sort::Az }
+    }
 }
 
 /// Tira até `max` nomes do começo, em ordem; o que saiu não volta.
@@ -172,16 +196,19 @@ impl AppState {
         self.cat.pending.is_empty() && self.cat.crawled.len() == LETTERS.len()
     }
 
-    /// Nomes resolvidos / total de nomes no índice.
+    /// Nomes resolvidos / total de nomes no índice. Recontado só quando chega letra ou resposta.
     pub fn metadata_progress(&self) -> (usize, usize) {
-        let mut total = 0;
-        let mut resolved = 0;
-        for letter in LETTERS {
-            if let Some(entries) = self.anime_letter(letter) {
-                total += entries.len();
-                resolved += entries.iter().filter(|e| self.lookup_ref(&e.name, MediaType::Anime).is_some()).count();
-            }
+        let letters: Vec<Arc<Vec<IndexEntry>>> = LETTERS.iter().filter_map(|l| self.anime_letter(l)).collect();
+        let key = (letters.len(), self.lookups_gen());
+        if let Some((k, progress)) = self.cat.meta_progress.get()
+            && k == key
+        {
+            return progress;
         }
+        let entries = letters.iter().flat_map(|l| l.iter());
+        let total = letters.iter().map(|l| l.len()).sum();
+        let resolved = entries.filter(|e| self.lookup_ref(&e.name, MediaType::Anime).is_some()).count();
+        self.cat.meta_progress.set(Some((key, (resolved, total))));
         (resolved, total)
     }
 
@@ -192,6 +219,27 @@ impl AppState {
 
     pub fn set_inner_works(&mut self, title_path: &str, names: Vec<String>) {
         self.cat.inner_works.insert(title_path.to_owned(), names);
+        self.cat.inner_gen += 1;
+    }
+
+    /// Muda sempre que as obras de dentro de alguma franquia mudam.
+    pub fn inner_works_gen(&self) -> u64 {
+        self.cat.inner_gen
+    }
+
+    /// Filtros, ordenação e busca guardados da última vez na tela do catálogo.
+    pub fn catalog_choice(&self) -> &CatalogChoice {
+        &self.cat.view
+    }
+
+    /// Guarda os filtros e a ordenação (a busca fica como está).
+    pub fn save_catalog_filters(&mut self, filters: &Filters, sort: Sort) {
+        let query = std::mem::take(&mut self.cat.view.filters.query);
+        self.cat.view = CatalogChoice { filters: Filters { query, ..filters.clone() }, sort };
+    }
+
+    pub fn save_catalog_query(&mut self, query: &str) {
+        self.cat.view.filters.query = query.to_owned();
     }
 
     pub fn inner_summaries(&self, title_path: &str) -> Vec<MediaSummary> {

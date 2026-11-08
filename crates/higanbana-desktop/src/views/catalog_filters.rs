@@ -4,6 +4,8 @@
 //! A barra guarda os filtros escolhidos; o texto da busca continua na tela do
 //! catálogo, que junta os dois para montar a lista.
 
+use std::collections::HashSet;
+
 use gpui_kit::{
     Anchor, AnyElement, App, Context, ElementId, Entity, EventEmitter, IntoElement, ParentElement, Render, Styled,
     Subscription, Window, assets::IconName, div, prelude::*, px,
@@ -93,11 +95,16 @@ fn year_label((from, to): (i32, i32)) -> String {
     }
 }
 
-/// Gêneros dos metadados já carregados, sem repetir, em ordem alfabética; os escolhidos sempre entram.
-fn genres_to_offer<'a>(metas: impl IntoIterator<Item = &'a MediaSummary>, selected: &[String]) -> Vec<String> {
-    let mut genres: Vec<String> = metas.into_iter().flat_map(|m| m.genres.iter().cloned()).chain(selected.iter().cloned()).collect();
-    genres.sort_by_key(|g| g.to_lowercase());
-    genres.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+/// Gêneros dos metadados já carregados, sem repetir (sem diferenciar caixa), em ordem alfabética.
+fn loaded_genres<'a>(metas: impl IntoIterator<Item = &'a MediaSummary>) -> Vec<String> {
+    genres_to_offer(&[], &metas.into_iter().flat_map(|m| m.genres.iter().cloned()).collect::<Vec<_>>())
+}
+
+/// Os gêneros carregados mais os escolhidos (que sempre entram), em ordem alfabética.
+fn genres_to_offer(loaded: &[String], selected: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut genres: Vec<String> = loaded.iter().chain(selected).filter(|g| seen.insert(g.to_lowercase())).cloned().collect();
+    genres.sort_by_cached_key(|g| g.to_lowercase());
     genres
 }
 
@@ -129,10 +136,43 @@ pub fn thousands(n: usize) -> String {
     out
 }
 
-/// "N obras · metadados X / Y" enquanto os metadados chegam; só "N obras" depois.
-pub fn status_line(works: usize, (resolved, total): (usize, usize)) -> String {
-    let n = format!("{} {}", thousands(works), if works == 1 { "obra" } else { "obras" });
-    if resolved < total { format!("{n} · metadados {} / {}", thousands(resolved), thousands(total)) } else { n }
+/// "N obras · metadados X / Y · índice X / 27": metadados e índice só enquanto incompletos.
+pub fn status_line(works: usize, (resolved, total): (usize, usize), (indexed, letters): (usize, usize)) -> String {
+    let mut line = format!("{} {}", thousands(works), if works == 1 { "obra" } else { "obras" });
+    if resolved < total {
+        line += &format!(" · metadados {} / {}", thousands(resolved), thousands(total));
+    }
+    if indexed < letters {
+        line += &format!(" · índice {indexed} / {letters}");
+    }
+    line
+}
+
+/// Aviso de lista vazia.
+#[derive(Debug, PartialEq, Eq)]
+pub enum EmptyNotice {
+    /// "Nenhuma obra com “…”" (busca por letra).
+    NoMatch,
+    /// "Nenhuma obra com esses filtros" (grade única).
+    NoFilterMatch,
+}
+
+/// Qual aviso de lista vazia mostrar; nenhum quando a grade tem obras ou quando
+/// a busca na nuvem achou obras dentro de franquias (o aviso as contradiria).
+pub fn empty_notice(flat: bool, searching: bool, nothing_shown: bool, franchise_found: bool) -> Option<EmptyNotice> {
+    match (nothing_shown && !franchise_found, flat, searching) {
+        (false, _, _) => None,
+        (true, true, _) => Some(EmptyNotice::NoFilterMatch),
+        (true, false, true) => Some(EmptyNotice::NoMatch),
+        (true, false, false) => None,
+    }
+}
+
+/// Texto dos campos "de"/"até" para uma faixa guardada (lado aberto fica vazio).
+fn year_fields_text(years: Option<(i32, i32)>) -> (String, String) {
+    let Some((from, to)) = years else { return (String::new(), String::new()) };
+    let side = |y: i32, open: i32| if y == open { String::new() } else { y.to_string() };
+    (side(from, YEAR_MIN), side(to, YEAR_MAX))
 }
 
 /// Uma obra do índice com o que se sabe dela.
@@ -182,22 +222,28 @@ pub struct FilterBar {
     year_from: Entity<InputState>,
     year_to: Entity<InputState>,
     menu: Option<Menu>,
+    /// Gêneros carregados em cache, pela contagem de metadados (`metadata_progress`).
+    genres: Option<((usize, usize), Vec<String>)>,
     _subs: Vec<Subscription>,
 }
 
 impl EventEmitter<FiltersChanged> for FilterBar {}
 
 impl FilterBar {
+    /// Começa com o que estava escolhido da última vez (guardado em `AppState`).
     pub fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let year_from = cx.new(|cx| InputState::new(window, cx).placeholder("De"));
-        let year_to = cx.new(|cx| InputState::new(window, cx).placeholder("Até"));
+        let saved = state.read(cx).catalog_choice().clone();
+        let filters = Filters { query: String::new(), ..saved.filters };
+        let (from, to) = year_fields_text(filters.years);
+        let year_from = cx.new(|cx| InputState::new(window, cx).placeholder("De").default_value(from));
+        let year_to = cx.new(|cx| InputState::new(window, cx).placeholder("Até").default_value(to));
         let on_year = |this: &mut Self, _: Entity<InputState>, e: &InputEvent, cx: &mut Context<Self>| {
             if matches!(e, InputEvent::Change) {
                 this.read_years(cx);
             }
         };
         let subs = vec![cx.subscribe(&year_from, on_year), cx.subscribe(&year_to, on_year)];
-        Self { state, filters: Filters::default(), sort: Sort::Az, year_from, year_to, menu: None, _subs: subs }
+        Self { state, filters, sort: saved.sort, year_from, year_to, menu: None, genres: None, _subs: subs }
     }
 
     pub fn filters(&self) -> &Filters {
@@ -214,6 +260,8 @@ impl FilterBar {
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {
+        let (filters, sort) = (self.filters.clone(), self.sort);
+        self.state.update(cx, |s, _| s.save_catalog_filters(&filters, sort));
         cx.emit(FiltersChanged);
         cx.notify();
     }
@@ -249,12 +297,20 @@ impl FilterBar {
         self.changed(cx);
     }
 
-    /// Gêneros dos metadados de todas as letras já indexadas.
-    fn offered_genres(&self, cx: &App) -> Vec<String> {
+    /// Gêneros dos metadados de todas as letras já indexadas; refeito só quando chegam metadados.
+    fn refresh_genres(&mut self, cx: &App) {
         let st = self.state.read(cx);
+        let progress = st.metadata_progress();
+        if self.genres.as_ref().is_some_and(|(k, _)| *k == progress) {
+            return;
+        }
         let letters: Vec<_> = LETTERS.iter().filter_map(|l| st.anime_letter(l)).collect();
         let metas = letters.iter().flat_map(|l| l.iter()).filter_map(|e| st.lookup_ref(&e.name, MediaType::Anime).flatten());
-        genres_to_offer(metas, &self.filters.genres)
+        self.genres = Some((progress, loaded_genres(metas)));
+    }
+
+    fn offered_genres(&self) -> Vec<String> {
+        genres_to_offer(self.genres.as_ref().map_or(&[][..], |(_, g)| g), &self.filters.genres)
     }
 
     /// Botão que abre um menu da barra; o conteúdo só é montado com o menu aberto.
@@ -359,6 +415,9 @@ impl FilterBar {
 impl Render for FilterBar {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
+        if self.menu == Some(Menu::Genre) {
+            self.refresh_genres(cx);
+        }
         let f = &self.filters;
         let (kinds, genres, seasons, years) = (f.kinds.len(), f.genres.len(), f.seasons.len(), usize::from(f.years.is_some()));
         let dubbed = f.dubbed;
@@ -375,7 +434,7 @@ impl Render for FilterBar {
             "Gênero",
             genres,
             |b, cx| {
-                let offered = b.offered_genres(cx);
+                let offered = b.offered_genres();
                 if offered.is_empty() {
                     return div()
                         .max_w(px(280.))
@@ -502,10 +561,12 @@ mod tests {
     fn offers_loaded_genres() {
         let a = summary(json!({"id":1,"genres":["Mahou Shoujo","Comedy"]}));
         let b = summary(json!({"id":2,"genres":["action","Comedy"]}));
-        assert_eq!(genres_to_offer([&a, &b], &[]), vec!["action", "Comedy", "Mahou Shoujo"]);
-        // O escolhido continua no menu mesmo sem obra carregada com ele.
-        assert_eq!(genres_to_offer([&a], &["Sports".to_owned()]), vec!["Comedy", "Mahou Shoujo", "Sports"]);
-        assert!(genres_to_offer([], &[]).is_empty());
+        let loaded = loaded_genres([&a, &b]);
+        assert_eq!(loaded, vec!["action", "Comedy", "Mahou Shoujo"]);
+        assert_eq!(genres_to_offer(&loaded, &[]), loaded);
+        // O escolhido continua no menu mesmo sem obra carregada com ele; repetido em outra caixa não duplica.
+        assert_eq!(genres_to_offer(&loaded, &["Sports".to_owned(), "comedy".to_owned()]), vec!["action", "Comedy", "Mahou Shoujo", "Sports"]);
+        assert!(genres_to_offer(&[], &[]).is_empty());
     }
 
     #[test]
@@ -522,9 +583,12 @@ mod tests {
         assert_eq!(thousands(999), "999");
         assert_eq!(thousands(4031), "4.031");
         assert_eq!(thousands(1234567), "1.234.567");
-        assert_eq!(status_line(74, (3120, 4031)), "74 obras · metadados 3.120 / 4.031");
-        assert_eq!(status_line(1, (10, 10)), "1 obra");
-        assert_eq!(status_line(0, (0, 0)), "0 obras");
+        assert_eq!(status_line(74, (3120, 4031), (27, 27)), "74 obras · metadados 3.120 / 4.031");
+        assert_eq!(status_line(1, (10, 10), (27, 27)), "1 obra");
+        assert_eq!(status_line(0, (0, 0), (27, 27)), "0 obras");
+        // Enquanto indexa, o índice aparece para o filtro não esconder obras em silêncio.
+        assert_eq!(status_line(5, (10, 10), (3, 27)), "5 obras · índice 3 / 27");
+        assert_eq!(status_line(5, (8, 10), (3, 27)), "5 obras · metadados 8 / 10 · índice 3 / 27");
     }
 
     #[test]
@@ -558,6 +622,29 @@ mod tests {
         // Busca por nome junto com os filtros.
         let q = Filters { query: "clan".into(), ..Default::default() };
         assert_eq!(names(filtered_works(&works, &q, Sort::Year)), vec!["Clannad"]);
+    }
+
+    #[test]
+    fn empty_state_never_contradicts_franchise_results() {
+        // Algo na grade: nada de estado vazio.
+        assert_eq!(empty_notice(true, true, false, false), None);
+        // Busca sem filtro que não achou nada por letra.
+        assert_eq!(empty_notice(false, true, true, false), Some(EmptyNotice::NoMatch));
+        // Sem busca nem filtro, a lista vazia é só o índice carregando.
+        assert_eq!(empty_notice(false, false, true, false), None);
+        // Grade única vazia.
+        assert_eq!(empty_notice(true, false, true, false), Some(EmptyNotice::NoFilterMatch));
+        // Achou dentro de franquias: o aviso some nos dois modos.
+        assert_eq!(empty_notice(true, true, true, true), None);
+        assert_eq!(empty_notice(false, true, true, true), None);
+    }
+
+    #[test]
+    fn restores_year_fields() {
+        assert_eq!(year_fields_text(None), (String::new(), String::new()));
+        assert_eq!(year_fields_text(Some((2009, 2011))), ("2009".into(), "2011".into()));
+        assert_eq!(year_fields_text(Some((2009, YEAR_MAX))), ("2009".into(), String::new()));
+        assert_eq!(year_fields_text(Some((YEAR_MIN, 2011))), (String::new(), "2011".into()));
     }
 
     #[test]

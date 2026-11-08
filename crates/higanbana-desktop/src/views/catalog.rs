@@ -32,7 +32,9 @@ use crate::{
     components::{breadcrumbs, columns, content_width, title_card, when_visible},
     state::{AppState, state},
     ui::empty_state,
-    views::catalog_filters::{FilterBar, FiltersChanged, Work, collections_menu, filtered_works, franchise_results, sort_menu, status_line},
+    views::catalog_filters::{
+        EmptyNotice, FilterBar, FiltersChanged, Work, collections_menu, empty_notice, filtered_works, franchise_results, sort_menu, status_line,
+    },
 };
 
 const ROOT: &str = "Animes";
@@ -99,6 +101,7 @@ struct FlatKey {
     sort: Sort,
     indexed: usize,
     resolved: usize,
+    inner_gen: u64,
 }
 
 struct Section {
@@ -132,6 +135,8 @@ pub struct CatalogView {
     /// Texto da última busca na nuvem pedida e as obras dentro de franquias que ela achou.
     cloud_query: String,
     franchise: Vec<SearchResult>,
+    /// A última busca na nuvem falhou (diferente de não achar nada).
+    cloud_failed: bool,
     cloud_task: Option<Task<()>>,
     /// Resultado da busca em cache: (texto, letras indexadas, seções).
     found: Option<(String, usize, Vec<(usize, Arc<Vec<IndexEntry>>)>)>,
@@ -147,7 +152,9 @@ pub struct CatalogView {
 impl CatalogView {
     pub fn new(letter: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let state = state(cx);
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Buscar no catálogo"));
+        // Busca e filtros voltam como estavam ao reabrir o catálogo (abrir uma obra e voltar).
+        let saved_query = state.read(cx).catalog_choice().filters.query.clone();
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Buscar no catálogo").default_value(saved_query));
         let bar = cx.new(|cx| FilterBar::new(state.clone(), window, cx));
         let subs = vec![
             cx.observe(&state, |_, _, cx| cx.notify()),
@@ -175,6 +182,7 @@ impl CatalogView {
             flat: None,
             cloud_query: String::new(),
             franchise: Vec::new(),
+            cloud_failed: false,
             cloud_task: None,
             found: None,
             shown: Vec::new(),
@@ -225,8 +233,10 @@ impl CatalogView {
         !self.query(cx).is_empty()
     }
 
-    /// Busca ou filtros mudaram: volta ao topo e esquece as medidas.
+    /// Busca ou filtros mudaram: guarda a busca, volta ao topo e esquece as medidas.
     fn restart(&mut self, cx: &mut Context<Self>) {
+        let query = self.query(cx);
+        self.state.update(cx, |s, _| s.save_catalog_query(&query));
         self.search_gen += 1;
         self.scroll.set_offset(point(px(0.), px(0.)));
         cx.notify();
@@ -246,6 +256,7 @@ impl CatalogView {
         }
         self.cloud_query = q.clone();
         self.franchise.clear();
+        self.cloud_failed = false;
         self.cloud_task = None;
         if q.chars().count() < CLOUD_MIN_CHARS {
             return;
@@ -255,11 +266,22 @@ impl CatalogView {
             cx.background_executor().timer(CLOUD_DEBOUNCE).await;
             let asked = q.clone();
             let task = core.clone().spawn(async move { core.cloud().search(&asked).await });
-            let results = task.await.ok().and_then(Result::ok).map(|r| r.results).unwrap_or_default();
+            let results = match task.await {
+                Ok(Ok(r)) => Some(r.results),
+                Ok(Err(e)) => {
+                    eprintln!("busca na nuvem por {q:?}: {e}");
+                    None
+                }
+                Err(e) => {
+                    eprintln!("busca na nuvem por {q:?}: tarefa interrompida: {e}");
+                    None
+                }
+            };
             let _ = this.update(cx, |v, cx| {
                 // Resposta de um texto antigo: descarta.
                 if v.cloud_query == q {
-                    v.franchise = franchise_results(results);
+                    v.cloud_failed = results.is_none();
+                    v.franchise = results.map(franchise_results).unwrap_or_default();
                     cx.notify();
                 }
             });
@@ -269,7 +291,7 @@ impl CatalogView {
     /// Obras de todas as letras indexadas que passam nos filtros, na ordem pedida.
     fn flat_works(&mut self, filters: &Filters, sort: Sort, resolved: usize, cx: &App) -> Arc<Vec<IndexEntry>> {
         let st = self.state.read(cx);
-        let key = FlatKey { filters: filters.clone(), sort, indexed: st.index_progress().0, resolved };
+        let key = FlatKey { filters: filters.clone(), sort, indexed: st.index_progress().0, resolved, inner_gen: st.inner_works_gen() };
         if let Some((k, works)) = &self.flat
             && *k == key
         {
@@ -501,7 +523,8 @@ impl Render for CatalogView {
                 })
                 .into_any_element(),
         );
-        if flat_mode && present.is_empty() {
+        let notice = empty_notice(flat_mode, !query.is_empty(), present.is_empty(), !self.franchise.is_empty());
+        if notice == Some(EmptyNotice::NoFilterMatch) {
             let pending = flat_status.is_some_and(|(_, (resolved, all))| resolved < all) || indexed < total;
             let detail = pending.then(|| "Ainda carregando o acervo; mais obras podem aparecer.".into());
             let clear = Button::new("catalog-clear-filters").outline().label("Limpar filtros").on_click(cx.listener(|v, _, window, cx| {
@@ -512,7 +535,7 @@ impl Render for CatalogView {
             }));
             let empty = empty_state(IconName::Search, "Nenhuma obra com esses filtros", detail, cx).child(div().pt_2().child(clear));
             children.insert(1, empty.into_any_element());
-        } else if !query.is_empty() && present.is_empty() {
+        } else if notice == Some(EmptyNotice::NoMatch) {
             let detail = (indexed < total).then(|| "Ainda indexando o acervo; mais obras podem aparecer.".into());
             children.insert(1, empty_state(IconName::Search, format!("Nenhuma obra com “{query}”"), detail, cx).into_any_element());
         }
@@ -587,7 +610,7 @@ impl CatalogView {
                 .text_xs()
                 .text_color(theme.muted_foreground)
                 .when(pending, |d| d.child(div().size_1p5().rounded_full().bg(theme.primary)))
-                .child(status_line(works, (resolved, all)))
+                .child(status_line(works, (resolved, all), (indexed, total)))
         });
         v_flex()
             .w(px(width))
@@ -609,6 +632,7 @@ impl CatalogView {
                 d.child(div().text_xs().text_color(theme.muted_foreground).child(format!("Indexando nomes… {indexed}/{total}")))
             })
             .children(franchise)
+            .when(self.cloud_failed, |d| d.child(div().text_xs().text_color(theme.muted_foreground).child("Busca na nuvem indisponível agora")))
             .into_any_element()
     }
 }
