@@ -18,6 +18,7 @@ pub mod music;
 pub mod nuvem;
 pub mod paths;
 pub mod player;
+pub mod prefs;
 pub mod reader;
 
 pub use cloud::Cloud;

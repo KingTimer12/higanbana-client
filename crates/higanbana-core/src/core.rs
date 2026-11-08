@@ -5,7 +5,7 @@ use std::{future::Future, sync::Arc};
 use tokio::runtime::{Handle, Runtime};
 
 use crate::{
-    anilist::AniList, anime_index::AnimeIndex, auth::AuthManager, catalog::Catalog, cloud::Cloud, events::EventFn, music::Music, paths::Paths, player::Player,
+    anilist::AniList, anime_index::AnimeIndex, auth::AuthManager, catalog::Catalog, cloud::Cloud, events::EventFn, music::Music, paths::Paths, player::Player, prefs::Prefs,
     reader::Reader,
 };
 
@@ -17,6 +17,7 @@ pub struct Core {
     anilist: AniList,
     catalog: Catalog,
     anime_index: AnimeIndex,
+    prefs: Prefs,
     web: reqwest::Client,
     reader: Reader,
     player: Player,
@@ -30,11 +31,12 @@ impl Core {
         let anilist = AniList::new(&paths.cache);
         let catalog = Catalog::open(paths.cache.join("catalog.json"));
         let anime_index = AnimeIndex::open(paths.cache.join("anime-index.json"));
+        let prefs = Prefs::open(paths.data.join("prefs.json"));
         let web = reqwest::Client::builder().user_agent(concat!("higanbana-client/", env!("CARGO_PKG_VERSION"))).build()?;
         let reader = Reader::new(cloud.clone());
         let player = rt.block_on(Player::start(cloud.clone()))?;
         let music = Music::start(rt.handle().clone(), cloud.clone(), events);
-        Ok(Self { rt, cloud, anilist, catalog, anime_index, web, reader, player, music })
+        Ok(Self { rt, cloud, anilist, catalog, anime_index, prefs, web, reader, player, music })
     }
 
     pub fn rt(&self) -> &Handle {
@@ -72,6 +74,10 @@ impl Core {
 
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
+    }
+
+    pub fn prefs(&self) -> &Prefs {
+        &self.prefs
     }
 
     pub fn anime_index(&self) -> &AnimeIndex {
