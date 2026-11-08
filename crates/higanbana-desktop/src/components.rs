@@ -20,7 +20,7 @@ use gpui_kit::{
 };
 use higanbana_core::{
     anilist::{text, types::MediaSummary, MediaType},
-    library::{folder_title, folder_year, join_path, natural_cmp, parse_episode, split_path, VersionLabel},
+    library::{folder_title, folder_year, join_path, natural_cmp, parse_episode, raw_path, split_path, VersionLabel},
     nuvem::FileEntry,
     player::logic::VIDEO_EXT,
 };
@@ -303,8 +303,19 @@ pub fn section_order(a: &str, b: &str) -> std::cmp::Ordering {
     pos(a).cmp(&pos(b)).then_with(|| natural_cmp(a, b))
 }
 
+/// Rota de uma subpasta: dentro de uma pasta aberta crua (`raw:`), continua crua.
+pub fn folder_link(dir: &str, name: &str, raw: bool) -> String {
+    let path = join_path(dir, name);
+    if raw { raw_path(&path) } else { path }
+}
+
 /// Migalhas: Início › Seção › ... › atual.
 pub fn breadcrumbs(path: &str, cx: &mut App) -> Breadcrumb {
+    breadcrumbs_in(path, false, cx)
+}
+
+/// Migalhas de uma pasta; com `raw`, cada pedaço abre cru (o Início não).
+pub fn breadcrumbs_in(path: &str, raw: bool, cx: &mut App) -> Breadcrumb {
     let segs: Vec<String> = split_path(path).into_iter().map(str::to_owned).collect();
     let s = state(cx);
     let go = |target: String| {
@@ -321,7 +332,7 @@ pub fn breadcrumbs(path: &str, cx: &mut App) -> Breadcrumb {
         } else {
             seg.clone()
         };
-        crumbs = crumbs.child(BreadcrumbItem::new(label).on_click(go(segs[..=i].join("/"))));
+        crumbs = crumbs.child(BreadcrumbItem::new(label).on_click(go(folder_link(&segs[..i].join("/"), seg, raw))));
     }
     crumbs
 }
@@ -432,6 +443,18 @@ pub fn file_list(
     on_read: Option<FileAction>,
     cx: &mut App,
 ) -> Div {
+    file_list_in(dir, files, false, on_play, on_read, cx)
+}
+
+/// [`file_list`] com `raw`: as subpastas abrem cruas, como a pasta atual.
+pub fn file_list_in(
+    dir: &str,
+    files: &[FileEntry],
+    raw: bool,
+    on_play: Option<FileAction>,
+    on_read: Option<FileAction>,
+    cx: &mut App,
+) -> Div {
     let mut sorted = files.to_vec();
     sorted.sort_by(|a, b| {
         b.is_directory
@@ -493,6 +516,7 @@ pub fn file_list(
         };
         if f.is_directory {
             let s = s.clone();
+            let path = folder_link(dir, &f.name, raw);
             list = list.child(
                 hover_fade(
                     ElementId::Name(format!("dir-hover:{key}").into()),
@@ -763,4 +787,16 @@ pub fn title_card(id: ElementId, name: &str, target: String, media: MediaType, w
 
 pub fn want_lookup(name: String, media: MediaType) -> impl FnOnce(&mut App) {
     move |cx| state(cx).update(cx, |s: &mut AppState, cx| s.want_lookup(&name, media, cx))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folder_link_keeps_raw() {
+        assert_eq!(folder_link("Animes/Letra S", "Smile", false), "Animes/Letra S/Smile");
+        assert_eq!(folder_link("Animes/Letra S", "Smile", true), "raw:Animes/Letra S/Smile");
+        assert_eq!(folder_link("", "Animes", true), "raw:Animes");
+    }
 }

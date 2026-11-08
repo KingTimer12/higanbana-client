@@ -83,6 +83,8 @@ pub struct TitleView {
     title_dirs: Vec<FileEntry>,
     /// Anime cuja pasta tem a maioria das subpastas datadas (cada uma é uma obra).
     franchise_folder: bool,
+    /// Subpastas da obra (versões, extras), refeitas quando uma listagem de cima chega.
+    work_split: (Vec<FileEntry>, Vec<FileEntry>),
     _subs: Vec<Subscription>,
 }
 
@@ -142,6 +144,7 @@ impl TitleView {
             v.title_dirs = dirs(&v.title_listing);
             v.franchise_folder = v.media_type == MediaType::Anime
                 && is_franchise(&v.title_dirs.iter().map(|d| d.name.as_str()).collect::<Vec<_>>());
+            v.refresh_work_dirs();
             v.sync(cx);
         });
         Self {
@@ -163,6 +166,7 @@ impl TitleView {
             franchise: None,
             title_dirs: Vec::new(),
             franchise_folder: false,
+            work_split: (Vec::new(), Vec::new()),
             _subs: subs,
         }
     }
@@ -208,14 +212,14 @@ impl TitleView {
         if self.season_name().is_some() { &self.season_listing } else { &self.title_listing }
     }
 
-    /// Subpastas da obra: versões e extras.
-    fn work_dirs(&self) -> (Vec<FileEntry>, Vec<FileEntry>) {
+    /// Refaz as subpastas da obra (versões e extras) a partir das listagens.
+    fn refresh_work_dirs(&mut self) {
         let dirs = if self.season_name().is_some() {
             dirs(&self.season_listing)
         } else {
             self.title_dirs.iter().filter(|d| folder_year(&d.name).is_none()).cloned().collect()
         };
-        split_work_dirs(dirs)
+        self.work_split = split_work_dirs(dirs);
     }
 
     /// Nome da obra usado para rotular as versões.
@@ -226,7 +230,7 @@ impl TitleView {
     /// Versões da obra. Vídeos soltos ao lado de pastas de versão viram a
     /// versão sintética [`LOOSE_FILES_VERSION`], que aponta para a própria pasta.
     fn releases(&self) -> Vec<FileEntry> {
-        let mut releases = self.work_dirs().0;
+        let mut releases = self.work_split.0.clone();
         let loose = files_of(self.work_listing()).is_some_and(|f| !video_files(f).is_empty());
         if loose && !releases.is_empty() {
             releases.push(FileEntry {
@@ -244,7 +248,7 @@ impl TitleView {
     fn extra_name(&self) -> Option<String> {
         let rest = self.rest_after_season();
         let wanted = rest.first()?;
-        self.work_dirs().1.into_iter().find(|e| &e.name == wanted).map(|e| e.name)
+        self.work_split.1.iter().find(|e| &e.name == wanted).map(|e| e.name.clone())
     }
 
     /// Versão aberta: a do caminho; senão a lembrada ou a de maior resolução.
@@ -314,8 +318,10 @@ impl TitleView {
         {
             self.season_for = Some(season);
             self.season_listing = None;
+            self.refresh_work_dirs();
             load_listing(&self.state, self.season_path(), cx, |v: &mut Self, r, cx| {
                 v.season_listing = Some(r);
+                v.refresh_work_dirs();
                 v.sync(cx);
             });
         }
@@ -355,6 +361,15 @@ impl TitleView {
         }
     }
 
+    /// Arquivos que a tela mostra. Na raiz da obra (versão de arquivos soltos,
+    /// ou obra só com extras) as subpastas ficam de fora: versões viram cartões
+    /// e extras têm seção própria.
+    fn shown_files(&self) -> Option<Vec<FileEntry>> {
+        let list = files_of(&self.files_listing)?.clone();
+        let at_root = self.files_for.as_deref() == Some(self.season_path().as_str());
+        Some(if at_root { list.into_iter().filter(|f| !f.is_directory).collect() } else { list })
+    }
+
     /// Pasta de músicas vira encarte (se não for álbum, ele avisa e volta à lista).
     fn ensure_album(&mut self, cx: &mut Context<Self>) {
         let Some(list) = files_of(&self.files_listing).cloned() else { return };
@@ -377,7 +392,7 @@ impl TitleView {
     }
 
     fn play(&self, file: FileEntry, cx: &mut gpui_kit::App) {
-        let (Some(dir), Some(files)) = (self.files_for.clone(), files_of(&self.files_listing).cloned()) else { return };
+        let (Some(dir), Some(files)) = (self.files_for.clone(), self.shown_files()) else { return };
         let t = PlayTarget {
             dir,
             file,
@@ -390,7 +405,7 @@ impl TitleView {
     }
 
     fn read(&self, file: FileEntry, cx: &mut gpui_kit::App) {
-        let (Some(dir), Some(files)) = (self.files_for.clone(), files_of(&self.files_listing).cloned()) else { return };
+        let (Some(dir), Some(files)) = (self.files_for.clone(), self.shown_files()) else { return };
         let t = ReadTarget { dir, file, files, title_path: self.title_path.clone(), title: self.heading(cx) };
         self.state.update(cx, |s, cx| s.read(t, cx));
     }
@@ -408,9 +423,7 @@ impl Render for TitleView {
         let full = self.full().cloned();
         let heading = self.heading(cx);
         let release_name = self.release_name(cx);
-        let loose = release_name.as_deref() == Some(LOOSE_FILES_VERSION) && self.extra_name().is_none();
-        // Na versão de arquivos soltos a listagem é a da obra: as pastas de versão ficam de fora.
-        let files = files_of(&self.files_listing).cloned().map(|f| if loose { f.into_iter().filter(|f| !f.is_directory).collect() } else { f });
+        let files = self.shown_files();
         let files_path = self.files_for.clone().unwrap_or_default();
         let st = self.state.read(cx);
         let progress = st.player_data.progress.clone();
@@ -539,7 +552,9 @@ impl Render for TitleView {
                 st_entity.update(cx, |s, cx| s.start_downloads(&rem_paths, cx));
             }),
         );
-        let (st_entity, raw) = (self.state.clone(), raw_path(&self.season_path()));
+        // Fora de franquia abre o título inteiro: irmãs sem data (Filmes, Extras) ficam ao alcance.
+        let raw = raw_path(&if self.is_franchise() { self.season_path() } else { self.title_path.clone() });
+        let st_entity = self.state.clone();
         actions = actions.child(Button::new("raw-folder").ghost().icon(IconName::Folder).label("Ver pasta").on_click(move |_, _, cx| {
             st_entity.update(cx, |s, cx| s.go(raw.clone(), cx));
         }));
@@ -622,7 +637,7 @@ impl Render for TitleView {
             if !single_tags.is_empty() {
                 options = options.child(option_group("Versão", cx).child(div().pt_1().text_sm().text_color(theme.muted_foreground).child(single_tags.join(" "))));
             }
-            let extras = self.work_dirs().1;
+            let extras = &self.work_split.1;
             let extras_section = (!extras.is_empty()).then(|| {
                 v_flex().gap_2().child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child("Extras")).child(h_flex().flex_wrap().gap_2().children(extras.iter().map(|e| {
                     let target = join_path(&work_path, &e.name);

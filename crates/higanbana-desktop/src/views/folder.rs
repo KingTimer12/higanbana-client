@@ -11,12 +11,12 @@ use gpui_kit::{
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::{ActiveTheme as _, v_flex};
 use higanbana_core::{
-    library::{join_path, natural_cmp, split_path},
+    library::{natural_cmp, split_path},
     nuvem::FileEntry,
 };
 
 use crate::{
-    components::{breadcrumbs, columns, content_width, file_list, section_label, FileAction},
+    components::{breadcrumbs_in, columns, content_width, file_list_in, folder_link, section_label, FileAction},
     music::album::{AlbumEvent, AlbumView, looks_like_album},
     reader::ReadTarget,
     state::{AppState, state},
@@ -28,6 +28,8 @@ use crate::{
 pub struct FolderView {
     state: Entity<AppState>,
     path: String,
+    /// Aberta crua (`raw:`): as subpastas e migalhas continuam cruas.
+    raw: bool,
     listing: Option<Result<Vec<FileEntry>, String>>,
     album: Option<Entity<AlbumView>>,
     /// O encarte avisou que não era álbum: mostra a lista.
@@ -36,14 +38,14 @@ pub struct FolderView {
 }
 
 impl FolderView {
-    pub fn new(path: String, cx: &mut Context<Self>) -> Self {
+    pub fn new(path: String, raw: bool, cx: &mut Context<Self>) -> Self {
         let state = state(cx);
         let subs = vec![cx.observe(&state, |_, _, cx| cx.notify())];
         load_listing(&state, path.clone(), cx, |v: &mut Self, r, cx| {
             v.listing = Some(r);
             v.ensure_album(cx);
         });
-        Self { state, path, listing: None, album: None, not_album: false, _subs: subs }
+        Self { state, path, raw, listing: None, album: None, not_album: false, _subs: subs }
     }
 
     /// Pasta com músicas vira encarte (se não for álbum, o encarte avisa e volta à lista).
@@ -113,7 +115,7 @@ impl Render for FolderView {
                         .children(names.into_iter().map(|name| {
                             let short = name.trim_start_matches("Letra ").trim_start_matches('[').trim_end_matches(']').to_owned();
                             let big = short.chars().count() <= 3;
-                            let target = join_path(&self.path, &name);
+                            let target = folder_link(&self.path, &name, self.raw);
                             let st = self.state.clone();
                             div()
                                 .id(ElementId::Name(format!("tile:{name}").into()))
@@ -152,7 +154,7 @@ impl Render for FolderView {
                         let t = ReadTarget { dir: dir.clone(), file: f.clone(), files: all.clone(), title_path: dir.clone(), title: title.clone() };
                         st.update(cx, |s, cx| s.read(t, cx));
                     });
-                    file_list(&self.path, &files, Some(on_play), Some(on_read), cx).into_any_element()
+                    file_list_in(&self.path, &files, self.raw, Some(on_play), Some(on_read), cx).into_any_element()
                 }
             }
         };
@@ -162,7 +164,7 @@ impl Render for FolderView {
             .mx_auto()
             .py_6()
             .gap_6()
-            .child(breadcrumbs(&self.path, cx))
+            .child(breadcrumbs_in(&self.path, self.raw, cx))
             .when(!album_active, |d| d.child(div().text_2xl().font_weight(FontWeight::SEMIBOLD).child(title)))
             .child(body)
     }

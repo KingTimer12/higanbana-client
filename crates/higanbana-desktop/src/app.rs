@@ -157,7 +157,8 @@ impl AppView {
             Place::Home => cx.new(HomeView::new).into(),
             Place::Shelf { path, media } => cx.new(|cx| ShelfView::new(path, media, window, cx)).into(),
             Place::Title { title_path, rest, media, .. } => cx.new(|cx| TitleView::new(title_path, rest, media, cx)).into(),
-            Place::Folder { path } | Place::Raw { path } => cx.new(|cx| FolderView::new(path, cx)).into(),
+            Place::Folder { path } => cx.new(|cx| FolderView::new(path, false, cx)).into(),
+            Place::Raw { path } => cx.new(|cx| FolderView::new(path, true, cx)).into(),
             Place::Catalog { letter } => cx.new(|cx| CatalogView::new(letter, window, cx)).into(),
         };
         self.page = Some((path, view.clone()));
