@@ -2,6 +2,7 @@
 
 mod mpv;
 mod surface;
+mod thumbs;
 mod view;
 
 pub use surface::Surface;

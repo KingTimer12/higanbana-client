@@ -15,7 +15,7 @@ use gpui_kit::{
     AnyElement, App, Bounds, ClickEvent, Context, Div, ElementId, Entity, EventEmitter, FocusHandle, Focusable,
     FontWeight, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
     AnimationExt as _, Pixels, Render, SharedString, Stateful, Styled, Subscription, Task, Window, assets::IconName, canvas, div,
-    linear_color_stop, linear_gradient, prelude::*, px, relative, rems,
+    ObjectFit, img, linear_color_stop, linear_gradient, prelude::*, px, relative, rems,
 };
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Icon, Sizable as _, h_flex, v_flex,
@@ -47,12 +47,16 @@ use serde_json::Value;
 use super::{
     mpv::{EndReason, Mpv, MpvEvent, Observe},
     surface::Surface,
+    thumbs::{self, Thumbs},
 };
 use crate::{
     theme::{self, ProductColors as _},
     ui::truncate,
 };
 
+/// Tamanho da prévia do quadro sobre a barra de posição (16:9).
+const THUMB_W: Pixels = px(176.);
+const THUMB_H: Pixels = px(99.);
 const HIDE_AFTER: Duration = Duration::from_millis(2500);
 /// Progresso gravado em disco no máximo a cada tanto (e sempre ao pausar/sair/trocar).
 const SAVE_EVERY: Duration = Duration::from_secs(5);
@@ -107,7 +111,9 @@ fn base_options(wid: usize, cache_mib: u32) -> Vec<(&'static str, String)> {
     ]
 }
 
-const OBSERVED: [(&str, Observe); 10] = [
+const OBSERVED: [(&str, Observe); 11] = [
+    // Saída de vídeo pronta: antes disso a janela do mpv ainda não tem quadro.
+    ("vo-configured", Observe::Flag),
     ("time-pos", Observe::Double),
     ("duration", Observe::Double),
     ("pause", Observe::Flag),
@@ -148,6 +154,10 @@ pub struct PlayerView {
     next_cancelled: bool,
     /// Arquivo atual aberto pelo mpv (`file-loaded`). Antes disso, eventos podem ser do anterior.
     loaded: bool,
+    /// O mpv já tem saída de vídeo (`vo-configured`).
+    vo_configured: bool,
+    /// Chegou posição do arquivo atual: o quadro dele já está na tela.
+    playing: bool,
     expected_chapters: usize,
     skip_resolved_for: String,
     load_seq: u64,
@@ -167,6 +177,9 @@ pub struct PlayerView {
     /// Volume do mpv (0..100) no `Slider` do kit.
     volume_slider: Entity<SliderState>,
     hover: Option<(Pixels, f64)>,
+    /// Miniaturas da barra de posição: abertas no primeiro hover de cada arquivo.
+    thumbs: Option<Thumbs>,
+    _thumb_events: Option<Task<()>>,
     /// Última posição do mouse (o GPUI repete o evento a cada quadro).
     last_mouse: Option<gpui_kit::Point<Pixels>>,
     _events: Option<Task<()>>,
@@ -218,6 +231,8 @@ impl PlayerView {
             skip: SkipTimes::default(),
             next_cancelled: false,
             loaded: false,
+            vo_configured: false,
+            playing: false,
             expected_chapters: 0,
             skip_resolved_for: String::new(),
             load_seq: 0,
@@ -234,6 +249,8 @@ impl PlayerView {
             seek_bounds: Rc::default(),
             volume_slider,
             hover: None,
+            thumbs: None,
+            _thumb_events: None,
             last_mouse: None,
             _events: None,
             _subs: subs,
@@ -308,7 +325,7 @@ impl PlayerView {
                 self.retry_attempt = 0;
             }
             MpvEvent::EndFile(EndReason::Error) => self.on_error(cx),
-            MpvEvent::EndFile(_) => {}
+            MpvEvent::EndFile(_) | MpvEvent::Restart => {}
         }
         self.effects(cx);
         cx.notify();
@@ -321,6 +338,7 @@ impl PlayerView {
             "time-pos" => {
                 if let (Some(t), true) = (num, self.loaded) {
                     self.pos = t;
+                    self.playing = true;
                     self.record_progress(false);
                 }
             }
@@ -334,6 +352,7 @@ impl PlayerView {
             "volume" => self.volume = num.unwrap_or(100.).round(),
             "mute" => self.muted = flag,
             "paused-for-cache" => self.buffering = flag,
+            "vo-configured" => self.vo_configured = flag,
             "demuxer-cache-time" => self.cache_ahead = num.unwrap_or(0.),
             "chapter-list" => {
                 self.chapters = serde_json::from_value(v).unwrap_or_default();
@@ -348,6 +367,41 @@ impl PlayerView {
                     }
                 }
             _ => {}
+        }
+    }
+
+    /// Pede a miniatura do tempo `t`, abrindo o gerador no primeiro pedido do arquivo.
+    fn want_thumb(&mut self, t: f64, cx: &mut Context<Self>) {
+        if !self.loaded || self.broken.is_some() {
+            return;
+        }
+        if self.thumbs.is_none() {
+            let seq = self.load_seq;
+            let url = self.core.player().stream_url(&self.playing_path, self.file().size);
+            let dir = std::env::temp_dir().join("higanbana-thumbs").join(format!("{}-{seq}", std::process::id()));
+            let Ok((thumbs, mut rx)) = Thumbs::open(&url, dir) else { return };
+            self.thumbs = Some(thumbs);
+            self._thumb_events = Some(cx.spawn(async move |this, cx| {
+                while let Some(e) = rx.next().await {
+                    let Ok(shot) = this.update(cx, |v, _| v.thumbs.as_mut().filter(|_| v.load_seq == seq).and_then(|t| t.on_event(e))) else { break };
+                    let Some(shot) = shot else { continue };
+                    let bucket = shot.bucket;
+                    // Gravar o JPEG bloqueia: fora da thread da interface.
+                    let ok = cx.background_executor().spawn(async move { shot.run() }).await;
+                    let r = this.update(cx, |v, cx| {
+                        if let Some(t) = v.thumbs.as_mut().filter(|_| v.load_seq == seq) {
+                            t.finish(bucket, ok);
+                            cx.notify();
+                        }
+                    });
+                    if r.is_err() {
+                        break;
+                    }
+                }
+            }));
+        }
+        if let Some(th) = &mut self.thumbs {
+            th.want(thumbs::bucket(t));
         }
     }
 
@@ -377,6 +431,10 @@ impl PlayerView {
         let start = start_at.or(saved).unwrap_or(0.);
         self.load_seq += 1;
         self.loaded = false;
+        self.playing = false;
+        // Miniaturas são do arquivo anterior (ou de uma tentativa que falhou).
+        self.thumbs = None;
+        self._thumb_events = None;
         self.expected_chapters = 0;
         self.buffering = true;
         self.eof = false;
@@ -536,6 +594,11 @@ impl PlayerView {
         self.menu = None;
         self.target.file = file;
         self.load_current(None, cx);
+    }
+
+    /// O vídeo do arquivo atual já aparece na janela do mpv.
+    fn video_ready(&self) -> bool {
+        self.vo_configured && self.playing && self.broken.is_none()
     }
 
     fn show_skip(&self) -> bool {
@@ -914,7 +977,9 @@ impl PlayerView {
             )
             .on_mouse_move(cx.listener(|v, e: &MouseMoveEvent, _, cx| {
                 let b = v.seek_bounds.get();
-                v.hover = Some((e.position.x - b.origin.x, Self::fraction(b, e.position.x) * v.dur));
+                let t = Self::fraction(b, e.position.x) * v.dur;
+                v.hover = Some((e.position.x - b.origin.x, t));
+                v.want_thumb(t, cx);
                 cx.notify();
             }))
             .on_hover(cx.listener(|v, h: &bool, _, cx| {
@@ -938,17 +1003,29 @@ impl PlayerView {
             )
             .when(self.dur > 0., |d| d.child(div().absolute().size_3p5().ml(rems(-0.4375)).rounded_full().bg(theme::on_media()).shadow_md().left(frac(shown))))
             .children(hover.map(|(x, t)| {
-                div()
+                let time = div().text_xs().font_weight(FontWeight::MEDIUM).child(format_time(t));
+                let Some(th) = &self.thumbs else {
+                    return div().absolute().bottom_6().left(x - px(24.)).px_2().py_0p5().rounded(theme.radius).bg(theme.popover).child(time);
+                };
+                // Prévia do quadro: centrada no mouse, sem passar das pontas da barra.
+                let bar_w = self.seek_bounds.get().size.width;
+                let left = (x - THUMB_W / 2.).min(bar_w - THUMB_W).max(px(0.));
+                let frame = match th.get(thumbs::bucket(t)) {
+                    Some(path) => img(path).w(THUMB_W).h(THUMB_H).object_fit(ObjectFit::Cover).rounded(theme.radius).into_any_element(),
+                    None => div().w(THUMB_W).h(THUMB_H).rounded(theme.radius).bg(theme::media_scrim(0.6)).into_any_element(),
+                };
+                v_flex()
                     .absolute()
                     .bottom_6()
-                    .left(x - px(24.))
-                    .px_2()
-                    .py_0p5()
-                    .rounded(theme.radius)
+                    .left(left)
+                    .items_center()
+                    .gap_1()
+                    .p_1()
+                    .rounded(theme.radius_lg)
                     .bg(theme.popover)
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(format_time(t))
+                    .shadow_md()
+                    .child(frame)
+                    .child(time.pb_0p5())
             }))
     }
 
@@ -1041,6 +1118,7 @@ impl Render for PlayerView {
         let show_next = self.show_next();
         let show_skip = self.show_skip() && !show_next;
         let theme = cx.theme().clone();
+        let ready = self.video_ready();
 
         div()
             .id("player")
@@ -1093,6 +1171,17 @@ impl Render for PlayerView {
                 .absolute()
                 .size_full(),
             )
+            // Fundo até o primeiro quadro: sem ele a janela fica transparente
+            // (o GPUI não pinta o fundo com o player aberto). Some com fade.
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .bg(theme.background)
+                    .with_animation(SharedString::from(format!("backdrop:{ready}")), crate::motion::enter(crate::motion::BASE), move |e, t| {
+                        e.opacity(if ready { 1. - t } else { 1. })
+                    }),
+            )
             // Topo sobreposto: some com o mouse parado (fade, sem mudar o layout).
             .child(
                     h_flex()
@@ -1134,7 +1223,19 @@ impl Render for PlayerView {
                         cx.notify();
                     }))
                     .when(self.buffering && !self.net_error && !self.fatal && self.broken.is_none(), |d| {
-                        d.child(h_flex().absolute().inset_0().justify_center().child(Spinner::new().large().color(theme::on_media_muted())))
+                        d.child(
+                            v_flex()
+                                .absolute()
+                                .inset_0()
+                                .justify_center()
+                                .items_center()
+                                .gap_3()
+                                .child(Spinner::new().large().color(theme::on_media_muted()))
+                                // Antes do primeiro quadro, diz o que está abrindo.
+                                .when(!ready, |d| {
+                                    d.child(div().text_sm().text_color(theme::on_media_muted()).child(format!("Abrindo {ep}…")))
+                                }),
+                        )
                     })
                     .when_some(self.broken.clone(), |d, msg| {
                         d.child(
