@@ -4,7 +4,7 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use gpui_kit::{Context, Task};
@@ -21,6 +21,8 @@ const CRAWL_EVERY: Duration = Duration::from_secs(3);
 const PROGRESS_EVERY: Duration = Duration::from_millis(500);
 /// Espera antes de retomar a indexação depois de uma falha.
 const INDEX_RETRY: Duration = Duration::from_secs(30);
+/// Espera antes de pedir de novo uma letra que falhou.
+const LETTER_COOLDOWN: Duration = Duration::from_secs(30);
 
 /// Campos do catálogo dentro de `AppState`.
 #[derive(Default)]
@@ -28,6 +30,7 @@ pub struct CatalogState {
     index_task: Option<Task<()>>,
     crawl_task: Option<Task<()>>,
     letter_tasks: HashMap<String, Task<()>>,
+    letter_failed: HashMap<String, (Instant, String)>,
     crawled: HashSet<String>,
     pending: Vec<String>,
     playing: bool,
@@ -40,6 +43,11 @@ pub fn next_crawl_batch(pending: &mut Vec<String>, max: usize) -> Vec<String> {
     pending.drain(..n).collect()
 }
 
+/// Uma letra que falhou só é pedida de novo depois do período de espera.
+pub fn may_retry(failed_at: Option<Instant>, now: Instant, cooldown: Duration) -> bool {
+    failed_at.is_none_or(|at| now.saturating_duration_since(at) >= cooldown)
+}
+
 impl AppState {
     /// Idempotente: lista a raiz e indexa as letras no runtime do core.
     pub fn start_anime_index(&mut self, cx: &mut Context<Self>) {
@@ -48,6 +56,7 @@ impl AppState {
         }
         let core = self.core.clone();
         self.cat.index_task = Some(cx.spawn(async move |this, cx| {
+            let mut shown = core.anime_index().progress();
             loop {
                 let c = core.clone();
                 let task = core.spawn(async move {
@@ -56,13 +65,20 @@ impl AppState {
                 });
                 while !task.is_finished() {
                     cx.background_executor().timer(PROGRESS_EVERY).await;
-                    if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    let now = core.anime_index().progress();
+                    let changed = now != shown;
+                    if this.update(cx, |s, cx| if changed && !s.cat.playing { cx.notify() }).is_err() {
                         return;
+                    }
+                    if changed {
+                        shown = now;
                     }
                 }
                 let (done, total) = core.anime_index().progress();
                 let finished = matches!(task.await, Ok(Ok(()))) && done == total;
-                if this.update(cx, |_, cx| cx.notify()).is_err() || finished {
+                let changed = (done, total) != shown;
+                shown = (done, total);
+                if this.update(cx, |_, cx| if changed { cx.notify() }).is_err() || finished {
                     return;
                 }
                 cx.background_executor().timer(INDEX_RETRY).await;
@@ -74,27 +90,42 @@ impl AppState {
         self.core.anime_index().loaded(letter)
     }
 
-    /// Prioriza uma letra ainda não indexada.
+    /// Prioriza uma letra ainda não indexada. Depois de uma falha, só tenta de novo após o período de espera.
     pub fn want_anime_letter(&mut self, letter: &str, cx: &mut Context<Self>) {
         if self.anime_letter(letter).is_some() || self.cat.letter_tasks.contains_key(letter) {
             return;
         }
+        let failed_at = self.cat.letter_failed.get(letter).map(|(at, _)| *at);
+        if !may_retry(failed_at, Instant::now(), LETTER_COOLDOWN) {
+            return;
+        }
+        self.cat.letter_failed.remove(letter);
         let core = self.core.clone();
         let name = letter.to_owned();
-        let key = name.clone();
         self.cat.letter_tasks.insert(
-            key,
+            name.clone(),
             cx.spawn(async move |this, cx| {
                 let c = core.clone();
                 let n = name.clone();
-                let task = core.spawn(async move { c.anime_index().letter(c.cloud(), &n).await });
-                let _ = task.await;
+                let result = match core.spawn(async move { c.anime_index().letter(c.cloud(), &n).await }).await {
+                    Ok(r) => r.map(|_| ()),
+                    Err(e) => Err(e.to_string()),
+                };
                 let _ = this.update(cx, |s, cx| {
                     s.cat.letter_tasks.remove(&name);
+                    // A falha fica guardada: o aviso aparece, mas o novo pedido espera o período.
+                    if let Err(e) = result {
+                        s.cat.letter_failed.insert(name, (Instant::now(), e));
+                    }
                     cx.notify();
                 });
             }),
         );
+    }
+
+    /// Último erro ao carregar a letra, enquanto estiver no período de espera.
+    pub fn anime_letter_error(&self, letter: &str) -> Option<String> {
+        self.cat.letter_failed.get(letter).map(|(_, e)| e.clone())
     }
 
     pub fn anime_collections(&self) -> Vec<String> {
@@ -123,7 +154,7 @@ impl AppState {
 
     /// Uma rodada; `true` quando não há mais nada a fazer.
     fn crawl_step(&mut self, cx: &mut Context<Self>) -> bool {
-        if self.cat.playing {
+        if self.cat.playing || self.lookups_busy() {
             return false;
         }
         for letter in LETTERS {
@@ -175,6 +206,15 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn letter_cooldown() {
+        let t = Instant::now();
+        let cd = Duration::from_secs(30);
+        assert!(may_retry(None, t, cd));
+        assert!(!may_retry(Some(t), t + Duration::from_secs(29), cd));
+        assert!(may_retry(Some(t), t + Duration::from_secs(30), cd));
+    }
 
     #[test]
     fn crawl_batches() {

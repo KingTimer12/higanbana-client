@@ -291,6 +291,11 @@ impl AppState {
         self.lookups.get(&(media, name.to_owned())).cloned().flatten()
     }
 
+    /// Há buscas na fila ou prestes a sair (o rastreio espera).
+    pub(crate) fn lookups_busy(&self) -> bool {
+        !self.lookup_queue.is_empty() || self.lookup_task.is_some()
+    }
+
     /// Pede a busca (junta pedidos próximos numa requisição só).
     pub fn want_lookup(&mut self, name: &str, media: MediaType, cx: &mut Context<Self>) {
         let key = (media, name.to_owned());
