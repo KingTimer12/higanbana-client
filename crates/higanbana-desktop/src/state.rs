@@ -291,6 +291,11 @@ impl AppState {
         self.lookups.get(&(media, name.to_owned())).cloned().flatten()
     }
 
+    /// Como `lookup`, sem copiar (para varrer o índice inteiro).
+    pub fn lookup_ref(&self, name: &str, media: MediaType) -> Option<Option<&MediaSummary>> {
+        self.lookups.get(&(media, name.to_owned())).and_then(Option::as_ref).map(Option::as_ref)
+    }
+
     /// Há buscas na fila ou prestes a sair (o rastreio espera).
     pub(crate) fn lookups_busy(&self) -> bool {
         !self.lookup_queue.is_empty() || self.lookup_task.is_some()

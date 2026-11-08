@@ -179,7 +179,7 @@ impl AppState {
         for letter in LETTERS {
             if let Some(entries) = self.anime_letter(letter) {
                 total += entries.len();
-                resolved += entries.iter().filter(|e| self.lookup(&e.name, MediaType::Anime).is_some()).count();
+                resolved += entries.iter().filter(|e| self.lookup_ref(&e.name, MediaType::Anime).is_some()).count();
             }
         }
         (resolved, total)

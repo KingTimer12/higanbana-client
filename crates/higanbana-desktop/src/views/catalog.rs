@@ -4,9 +4,10 @@
 //! A tela tem rolagem própria (não a da área de trabalho): o índice lateral
 //! fica fixo ao lado e precisa do `ScrollHandle` para pular até uma letra.
 //! Filhos diretos do contêiner rolável: cabeçalho, uma seção por letra e o
-//! rodapé que pede a próxima letra.
+//! rodapé que pede a próxima letra. Com filtro ou fora de A–Z, as seções dão
+//! lugar a blocos de uma grade única (barra em `catalog_filters`).
 
-use std::{sync::Arc, time::Duration};
+use std::{ops::Range, sync::Arc, time::Duration};
 
 use crate::interact::Button;
 use gpui_kit::{
@@ -22,18 +23,27 @@ use gpui_kit::component::{
 use higanbana_core::{
     anilist::MediaType,
     anime_index::{IndexEntry, LETTERS},
+    catalog_filter::{Filters, Sort},
     library::norm,
+    nuvem::SearchResult,
 };
 
 use crate::{
     components::{breadcrumbs, columns, content_width, title_card, when_visible},
     state::{AppState, state},
     ui::empty_state,
+    views::catalog_filters::{FilterBar, FiltersChanged, Work, collections_menu, filtered_works, franchise_results, sort_menu, status_line},
 };
 
 const ROOT: &str = "Animes";
 /// Pouco mais que a espera de uma letra com falha (30 s em `catalog_state`).
 const RETRY_CHECK: Duration = Duration::from_secs(31);
+/// Espera depois da última tecla antes de buscar na nuvem.
+const CLOUD_DEBOUNCE: Duration = Duration::from_millis(400);
+/// Busca na nuvem só a partir deste tamanho.
+const CLOUD_MIN_CHARS: usize = 3;
+/// Linhas de pôsteres por bloco na grade única (cada bloco é medido e some fora da tela).
+const FLAT_BLOCK_ROWS: usize = 6;
 
 /// Rótulo da letra no índice lateral: `0-9` → `#`, `Letra F` → `F`.
 fn rail_label(letter: &str) -> &str {
@@ -78,6 +88,17 @@ enum Body {
     Entries(Arc<Vec<IndexEntry>>),
     Loading,
     Failed(String),
+    /// Um pedaço da grade única (com filtro ou fora de A–Z): sem cabeçalho de letra.
+    Flat(Arc<Vec<IndexEntry>>, Range<usize>),
+}
+
+/// O que define a lista filtrada: igual entre dois quadros, a lista em cache vale.
+#[derive(PartialEq)]
+struct FlatKey {
+    filters: Filters,
+    sort: Sort,
+    indexed: usize,
+    resolved: usize,
 }
 
 struct Section {
@@ -89,7 +110,7 @@ struct Section {
 #[derive(Clone, PartialEq)]
 struct SectionKey {
     letter: usize,
-    /// 0 carregando, 1 falhou, 2 com obras.
+    /// 0 carregando, 1 falhou, 2 com obras, 3 bloco da grade única.
     status: u8,
     count: usize,
     cols: usize,
@@ -103,8 +124,15 @@ pub struct CatalogView {
     scroll: ScrollHandle,
     /// Última letra pedida (posição em `LETTERS`): sem busca, as seções vão de 0-9 até ela.
     upto: usize,
-    /// Muda a cada texto de busca; invalida medidas e posição.
+    /// Muda a cada texto de busca e a cada filtro; invalida medidas e posição.
     search_gen: u64,
+    bar: Entity<FilterBar>,
+    /// Grade única em cache.
+    flat: Option<(FlatKey, Arc<Vec<IndexEntry>>)>,
+    /// Texto da última busca na nuvem pedida e as obras dentro de franquias que ela achou.
+    cloud_query: String,
+    franchise: Vec<SearchResult>,
+    cloud_task: Option<Task<()>>,
     /// Resultado da busca em cache: (texto, letras indexadas, seções).
     found: Option<(String, usize, Vec<(usize, Arc<Vec<IndexEntry>>)>)>,
     /// Seções do último quadro, na ordem dos filhos (o filho 0 é o cabeçalho).
@@ -120,15 +148,18 @@ impl CatalogView {
     pub fn new(letter: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let state = state(cx);
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Buscar no catálogo"));
+        let bar = cx.new(|cx| FilterBar::new(state.clone(), window, cx));
         let subs = vec![
             cx.observe(&state, |_, _, cx| cx.notify()),
             cx.subscribe(&search, |this: &mut Self, _, e: &InputEvent, cx| {
                 if matches!(e, InputEvent::Change) {
-                    this.search_gen += 1;
-                    this.scroll.set_offset(point(px(0.), px(0.)));
-                    cx.notify();
+                    this.restart(cx);
+                    this.cloud_search(cx);
                 }
             }),
+            // A barra também desenha os menus de ordenação e coleções daqui.
+            cx.observe(&bar, |_, _, cx| cx.notify()),
+            cx.subscribe(&bar, |this: &mut Self, _, _: &FiltersChanged, cx| this.restart(cx)),
         ];
         state.update(cx, |s, cx| {
             s.start_anime_index(cx);
@@ -140,6 +171,11 @@ impl CatalogView {
             scroll: ScrollHandle::new(),
             upto: 0,
             search_gen: 0,
+            bar,
+            flat: None,
+            cloud_query: String::new(),
+            franchise: Vec::new(),
+            cloud_task: None,
             found: None,
             shown: Vec::new(),
             jumped: false,
@@ -187,6 +223,67 @@ impl CatalogView {
 
     fn searching(&self, cx: &App) -> bool {
         !self.query(cx).is_empty()
+    }
+
+    /// Busca ou filtros mudaram: volta ao topo e esquece as medidas.
+    fn restart(&mut self, cx: &mut Context<Self>) {
+        self.search_gen += 1;
+        self.scroll.set_offset(point(px(0.), px(0.)));
+        cx.notify();
+    }
+
+    /// Com filtro ou fora de A–Z a tela é uma grade só, sem cabeçalhos de letra.
+    fn flat_mode(&self, cx: &App) -> bool {
+        let bar = self.bar.read(cx);
+        bar.is_active() || bar.sort() != Sort::Az
+    }
+
+    /// Pede à nuvem as obras dentro de franquias com esse nome (depois da espera).
+    fn cloud_search(&mut self, cx: &mut Context<Self>) {
+        let q = self.query(cx);
+        if q == self.cloud_query {
+            return;
+        }
+        self.cloud_query = q.clone();
+        self.franchise.clear();
+        self.cloud_task = None;
+        if q.chars().count() < CLOUD_MIN_CHARS {
+            return;
+        }
+        let core = self.state.read(cx).core.clone();
+        self.cloud_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(CLOUD_DEBOUNCE).await;
+            let asked = q.clone();
+            let task = core.clone().spawn(async move { core.cloud().search(&asked).await });
+            let results = task.await.ok().and_then(Result::ok).map(|r| r.results).unwrap_or_default();
+            let _ = this.update(cx, |v, cx| {
+                // Resposta de um texto antigo: descarta.
+                if v.cloud_query == q {
+                    v.franchise = franchise_results(results);
+                    cx.notify();
+                }
+            });
+        }));
+    }
+
+    /// Obras de todas as letras indexadas que passam nos filtros, na ordem pedida.
+    fn flat_works(&mut self, filters: &Filters, sort: Sort, resolved: usize, cx: &App) -> Arc<Vec<IndexEntry>> {
+        let st = self.state.read(cx);
+        let key = FlatKey { filters: filters.clone(), sort, indexed: st.index_progress().0, resolved };
+        if let Some((k, works)) = &self.flat
+            && *k == key
+        {
+            return works.clone();
+        }
+        let letters: Vec<Arc<Vec<IndexEntry>>> = LETTERS.iter().filter_map(|l| st.anime_letter(l)).collect();
+        let works: Vec<Work> = letters
+            .iter()
+            .flat_map(|l| l.iter())
+            .map(|e| Work { entry: e, meta: st.lookup_ref(&e.name, MediaType::Anime).flatten(), inner: st.inner_summaries(&e.path) })
+            .collect();
+        let found = Arc::new(filtered_works(&works, filters, sort));
+        self.flat = Some((key, found.clone()));
+        found
     }
 
     /// Seções da tela: as letras em sequência ou, com busca, as que têm resultado.
@@ -243,6 +340,14 @@ impl CatalogView {
 
     fn render_section(&self, section: Section, width: f32, cols: usize, card_w: Pixels, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let theme = cx.theme().clone();
+        let grid = || div().grid().grid_cols(cols as u16).gap_x_5().gap_y_8();
+        if let Body::Flat(works, range) = section.body {
+            let cards = works[range].iter().map(|e| {
+                let id = ElementId::Name(format!("anime:{}", e.path).into());
+                title_card(id, &e.name, e.path.clone(), MediaType::Anime, card_w, cx)
+            });
+            return div().w(px(width)).mx_auto().pt_8().child(grid().children(cards.collect::<Vec<_>>())).into_any_element();
+        }
         let letter = LETTERS[section.letter];
         let count = match &section.body {
             Body::Entries(e) => Some(e.len()),
@@ -263,7 +368,6 @@ impl CatalogView {
             let st = self.state.clone();
             move |cx: &mut App| st.update(cx, |s, cx| s.want_anime_letter(letter, cx))
         };
-        let grid = || div().grid().grid_cols(cols as u16).gap_x_5().gap_y_8();
         let body = match section.body {
             Body::Entries(entries) if entries.is_empty() => div()
                 .text_sm()
@@ -298,6 +402,7 @@ impl CatalogView {
                 )
                 .child(when_visible(400., want_letter))
                 .into_any_element(),
+            Body::Flat(..) => unreachable!("bloco da grade única é desenhado acima"),
         };
         v_flex().w(px(width)).mx_auto().pt_8().gap_4().child(header).child(body).into_any_element()
     }
@@ -313,8 +418,25 @@ impl Render for CatalogView {
         let cols = columns(width, 10. * rem, gap);
         let card_w = px(((width - (cols as f32 - 1.) * gap) / cols as f32).floor());
         let query = self.query(cx);
-        let sections = self.sections(&query, cx);
         let (indexed, total) = self.state.read(cx).index_progress();
+        let flat_mode = self.flat_mode(cx);
+        // Grade única: a lista filtrada em blocos de algumas linhas (seção = bloco).
+        let mut flat_status = None;
+        let sections = if flat_mode {
+            let metadata = self.state.read(cx).metadata_progress();
+            let (filters, sort) = {
+                let bar = self.bar.read(cx);
+                (Filters { query: query.clone(), ..bar.filters().clone() }, bar.sort())
+            };
+            let works = self.flat_works(&filters, sort, metadata.0, cx);
+            flat_status = Some((works.len(), metadata));
+            let block = cols * FLAT_BLOCK_ROWS;
+            (0..works.len().div_ceil(block))
+                .map(|ix| Section { letter: ix, body: Body::Flat(works.clone(), ix * block..((ix + 1) * block).min(works.len())) })
+                .collect()
+        } else {
+            self.sections(&query, cx)
+        };
 
         let keys: Vec<SectionKey> = sections
             .iter()
@@ -323,11 +445,15 @@ impl Render for CatalogView {
                     Body::Loading => (0, 0),
                     Body::Failed(_) => (1, 0),
                     Body::Entries(e) => (2, e.len()),
+                    Body::Flat(_, range) => (3, range.len()),
                 };
                 SectionKey { letter: s.letter, status, count, cols, card_w: f32::from(card_w) as i32, search: self.search_gen }
             })
             .collect();
-        self.keep_position(&keys, window);
+        // Na grade única os blocos não são letras: nada a ancorar.
+        if !flat_mode {
+            self.keep_position(&keys, window);
+        }
 
         // Seções longe da tela viram um espaço da mesma altura medida no quadro anterior.
         let viewport = self.scroll.bounds();
@@ -335,7 +461,7 @@ impl Render for CatalogView {
         let margin = viewport.size.height;
         let (top, bottom) = (viewport.top() - offset - margin, viewport.bottom() - offset + margin);
         let measured: Vec<Option<Bounds<Pixels>>> = (0..self.shown.len()).map(|pos| self.scroll.bounds_for_item(1 + pos)).collect();
-        let current = self.shown.get(self.scroll.top_item().saturating_sub(1)).map(|k| k.letter);
+        let current = if flat_mode { None } else { self.shown.get(self.scroll.top_item().saturating_sub(1)).map(|k| k.letter) };
         let present: Vec<usize> = keys.iter().map(|k| k.letter).collect();
         let last_loaded = matches!(sections.last().map(|s| &s.body), Some(Body::Entries(_)));
         // Letra com falha: redesenha depois da espera para o aviso visível pedir de novo.
@@ -350,7 +476,7 @@ impl Render for CatalogView {
         }
 
         let mut children: Vec<gpui_kit::AnyElement> = Vec::with_capacity(sections.len() + 2);
-        children.push(self.render_header(&query, width, indexed, total, cx));
+        children.push(self.render_header(&query, width, (indexed, total), flat_status, (cols, card_w), cx));
         for (pos, section) in sections.into_iter().enumerate() {
             let same = self.shown.get(pos) == Some(&keys[pos]);
             match measured.get(pos).copied().flatten() {
@@ -360,21 +486,33 @@ impl Render for CatalogView {
                 _ => children.push(self.render_section(section, width, cols, card_w, cx)),
             }
         }
-        // Rodapé: chegar ao fim da última letra pede a próxima (só sem busca).
+        // Rodapé: chegar ao fim da última letra pede a próxima (só sem busca nem filtro;
+        // na grade única as letras chegam pela indexação em segundo plano).
         let next = self.upto + 1;
         let view = cx.entity().downgrade();
         children.push(
             div()
                 .relative()
                 .h_16()
-                .when(query.is_empty() && last_loaded && next < LETTERS.len(), |d| {
+                .when(!flat_mode && query.is_empty() && last_loaded && next < LETTERS.len(), |d| {
                     d.child(when_visible(600., move |cx: &mut App| {
                         let _ = view.update(cx, |v, cx| v.reach(next, cx));
                     }))
                 })
                 .into_any_element(),
         );
-        if !query.is_empty() && present.is_empty() {
+        if flat_mode && present.is_empty() {
+            let pending = flat_status.is_some_and(|(_, (resolved, all))| resolved < all) || indexed < total;
+            let detail = pending.then(|| "Ainda carregando o acervo; mais obras podem aparecer.".into());
+            let clear = Button::new("catalog-clear-filters").outline().label("Limpar filtros").on_click(cx.listener(|v, _, window, cx| {
+                v.bar.update(cx, |b, cx| b.clear(window, cx));
+                v.search.update(cx, |s, cx| s.set_value("", window, cx));
+                v.restart(cx);
+                v.cloud_search(cx);
+            }));
+            let empty = empty_state(IconName::Search, "Nenhuma obra com esses filtros", detail, cx).child(div().pt_2().child(clear));
+            children.insert(1, empty.into_any_element());
+        } else if !query.is_empty() && present.is_empty() {
             let detail = (indexed < total).then(|| "Ainda indexando o acervo; mais obras podem aparecer.".into());
             children.insert(1, empty_state(IconName::Search, format!("Nenhuma obra com “{query}”"), detail, cx).into_any_element());
         }
@@ -389,7 +527,7 @@ impl Render for CatalogView {
                     .xsmall()
                     .label(rail_label(l).to_owned())
                     .selected(current == Some(ix))
-                    .disabled(searching && !present.contains(&ix))
+                    .disabled(flat_mode || (searching && !present.contains(&ix)))
                     .on_click(cx.listener(move |v, _, _, cx| v.jump(ix, cx)))
             })),
         );
@@ -413,8 +551,44 @@ impl Render for CatalogView {
 }
 
 impl CatalogView {
-    fn render_header(&self, query: &str, width: f32, indexed: usize, total: usize, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+    fn render_header(
+        &self,
+        query: &str,
+        width: f32,
+        (indexed, total): (usize, usize),
+        flat_status: Option<(usize, (usize, usize))>,
+        (cols, card_w): (usize, Pixels),
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
         let theme = cx.theme().clone();
+        let franchise = (!self.franchise.is_empty()).then(|| {
+            let cards: Vec<_> = self
+                .franchise
+                .iter()
+                .map(|r| title_card(ElementId::Name(format!("franchise:{}", r.path).into()), &r.name, r.path.clone(), MediaType::Anime, card_w, cx))
+                .collect();
+            v_flex()
+                .pt_4()
+                .gap_4()
+                .child(
+                    h_flex()
+                        .items_center()
+                        .gap_3()
+                        .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child("Dentro de franquias"))
+                        .child(div().flex_1().h_px().bg(theme.border)),
+                )
+                .child(div().grid().grid_cols(cols as u16).gap_x_5().gap_y_8().children(cards))
+        });
+        let status = flat_status.map(|(works, (resolved, all))| {
+            let pending = resolved < all || indexed < total;
+            h_flex()
+                .items_center()
+                .gap_2()
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .when(pending, |d| d.child(div().size_1p5().rounded_full().bg(theme.primary)))
+                .child(status_line(works, (resolved, all)))
+        });
         v_flex()
             .w(px(width))
             .mx_auto()
@@ -426,12 +600,15 @@ impl CatalogView {
                 h_flex()
                     .gap_2()
                     .child(div().flex_1().min_w_0().child(Input::new(&self.search).prefix(Icon::new(IconName::Search).small()).cleanable(true)))
-                    // A ordenação chega com os filtros.
-                    .child(Button::new("catalog-sort").outline().label("Ordenar: A–Z").disabled(true)),
+                    .child(sort_menu(&self.bar, cx))
+                    .child(collections_menu(&self.state, ROOT, cx)),
             )
-            .when(!query.is_empty() && indexed < total, |d| {
+            .child(self.bar.clone())
+            .children(status)
+            .when(flat_status.is_none() && !query.is_empty() && indexed < total, |d| {
                 d.child(div().text_xs().text_color(theme.muted_foreground).child(format!("Indexando nomes… {indexed}/{total}")))
             })
+            .children(franchise)
             .into_any_element()
     }
 }

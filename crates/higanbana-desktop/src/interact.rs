@@ -115,6 +115,10 @@ impl Button {
         self.map(|b| b.rounded(rounded))
     }
 
+    pub fn dropdown_caret(self, caret: bool) -> Self {
+        self.map(|b| b.dropdown_caret(caret))
+    }
+
 
     pub fn on_click(self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
         self.map(|b| b.on_click(handler))
