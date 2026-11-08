@@ -115,7 +115,10 @@ fn parse_rate_headers(headers: &HeaderMap, now_epoch: u64) -> RateHeaders {
     RateHeaders {
         limit: number("x-ratelimit-limit").map(|v| v.min(u32::MAX as u64) as u32),
         remaining: number("x-ratelimit-remaining").map(|v| v.min(u32::MAX as u64) as u32),
-        reset_in: number("x-ratelimit-reset").map(|at| Duration::from_secs(at.saturating_sub(now_epoch))),
+        // Limitado a uma janela (+ folga): relógio desacertado não pode travar o cliente por horas.
+        reset_in: number("x-ratelimit-reset")
+            .map(|at| Duration::from_secs(at.saturating_sub(now_epoch)).min(WINDOW + RETRY_SLACK)),
+        // Só segundos; `Retry-After` como data HTTP fica `None` e o 429 espera `DEFAULT_RETRY_AFTER`.
         retry_after: number(header::RETRY_AFTER.as_str()).map(Duration::from_secs),
     }
 }
@@ -480,6 +483,14 @@ mod tests {
             RateHeaders { limit: None, remaining: Some(0), reset_in: Some(Duration::ZERO), retry_after: None }
         );
         assert_eq!(parse_rate_headers(&HeaderMap::new(), 1_000_000), RateHeaders::default());
+        // Relógio adiantado/atrasado não gera espera maior que uma janela (+ folga).
+        let mut h = HeaderMap::new();
+        h.insert("x-ratelimit-reset", "1003600".parse().unwrap());
+        assert_eq!(parse_rate_headers(&h, 1_000_000).reset_in, Some(WINDOW + RETRY_SLACK));
+        // `Retry-After` como data HTTP não é lido: o 429 cai no padrão.
+        let mut h = HeaderMap::new();
+        h.insert(header::RETRY_AFTER, "Wed, 21 Oct 2026 07:28:00 GMT".parse().unwrap());
+        assert_eq!(parse_rate_headers(&h, 1_000_000).retry_after, None);
     }
 
     #[test]
