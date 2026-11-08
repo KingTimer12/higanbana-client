@@ -84,18 +84,25 @@ fn normalize(s: &str) -> String {
     s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
 }
 
-/// Série do TMDB da obra: o título tem que casar; depois o ano de estreia igual ao
-/// da obra; senão a estreia mais recente antes dele (parte posterior → série-mãe).
-/// Sem ano, o primeiro que casa pelo título.
+/// Série do TMDB da obra: o título tem que casar (igualdade exata primeiro; só sem
+/// nenhuma igual, nome que contém o título); dentro desse grupo, o ano de estreia
+/// igual ao da obra; senão a estreia mais recente antes dele (parte posterior →
+/// série-mãe). Sem ano, o primeiro do grupo.
 pub fn pick_show(hits: &[TvHit], q: &WorkQuery) -> Option<u64> {
     let titles: Vec<String> = q.titles.iter().map(|t| normalize(t)).filter(|t| !t.is_empty()).collect();
-    let matches = |h: &&TvHit| {
-        [&h.name, &h.original_name]
-            .into_iter()
-            .map(|n| normalize(n))
-            .any(|n| !n.is_empty() && titles.iter().any(|t| n.contains(t.as_str())))
+    let matching = |exact: bool| -> Vec<&TvHit> {
+        hits.iter()
+            .filter(|h| {
+                [&h.name, &h.original_name].into_iter().map(|n| normalize(n)).any(|n| {
+                    !n.is_empty() && titles.iter().any(|t| if exact { n == *t } else { n.contains(t.as_str()) })
+                })
+            })
+            .collect()
     };
-    let found: Vec<&TvHit> = hits.iter().filter(matches).collect();
+    let mut found = matching(true);
+    if found.is_empty() {
+        found = matching(false);
+    }
     let Some(year) = q.year else {
         return found.first().map(|h| h.id);
     };
@@ -110,18 +117,25 @@ pub fn pick_show(hits: &[TvHit], q: &WorkQuery) -> Option<u64> {
         .map(|(_, id)| id)
 }
 
-/// Primeiro episódio (em ordem de temporada e número) que estreou a até
-/// `DATE_TOLERANCE` dias de `start`.
+/// Episódio que estreou mais perto de `start`, a até `DATE_TOLERANCE` dias. Em
+/// séries semanais o vizinho fica a 7 dias, então vence o mais próximo; empate
+/// entre episódios diferentes é dúvida → `None`.
 fn anchor_near<'a>(seasons: impl Iterator<Item = &'a (u32, Vec<Episode>)>, start: Ymd) -> Option<Anchor> {
-    let mut eps: Vec<(u32, &Episode)> = seasons.flat_map(|(s, list)| list.iter().map(move |e| (*s, e))).collect();
-    eps.sort_by_key(|(s, e)| (*s, e.episode_number));
-    eps.into_iter().find_map(|(season, e)| {
-        let date = parse_date(e.air_date.as_deref())?;
-        if (date.days() - start.days()).abs() > DATE_TOLERANCE {
-            return None;
-        }
-        Some(Anchor { season, offset: e.episode_number.checked_sub(1)? })
-    })
+    let mut near: Vec<(i64, u32, u32)> = seasons
+        .flat_map(|(s, list)| list.iter().map(move |e| (*s, e)))
+        .filter(|(_, e)| e.episode_number > 0)
+        .filter_map(|(season, e)| {
+            let diff = (parse_date(e.air_date.as_deref())?.days() - start.days()).abs();
+            (diff <= DATE_TOLERANCE).then_some((diff, season, e.episode_number))
+        })
+        .collect();
+    near.sort_unstable();
+    near.dedup();
+    let &(best, season, number) = near.first()?;
+    if near.get(1).is_some_and(|&(diff, _, _)| diff == best) {
+        return None;
+    }
+    Some(Anchor { season, offset: number - 1 })
 }
 
 /// Onde a obra começa dentro da série. `Series`: temporadas regulares, pelo
@@ -144,14 +158,17 @@ pub fn pick_anchor(show: &TvShow, seasons: &[(u32, Vec<Episode>)], q: &WorkQuery
 }
 
 /// Arquivo de número `number` → `(temporada, episódio)` no TMDB. Regras, em ordem:
-/// 1. temporada explícita no nome (`S02E03`) que existe no TMDB vence; se o número
-///    não cabe nela, não liga (dúvida);
-/// 2. âncora com deslocamento e `offset < number <= total` da temporada: arquivos
-///    numerados pela própria temporada (ex. 13–24 numa obra que começa no 13) →
-///    `(âncora, number)`;
-/// 3. `offset + number <= total` → `(âncora, offset + number)`;
+/// 1. temporada explícita no nome (`S02E03`) diferente da âncora e que existe no
+///    TMDB vence; se o número não cabe nela, não liga (dúvida). Igual à âncora
+///    (`S01E01` numa obra que começa no ep. 13 da S1) segue as regras abaixo. Com
+///    âncora na temporada 0, só `S00` vale aqui;
+/// 2. `offset + number <= total` → `(âncora, offset + number)`;
+/// 3. temporada regular com deslocamento, `offset + number > total` e
+///    `number <= total`: arquivos numerados pela própria temporada (ex. 13–24
+///    numa obra que começa no 13) → `(âncora, number)`. Disjunta da regra 2;
 /// 4. só com `offset == 0` numa temporada regular: numeração absoluta, somando os
-///    totais das temporadas regulares a partir da 1 (caso One Piece);
+///    totais das temporadas regulares a partir da 1 (caso One Piece), nunca
+///    caindo numa temporada anterior à da âncora;
 /// 5. nada disso → `None`.
 pub fn map_file(anchor: Anchor, show: &TvShow, file_season: Option<u32>, number: u32) -> Option<(u32, u32)> {
     if number == 0 {
@@ -159,17 +176,19 @@ pub fn map_file(anchor: Anchor, show: &TvShow, file_season: Option<u32>, number:
     }
     let count = |season: u32| show.seasons.iter().find(|s| s.season_number == season).map(|s| s.episode_count);
     if let Some(season) = file_season
+        && season != anchor.season
+        && (anchor.season > 0 || season == 0)
         && let Some(total) = count(season) {
             return (number <= total).then_some((season, number));
         }
     let total = count(anchor.season)?;
-    if anchor.offset > 0 && number > anchor.offset && number <= total {
-        return Some((anchor.season, number));
-    }
     if let Some(ep) = anchor.offset.checked_add(number)
         && ep <= total {
             return Some((anchor.season, ep));
         }
+    if anchor.season > 0 && anchor.offset > 0 && number <= total {
+        return Some((anchor.season, number));
+    }
     if anchor.offset != 0 || anchor.season == 0 {
         return None;
     }
@@ -179,7 +198,7 @@ pub fn map_file(anchor: Anchor, show: &TvShow, file_season: Option<u32>, number:
     let mut rest = number;
     for (season, total) in regular {
         if rest <= total {
-            return Some((season, rest));
+            return (season >= anchor.season).then_some((season, rest));
         }
         rest -= total;
     }
@@ -201,6 +220,11 @@ pub fn pick_text(pt: &str, en: &str, n: u32) -> String {
         .map(str::trim)
         .find(|t| !t.is_empty() && !is_generic_title(t))
         .map_or_else(|| format!("Episódio {n}"), str::to_owned)
+}
+
+/// Sinopse pt-BR; se vazia, a en-US; senão vazia (nunca "Episódio N").
+pub fn pick_overview(pt: &str, en: &str) -> String {
+    [pt, en].into_iter().map(str::trim).find(|t| !t.is_empty()).unwrap_or_default().to_owned()
 }
 
 #[cfg(test)]
@@ -372,5 +396,79 @@ mod tests {
         assert!(is_generic_title("Episode 12"));
         assert!(is_generic_title(" episódio 7 "));
         assert!(!is_generic_title("O fim da aventura"));
+    }
+
+    fn weekly(season: u32, first: u32, dates: &[&str]) -> (u32, Vec<Episode>) {
+        let list = dates.iter().enumerate().map(|(i, d)| ep(season, first + i as u32, Some(d))).collect();
+        (season, list)
+    }
+
+    #[test]
+    fn nearest_episode_wins_on_weekly_show() {
+        let s = show(&[(1, 24)]);
+        let eps = [weekly(1, 11, &["2022-09-18", "2022-09-25", "2022-10-02", "2022-10-09"])];
+        // ep12 está a 6 dias, ep13 a 1 dia: o mais próximo vence.
+        let q = query(&["X"], Some(2022), Some("2022-10-01"), WorkKind::Series);
+        assert_eq!(pick_anchor(&s, &eps, &q), Some(Anchor { season: 1, offset: 12 }));
+        // Data exata de um episódio, com os vizinhos a 7 dias.
+        let q = query(&["X"], Some(2022), Some("2022-10-02"), WorkKind::Series);
+        assert_eq!(pick_anchor(&s, &eps, &q), Some(Anchor { season: 1, offset: 12 }));
+    }
+
+    #[test]
+    fn tied_nearest_episodes_no_anchor() {
+        let s = show(&[(1, 24)]);
+        let eps = [weekly(1, 1, &["2022-09-29", "2022-10-03"])];
+        let q = query(&["X"], Some(2022), Some("2022-10-01"), WorkKind::Series);
+        assert_eq!(pick_anchor(&s, &eps, &q), None);
+    }
+
+    #[test]
+    fn season_numbering_rule_is_disjoint() {
+        let special = show(&[(0, 30), (1, 12)]);
+        let a = Anchor { season: 0, offset: 10 };
+        assert_eq!(map_file(a, &special, None, 1), Some((0, 11)));
+        assert_eq!(map_file(a, &special, None, 2), Some((0, 12)));
+        assert_eq!(map_file(a, &special, None, 11), Some((0, 21)));
+        let s = show(&[(1, 24)]);
+        let a = Anchor { season: 1, offset: 5 };
+        assert_eq!(map_file(a, &s, None, 6), Some((1, 11)));
+        assert_eq!(map_file(a, &s, None, 20), Some((1, 20)));
+    }
+
+    #[test]
+    fn exact_title_beats_contains() {
+        let hits = [
+            hit(30, "Boruto: Naruto Next Generations", "", "2017-04-05"),
+            hit(20, "Naruto Shippuden", "", "2007-02-15"),
+            hit(10, "Naruto", "", "2002-10-03"),
+        ];
+        let q = query(&["Naruto"], Some(2023), None, WorkKind::Series);
+        assert_eq!(pick_show(&hits, &q), Some(10));
+    }
+
+    #[test]
+    fn absolute_never_goes_before_anchor() {
+        let s = show(&[(1, 61), (2, 16), (3, 14)]);
+        let a = Anchor { season: 3, offset: 0 };
+        assert_eq!(map_file(a, &s, None, 15), None);
+    }
+
+    #[test]
+    fn explicit_season_only_when_different() {
+        let s = show(&[(0, 10), (1, 24), (2, 12)]);
+        let a = Anchor { season: 1, offset: 12 };
+        assert_eq!(map_file(a, &s, Some(1), 1), Some((1, 13)));
+        assert_eq!(map_file(a, &s, Some(2), 1), Some((2, 1)));
+        let a = Anchor { season: 0, offset: 4 };
+        assert_eq!(map_file(a, &s, Some(1), 2), Some((0, 6)));
+        assert_eq!(map_file(a, &s, Some(1), 7), None);
+    }
+
+    #[test]
+    fn overview_fallback() {
+        assert_eq!(pick_overview("Sinopse", "Synopsis"), "Sinopse");
+        assert_eq!(pick_overview("  ", "Synopsis"), "Synopsis");
+        assert_eq!(pick_overview("", ""), "");
     }
 }
