@@ -4,6 +4,7 @@
 use std::{cmp::Ordering, sync::LazyLock};
 
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 
 use crate::anilist::MediaType;
 
@@ -95,7 +96,9 @@ macro_rules! re {
     };
 }
 
-re!(YEAR, r"[\[(]((?:19|20)\d\d)[\])]");
+re!(YEAR, r"[\[(]((?:19|20)\d\d)(?:\.(\d+))?[\])]");
+re!(DATED, r"^\s*\[(?:19|20)\d\d(?:\.\d+)?\]");
+re!(KIND_TAG, r"(?i)\[\s*(TV|FILME|MOVIE|OVA|ONA|SPECIAL|ESPECIAL)\s*\]");
 re!(BRACKETS, r"\[[^\]]*\]|\([^)]*\)");
 re!(SPACES, r"\s+");
 re!(EDGES, r"^[-_.\s]+|[-_.\s]+$");
@@ -110,6 +113,64 @@ re!(UNDERSCORES, r"[_.]+");
 /// `[2018] B - The Beginning` / `Gantz G (2015)` → 2018 / 2015.
 pub fn folder_year(name: &str) -> Option<u32> {
     YEAR.captures(name)?.get(1)?.as_str().parse().ok()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum WorkKind {
+    Tv,
+    Movie,
+    Ova,
+    Ona,
+    Special,
+}
+
+impl WorkKind {
+    /// Formato do AniList (`TV`, `MOVIE`, ...) → tipo de obra.
+    pub fn from_anilist(format: &str) -> Option<WorkKind> {
+        match format {
+            "TV" | "TV_SHORT" => Some(WorkKind::Tv),
+            "MOVIE" => Some(WorkKind::Movie),
+            "OVA" => Some(WorkKind::Ova),
+            "ONA" => Some(WorkKind::Ona),
+            "SPECIAL" | "MUSIC" => Some(WorkKind::Special),
+            _ => None,
+        }
+    }
+}
+
+/// Pasta de obra dentro de uma franquia: `[2005.1] Título [FILME]`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorkName {
+    pub year: Option<u32>,
+    /// Parte decimal do ano (`2005.1` → 1); 0 quando não há.
+    pub order: u32,
+    pub title: String,
+    pub kind: Option<WorkKind>,
+}
+
+pub fn parse_work_name(name: &str) -> WorkName {
+    let caps = YEAR.captures(name);
+    let year = caps.as_ref().and_then(|c| c.get(1)?.as_str().parse().ok());
+    let order = caps.as_ref().and_then(|c| c.get(2)?.as_str().parse().ok()).unwrap_or(0);
+    let kind = KIND_TAG.captures(name).and_then(|c| match c[1].to_ascii_uppercase().as_str() {
+        "TV" => Some(WorkKind::Tv),
+        "FILME" | "MOVIE" => Some(WorkKind::Movie),
+        "OVA" => Some(WorkKind::Ova),
+        "ONA" => Some(WorkKind::Ona),
+        "SPECIAL" | "ESPECIAL" => Some(WorkKind::Special),
+        _ => None,
+    });
+    WorkName { year, order, title: folder_title(name), kind }
+}
+
+/// Começa com `[AAAA]` ou `[AAAA.N]`.
+pub fn is_dated(name: &str) -> bool {
+    DATED.is_match(name)
+}
+
+/// Pelo menos 2 subpastas e mais da metade com ano na frente.
+pub fn is_franchise(dirs: &[&str]) -> bool {
+    dirs.len() >= 2 && dirs.iter().filter(|d| is_dated(d)).count() * 2 > dirs.len()
 }
 
 /// Remove ano e tags de release: `[2018] B - The Beginning [DUAL]` → `B - The Beginning`.
@@ -232,6 +293,30 @@ mod tests {
         assert!(matches!(classify("Mangás/Séries Mangás/Letra G"), Place::Shelf { media: MediaType::Manga, .. }));
         assert_eq!(classify("Doramas/X"), Place::Folder { path: "Doramas/X".into() });
         assert_eq!(classify("Animes"), Place::Folder { path: "Animes".into() });
+    }
+
+    #[test]
+    fn work_names() {
+        let w = parse_work_name("[2005.1] Futari wa Precure Max Heart Movie 1 [FILME]");
+        assert_eq!((w.year, w.order, w.kind), (Some(2005), 1, Some(WorkKind::Movie)));
+        assert_eq!(w.title, "Futari wa Precure Max Heart Movie 1");
+        let w = parse_work_name("[2004] Futari wa Precure  [TV]");
+        assert_eq!((w.year, w.order, w.kind, w.title.as_str()), (Some(2004), 0, Some(WorkKind::Tv), "Futari wa Precure"));
+        assert_eq!(parse_work_name("[2010.1] Heartcatch Precure! Movie Hana no Miyako [FILME] ").kind, Some(WorkKind::Movie));
+        assert_eq!(parse_work_name("[2008.3] Precure All Stars GoGo Dream Live! [SPECIAL]").kind, Some(WorkKind::Special));
+        assert_eq!(parse_work_name("[2011.3] X [OVA]").kind, Some(WorkKind::Ova));
+        assert_eq!(parse_work_name("[2011.3] X [ona]").kind, Some(WorkKind::Ona));
+        assert_eq!(parse_work_name("[2011.3] X [Especial]").kind, Some(WorkKind::Special));
+        assert_eq!(parse_work_name("[2026] Meitantei Precure!").kind, None);
+        assert_eq!(parse_work_name("Sem ano").year, None);
+        assert_eq!(folder_year("[2005.1] X"), Some(2005));
+        assert!(is_dated("[2005.0] X") && is_dated("[2004] X") && !is_dated("X (2004)"));
+        assert!(is_franchise(&["[2004] A", "[2005.0] B", "Extras"]));
+        assert!(!is_franchise(&["[2004] A"]));
+        assert!(!is_franchise(&["[Aenianos] A", "B 1080p"]));
+        assert_eq!(WorkKind::from_anilist("TV_SHORT"), Some(WorkKind::Tv));
+        assert_eq!(WorkKind::from_anilist("MUSIC"), Some(WorkKind::Special));
+        assert_eq!(WorkKind::from_anilist("X"), None);
     }
 
     #[test]
