@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     sync::{
         Mutex as StdMutex,
         atomic::{AtomicUsize, Ordering},
@@ -17,6 +18,8 @@ const MAX_ATTEMPTS: usize = 3;
 const DEFAULT_RETRY_AFTER: Duration = Duration::from_secs(60);
 /// Pedidos por minuto até o AniList dizer outro valor (`X-RateLimit-Limit`); hoje roda degradado em 30.
 const DEFAULT_LIMIT: u32 = 30;
+/// Janela do limite do AniList (pedidos por minuto).
+const WINDOW: Duration = Duration::from_secs(60);
 /// Intervalo mínimo entre pedidos do que a pessoa está vendo.
 const INTERACTIVE_GAP: Duration = Duration::from_millis(700);
 /// Folga somada ao `Retry-After` de um 429.
@@ -34,22 +37,45 @@ pub enum Priority {
 }
 
 /// O que se sabe do limite do AniList.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct LimitState {
     limit: u32,
     remaining: Option<u32>,
     reset_at: Option<Instant>,
     blocked_until: Option<Instant>,
     last_sent: Option<Instant>,
+    /// Envios do último minuto, do mais antigo ao mais novo: limita mesmo sem `X-RateLimit-Reset`.
+    sent: VecDeque<Instant>,
 }
 
 impl Default for LimitState {
     fn default() -> Self {
-        Self { limit: DEFAULT_LIMIT, remaining: None, reset_at: None, blocked_until: None, last_sent: None }
+        Self {
+            limit: DEFAULT_LIMIT,
+            remaining: None,
+            reset_at: None,
+            blocked_until: None,
+            last_sent: None,
+            sent: VecDeque::new(),
+        }
     }
 }
 
 impl LimitState {
+    /// Anota um envio em `now` e descarta os que já saíram da janela.
+    fn record_send(&mut self, now: Instant) {
+        self.last_sent = Some(now);
+        self.sent.push_back(now);
+        while self.sent.front().is_some_and(|&t| now.saturating_duration_since(t) >= WINDOW) {
+            self.sent.pop_front();
+        }
+    }
+
+    /// Envios ainda dentro da janela em `now`, do mais antigo ao mais novo.
+    fn in_window(&self, now: Instant) -> impl Iterator<Item = Instant> + '_ {
+        self.sent.iter().copied().filter(move |&t| now.saturating_duration_since(t) < WINDOW)
+    }
+
     /// Aplica os cabeçalhos de uma resposta recebida em `now`.
     fn absorb(&mut self, h: &RateHeaders, now: Instant, too_many: bool) {
         if let Some(limit) = h.limit {
@@ -96,20 +122,24 @@ fn parse_rate_headers(headers: &HeaderMap, now_epoch: u64) -> RateHeaders {
 
 /// Quando um pedido com `priority` pode sair, dado o que se sabe do limite em `now`.
 ///
-/// Nunca antes do bloqueio de um 429; respeita o intervalo mínimo desde o último pedido; e, se o
-/// que sobra na janela já chegou na reserva da prioridade, espera a janela recomeçar.
+/// Nunca antes do bloqueio de um 429; respeita o intervalo mínimo desde o último pedido; não passa
+/// de `limite - reserva` envios no último minuto (conta própria, porque o AniList quase nunca manda
+/// `X-RateLimit-Reset` fora do 429); e, se o que sobra na janela já chegou na reserva, espera a
+/// janela recomeçar (o reset, se conhecido; senão, o envio mais antigo sair da janela).
 /// `Background` reserva um terço do limite para o que a pessoa está vendo, também no intervalo
-/// (`60 s / (limite - reserva)`), para valer mesmo sem saber quando a janela recomeça.
+/// (`60 s / (limite - reserva)`).
 fn send_at(state: &LimitState, now: Instant, priority: Priority) -> Instant {
     let limit = state.limit.max(1);
     let (gap, reserve) = match priority {
         Priority::Interactive => (INTERACTIVE_GAP, 1),
-        // O ritmo já deixa a reserva livre: o AniList quase nunca manda `X-RateLimit-Reset` fora do 429.
         Priority::Background => {
             let reserve = limit / 3;
-            (Duration::from_secs(60) / (limit - reserve).max(1), reserve)
+            (WINDOW / (limit - reserve).max(1), reserve)
         }
     };
+    let cap = limit.saturating_sub(reserve).max(1) as usize;
+    let window: Vec<Instant> = state.in_window(now).collect();
+
     let mut at = now;
     if let Some(until) = state.blocked_until {
         at = at.max(until);
@@ -117,11 +147,25 @@ fn send_at(state: &LimitState, now: Instant, priority: Priority) -> Instant {
     if let Some(last) = state.last_sent {
         at = at.max(last + gap);
     }
-    if let (Some(remaining), Some(reset)) = (state.remaining, state.reset_at)
+    // Janela cheia para esta prioridade: espera sair o bastante para caber mais um.
+    if window.len() >= cap {
+        at = at.max(window[window.len() - cap] + WINDOW);
+    }
+    if let Some(remaining) = state.remaining
         && remaining <= reserve
-        && reset > now
     {
-        at = at.max(reset);
+        match state.reset_at {
+            Some(reset) if reset > now => at = at.max(reset),
+            // Reset já passou: o `remaining` é de uma janela antiga.
+            Some(_) => {}
+            // Sem reset: vale até o envio mais antigo do último minuto sair da janela
+            // (sem envio no último minuto, a janela já recomeçou).
+            None => {
+                if let Some(&oldest) = window.first() {
+                    at = at.max(oldest + WINDOW);
+                }
+            }
+        }
     }
     at
 }
@@ -225,7 +269,7 @@ impl AniListClient {
             }
         };
 
-        self.state.lock().unwrap().last_sent = Some(Instant::now());
+        self.state.lock().unwrap().record_send(Instant::now());
         let resp = self
             .http
             .post(ENDPOINT)
@@ -350,6 +394,55 @@ mod tests {
         // Reset já passou: o `remaining` antigo não vale mais.
         let st = LimitState { remaining: Some(0), reset_at: Some(now), ..Default::default() };
         assert_eq!(send_at(&st, now + SEC, Priority::Background), now + SEC);
+    }
+
+    /// Estado com `n` envios, um por segundo a partir de `base`.
+    fn with_sends(base: Instant, n: u32) -> LimitState {
+        let sent: VecDeque<Instant> = (0..n).map(|i| base + i * SEC).collect();
+        LimitState { last_sent: sent.back().copied(), sent, ..Default::default() }
+    }
+
+    #[test]
+    fn window_caps_interactive() {
+        let base = Instant::now();
+        let now = base + 30 * SEC;
+        // 29 envios no último minuto (limite 30 - 1): espera o mais antigo sair da janela.
+        assert_eq!(send_at(&with_sends(base, 29), now, Priority::Interactive), base + WINDOW);
+        assert_eq!(send_at(&with_sends(base, 28), now, Priority::Interactive), now);
+        // Envios com mais de 60 s não contam.
+        assert_eq!(send_at(&with_sends(base, 29), base + 61 * SEC, Priority::Interactive), base + 61 * SEC);
+    }
+
+    #[test]
+    fn window_caps_background_at_reserve() {
+        let base = Instant::now();
+        let now = base + 30 * SEC;
+        // Limite 30, reserva 10: o fundo para em 20 envios por minuto.
+        assert_eq!(send_at(&with_sends(base, 20), now, Priority::Background), base + WINDOW);
+        assert_eq!(send_at(&with_sends(base, 19), now, Priority::Background), now);
+    }
+
+    #[test]
+    fn exhausted_without_reset_waits_window() {
+        let base = Instant::now();
+        // `remaining` zerado sem `X-RateLimit-Reset`: espera o envio mais antigo da janela sair.
+        let mut st = with_sends(base, 1);
+        st.remaining = Some(0);
+        assert_eq!(send_at(&st, base + 2 * SEC, Priority::Interactive), base + WINDOW);
+        // Nenhum envio no último minuto: o `remaining` é velho, a janela já recomeçou.
+        let st = LimitState { remaining: Some(0), ..Default::default() };
+        assert_eq!(send_at(&st, base, Priority::Interactive), base);
+    }
+
+    #[test]
+    fn records_sends_in_window() {
+        let base = Instant::now();
+        let mut st = LimitState::default();
+        st.record_send(base);
+        st.record_send(base + 30 * SEC);
+        st.record_send(base + 61 * SEC);
+        assert_eq!(st.sent, VecDeque::from([base + 30 * SEC, base + 61 * SEC]));
+        assert_eq!(st.last_sent, Some(base + 61 * SEC));
     }
 
     #[test]
