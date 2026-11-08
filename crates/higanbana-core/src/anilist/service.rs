@@ -7,6 +7,7 @@ use super::{
     cache::DiskCache,
     client::AniListClient,
     error::{AniListError, AniListResult},
+    jikan::JikanClient,
     matcher::{self, ParsedName},
     queries::{self, MediaType},
 };
@@ -25,9 +26,23 @@ pub struct LookupRequest {
     pub media_type: MediaType,
 }
 
+/// Arquivo do cache de matches. `-v2`: os `null` da versão anterior (sem fallback MAL) não valem mais.
+const MATCHES_FILE: &str = "anilist-matches-v2.json";
+
+/// Para cada busca sem match no AniList: o melhor candidato Jikan (formato AniList) ou None.
+pub(crate) fn pick_mal(candidates: &[Value], wanted: &ParsedName) -> Option<Value> {
+    matcher::pick_best(candidates, wanted).map(|idx| candidates[idx].clone())
+}
+
+/// Junta resultado do AniList-por-idMal com o candidato Jikan: AniList vence; senão Jikan.
+pub(crate) fn merge_mal(anilist: Option<Value>, jikan: Value) -> Value {
+    anilist.unwrap_or(jikan)
+}
+
 /// Metadados do AniList com cache em disco.
 pub struct AniList {
     client: AniListClient,
+    jikan: JikanClient,
     /// chave de busca → resumo da mídia casada (ou `null` se nada casou).
     matches: DiskCache<Option<Value>>,
     /// id → detalhe.
@@ -38,7 +53,8 @@ impl AniList {
     pub fn new(dir: &Path) -> Self {
         Self {
             client: AniListClient::new(),
-            matches: DiskCache::open(dir.join("anilist-matches.json"), MATCH_TTL),
+            jikan: JikanClient::new(),
+            matches: DiskCache::open(dir.join(MATCHES_FILE), MATCH_TTL),
             details: DiskCache::open(dir.join("anilist-details.json"), DETAIL_TTL),
         }
     }
@@ -70,16 +86,29 @@ impl AniList {
 
         let mut fresh: HashMap<String, Option<Value>> = HashMap::new();
         let mut last_error = None;
+        // Animes sem match no AniList: candidatos a fallback na MAL.
+        let mut misses: Vec<&(String, ParsedName, MediaType)> = Vec::new();
         for chunk in pending.chunks(BATCH_SIZE) {
             match self.search_batch(chunk).await {
                 Ok(found) => {
                     for (key, value) in found {
-                        self.matches.insert(key.clone(), value.clone());
-                        fresh.insert(key, value);
+                        let item = chunk.iter().find(|c| c.0 == key).copied();
+                        match item {
+                            Some(item) if value.is_none() && item.2 == MediaType::Anime => misses.push(item),
+                            _ => {
+                                self.matches.insert(key.clone(), value.clone());
+                                fresh.insert(key, value);
+                            }
+                        }
                     }
                 }
                 Err(e) => last_error = Some(e),
             }
+        }
+
+        for (key, value) in self.mal_fallback(&misses, &mut last_error).await {
+            self.matches.insert(key.clone(), value.clone());
+            fresh.insert(key, value);
         }
         if !pending.is_empty() {
             self.matches.flush();
@@ -97,6 +126,49 @@ impl AniList {
             .iter()
             .map(|(key, _, _)| fresh.get(key).cloned().flatten().or_else(|| self.matches.get(key).flatten()))
             .collect())
+    }
+
+    /// Procura na MAL (Jikan) as obras que o AniList não achou e tenta ligá-las ao AniList por `idMal`.
+    /// Devolve só os itens decididos: `None` quando nem AniList nem MAL acharam. Falhas de rede
+    /// ficam de fora (nada é cacheado) e vão para `last_error`.
+    async fn mal_fallback(
+        &self,
+        misses: &[&(String, ParsedName, MediaType)],
+        last_error: &mut Option<AniListError>,
+    ) -> Vec<(String, Option<Value>)> {
+        let mut decided = Vec::new();
+        let mut hits: Vec<(&str, Value)> = Vec::new();
+        for (key, parsed, _) in misses.iter().copied() {
+            match self.jikan.search(&parsed.title).await {
+                Ok(candidates) => match pick_mal(&candidates, parsed) {
+                    Some(jk) => hits.push((key, jk)),
+                    None => decided.push((key.clone(), None)),
+                },
+                Err(AniListError::NotFound) => decided.push((key.clone(), None)),
+                Err(e) => *last_error = Some(e),
+            }
+        }
+
+        for chunk in hits.chunks(BATCH_SIZE) {
+            let mut variables = Map::new();
+            for (i, (_, jk)) in chunk.iter().enumerate() {
+                variables.insert(format!("i{i}"), jk["idMal"].clone());
+            }
+            let data = match self.client.query(&queries::idmal_batch_query(chunk.len()), Value::Object(variables)).await {
+                Ok(data) => data,
+                // Nenhum idMal existe no AniList: todos ficam só-MAL.
+                Err(AniListError::NotFound) => Value::Null,
+                Err(e) => {
+                    *last_error = Some(e);
+                    continue;
+                }
+            };
+            for (i, (key, jk)) in chunk.iter().enumerate() {
+                let on_anilist = data.get(format!("m{i}")).filter(|m| !m.is_null()).cloned();
+                decided.push((key.to_string(), Some(merge_mal(on_anilist, jk.clone()))));
+            }
+        }
+        decided
     }
 
     async fn search_batch(
@@ -152,16 +224,41 @@ impl AniList {
         Ok(list)
     }
 
-    /// Detalhe completo (descrição, staff, elenco...).
+    /// Detalhe completo (descrição, staff, elenco...). Id negativo é obra só-MAL (`-mal_id`).
     pub async fn media(&self, id: i64) -> AniListResult<Value> {
         let key = id.to_string();
         if let Some(v) = self.details.get(&key) {
             return Ok(v);
+        }
+        if id < 0 {
+            let media = self.jikan.anime(-id).await?;
+            self.details.insert(key, media.clone());
+            self.details.flush();
+            return Ok(media);
         }
         let data = self.client.query(queries::DETAIL_QUERY, json!({ "id": id })).await?;
         let media = data.get("Media").cloned().filter(|m| !m.is_null()).ok_or(AniListError::NotFound)?;
         self.details.insert(key, media.clone());
         self.details.flush();
         Ok(media)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mal_fallback_choice() {
+        let jk = json!({"id": -1531, "idMal": 1531, "title": {"romaji": "Fushigiboshi no☆Futago Hime"}, "synonyms": [], "seasonYear": 2005});
+        let wanted = matcher::parse_folder_name("Fushigiboshi no Futago Hime");
+        assert_eq!(pick_mal(&[jk.clone()], &wanted).unwrap()["id"], -1531);
+        assert_eq!(merge_mal(None, jk.clone())["id"], -1531);
+        assert_eq!(merge_mal(Some(json!({"id": 777})), jk)["id"], 777);
+    }
+
+    #[test]
+    fn match_cache_is_versioned() {
+        assert!(MATCHES_FILE.ends_with("-v2.json"));
     }
 }

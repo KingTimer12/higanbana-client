@@ -43,9 +43,11 @@ pub fn parse_folder_name(name: &str) -> ParsedName {
             continue;
         }
         let inner = inner.trim();
+        // `[2005.1]` (ano + ordem de lançamento no mesmo ano) vale como 2005.
+        let year_text = inner.split('.').next().unwrap_or_default();
         if year.is_none()
-            && inner.len() == 4
-            && let Ok(y) = inner.parse::<i32>()
+            && year_text.len() == 4
+            && let Ok(y) = year_text.parse::<i32>()
             && (1900..=2100).contains(&y)
         {
             year = Some(y);
@@ -185,6 +187,10 @@ mod tests {
         );
         assert_eq!(parse_folder_name("\"Eiji\""), p("\"Eiji\"", None));
         assert_eq!(parse_folder_name("[Colecao Curtas]"), p("[Colecao Curtas]", None));
+        assert_eq!(
+            parse_folder_name("[2005.1] Futari wa Precure Max Heart Movie 1 [FILME]"),
+            p("Futari wa Precure Max Heart Movie 1", Some(2005))
+        );
     }
 
     #[test]
