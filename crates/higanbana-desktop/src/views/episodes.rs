@@ -25,7 +25,7 @@ use higanbana_core::{
 use crate::{
     components::{FileAction, download_button, file_list, format_bytes, stop_click, when_visible},
     interact::{Button, hover_anim},
-    motion::{QUICK, ease_out_back, ease_out_cubic, enter},
+    motion::{QUICK, RISE_DISTANCE, ease_out_back, ease_out_cubic, enter, staggered},
     state::{Img, state},
     theme::{self, ProductColors as _},
 };
@@ -214,13 +214,13 @@ pub fn episode_list(
             .grid_cols(cols.max(1) as u16)
             .gap_x_4()
             .gap_y_6()
-            .children(items.into_iter().map(|it| grid_card(it, loading, &on_play)))
+            .children(items.into_iter().enumerate().map(|(i, it)| rise_in(i, format!("ep-in:grid:{}", it.key), grid_card(it, loading, &on_play))))
             .into_any_element(),
         EpisodeLayout::List => div()
             .grid()
             .grid_cols(list_columns(cols) as u16)
             .gap_3()
-            .children(items.into_iter().map(|it| list_card(it, loading, &on_play)))
+            .children(items.into_iter().enumerate().map(|(i, it)| rise_in(i, format!("ep-in:list:{}", it.key), list_card(it, loading, &on_play))))
             .into_any_element(),
     };
 
@@ -229,6 +229,18 @@ pub fn episode_list(
         .child(h_flex().justify_end().child(toggle))
         .child(body)
         .when(!others.is_empty(), |d| d.child(div().pt_3().child(file_list(dir, &others, None, on_read, cx))))
+}
+
+/// Entrada em cascata do card `index`: sobe e aparece, cada um um pouco depois
+/// do anterior. O estado da animação fica no `id` (do arquivo e do layout):
+/// redesenhar por hover ou progresso não repete a entrada; ela volta a rodar
+/// só quando a lista aparece de novo (outra aba, outro layout).
+fn rise_in(index: usize, id: String, card: AnyElement) -> AnyElement {
+    div()
+        .min_w_0()
+        .child(card)
+        .with_animation(ElementId::Name(id.into()), staggered(index), |d, t| d.opacity(t).relative().top(px(RISE_DISTANCE * (1. - t))))
+        .into_any_element()
 }
 
 /// Card da grade ("Higanbana"): miniatura com cantos de pétala e, embaixo,
