@@ -4,14 +4,15 @@
 //! arquivos que não são vídeo continuam na lista compacta, abaixo.
 
 use gpui_kit::component::skeleton::Skeleton;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, button::ButtonVariants as _, h_flex, v_flex};
 use gpui_kit::{
-    AnyElement, App, Div, ElementId, FontWeight, IntoElement, ParentElement, SharedString, Styled, assets::IconName, div,
+    AnyElement, App, Div, ElementId, Stateful, FontWeight, IntoElement, ParentElement, SharedString, Styled, assets::IconName, div,
     prelude::*, px, relative, rems,
 };
 use higanbana_core::{
     anilist::{text, types::FuzzyDate},
-    library::join_path,
+    library::{join_path, parse_episode},
     nuvem::FileEntry,
     player::logic::{episode_number, video_files},
     settings::EpisodeLayout,
@@ -19,7 +20,7 @@ use higanbana_core::{
 };
 
 use crate::{
-    components::{FileAction, download_button, file_list, rounded_image, when_visible},
+    components::{FileAction, download_button, file_list, format_bytes, rounded_image, stop_click, when_visible},
     interact::{Button, hover_fade, hover_layer},
     state::{Img, state},
     theme,
@@ -45,6 +46,29 @@ pub fn card_text(file: &FileEntry, ep: Option<&EpisodeView>) -> (String, String)
     (label, title)
 }
 
+/// Segunda linha dos vídeos cujo rótulo se repete (`01` e `01v2`, 720p e 1080p),
+/// para `(rótulo, nome do arquivo)`: a qualidade do nome quando ela separa o
+/// grupo; senão o nome do arquivo. Rótulo único ou vazio → `None`.
+pub fn disambiguators(items: &[(String, String)]) -> Vec<Option<String>> {
+    let quality: Vec<Option<String>> = items.iter().map(|(_, name)| parse_episode(name).quality).collect();
+    items
+        .iter()
+        .enumerate()
+        .map(|(i, (label, name))| {
+            if label.is_empty() {
+                return None;
+            }
+            let group: Vec<usize> = (0..items.len()).filter(|&j| items[j].0 == *label).collect();
+            if group.len() < 2 {
+                return None;
+            }
+            let distinct = group.iter().all(|&j| quality[j].is_some())
+                && group.iter().all(|&j| group.iter().filter(|&&k| quality[k] == quality[j]).count() == 1);
+            Some(if distinct { quality[i].clone().unwrap_or_default() } else { name.clone() })
+        })
+        .collect()
+}
+
 /// Data de exibição do TMDB (`2023-09-29`) no formato das datas do AniList ("29 set 2023").
 fn air_date(date: Option<&str>) -> Option<String> {
     let mut parts = date?.split('-').map(|p| p.parse::<u32>().ok());
@@ -61,6 +85,10 @@ struct Item {
     key: SharedString,
     label: String,
     title: String,
+    /// Segunda linha quando o rótulo se repete (qualidade ou nome do arquivo).
+    note: Option<String>,
+    /// Formato · tamanho (`MKV · 1,2 GB`), na lista.
+    details: String,
     still: Option<String>,
     score: Option<String>,
     date: Option<String>,
@@ -75,7 +103,9 @@ struct Item {
 ///
 /// `eps`: `None` enquanto o TMDB responde (esqueleto nas miniaturas);
 /// `Some(None)` sem dados do TMDB (miniatura neutra). `cols` é o número de
-/// colunas da grade, medido por quem chama.
+/// colunas da grade, medido por quem chama. `on_read` vai para a lista
+/// compacta dos outros arquivos (quadrinhos soltos na pasta).
+#[allow(clippy::too_many_arguments)]
 pub fn episode_list(
     dir: &str,
     files: &[FileEntry],
@@ -83,26 +113,30 @@ pub fn episode_list(
     layout: EpisodeLayout,
     cols: usize,
     on_play: FileAction,
+    on_read: Option<FileAction>,
     cx: &mut App,
 ) -> Div {
     let videos = video_files(files);
     if videos.is_empty() {
-        return file_list(dir, files, Some(on_play), None, cx);
+        return file_list(dir, files, Some(on_play), on_read, cx);
     }
     let others: Vec<FileEntry> = files.iter().filter(|f| !videos.iter().any(|v| v.name == f.name)).cloned().collect();
     let loading = eps.is_none();
     let tmdb = eps.flatten();
 
     let s = state(cx);
+    let texts: Vec<(String, String)> = videos.iter().map(|f| card_text(f, tmdb.and_then(|w| w.link(&f.name)))).collect();
+    let notes = disambiguators(&texts.iter().zip(&videos).map(|((l, _), f)| (l.clone(), f.name.clone())).collect::<Vec<_>>());
     let items: Vec<Item> = {
         let st = s.read(cx);
         let ratings = st.rating_source();
         videos
             .into_iter()
-            .map(|f| {
+            .zip(texts.into_iter().zip(notes))
+            .map(|(f, ((label, title), note))| {
                 let path = join_path(dir, &f.name);
                 let ep = tmdb.and_then(|w| w.link(&f.name));
-                let (label, title) = card_text(&f, ep);
+                let ext = f.extension.clone().unwrap_or_default();
                 let p = st.player_data.progress.get(&path);
                 let minutes = ep.and_then(|e| e.runtime).filter(|&m| m > 0).or_else(|| {
                     p.filter(|p| p.duration > 0.).map(|p| (p.duration / 60.).round() as u32)
@@ -111,6 +145,12 @@ pub fn episode_list(
                     key: SharedString::from(f.name.clone()),
                     label,
                     title,
+                    note,
+                    details: [ext.trim_start_matches('.').to_uppercase(), format_bytes(f.size)]
+                        .into_iter()
+                        .filter(|s| !s.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(" · "),
                     still: ep.and_then(|e| e.still_path.as_deref()).map(|p| still_url(p, STILL_SIZE)),
                     score: ep.and_then(|e| ratings.episode(e)).map(|s| s.label()),
                     date: ep.and_then(|e| air_date(e.air_date.as_deref())),
@@ -161,21 +201,23 @@ pub fn episode_list(
         .gap_3()
         .child(h_flex().justify_end().child(toggle))
         .child(body)
-        .when(!others.is_empty(), |d| d.child(div().pt_3().child(file_list(dir, &others, None, None, cx))))
+        .when(!others.is_empty(), |d| d.child(div().pt_3().child(file_list(dir, &others, None, on_read, cx))))
 }
 
 /// Card da grade: miniatura 16:9 e, embaixo, rótulo, título, nota e download.
 fn grid_card(it: Item, loading: bool, on_play: &FileAction, cx: &mut App) -> AnyElement {
     let theme = cx.theme().clone();
     let (act, f) = (on_play.clone(), it.file.clone());
-    let dl = download_button(ElementId::Name(format!("ep-dl:{}", it.key).into()), &it.path, cx);
+    let actions = actions(&it, on_play, cx);
     let thumb = thumbnail(&it, loading, cx);
+    let name = it.key.clone();
     v_flex()
         .id(ElementId::Name(format!("ep-card:{}", it.key).into()))
         .group(CARD_GROUP)
         .min_w_0()
         .gap_2()
         .cursor_pointer()
+        .tooltip(move |window, cx| Tooltip::new(name.clone()).build(window, cx))
         .on_click(move |_, w, cx| act(&f, w, cx))
         .child(thumb)
         .child(
@@ -189,9 +231,10 @@ fn grid_card(it: Item, loading: bool, on_play: &FileAction, cx: &mut App) -> Any
                         .gap_0p5()
                         .when(!it.label.is_empty(), |d| d.child(div().text_xs().text_color(theme.muted_foreground).child(it.label.clone())))
                         .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).line_clamp(2).child(it.title.clone()))
+                        .children(it.note.clone().map(|n| note(n, cx)))
                         .children(it.score.clone().map(|s| score(s, cx))),
                 )
-                .child(div().flex_none().child(dl)),
+                .child(actions),
         )
         .into_any_element()
 }
@@ -200,9 +243,14 @@ fn grid_card(it: Item, loading: bool, on_play: &FileAction, cx: &mut App) -> Any
 fn list_row(it: Item, loading: bool, on_play: &FileAction, cx: &mut App) -> AnyElement {
     let theme = cx.theme().clone();
     let (act, f) = (on_play.clone(), it.file.clone());
-    let dl = download_button(ElementId::Name(format!("ep-dl:{}", it.key).into()), &it.path, cx);
+    let actions = actions(&it, on_play, cx);
     let thumb = thumbnail(&it, loading, cx);
-    let meta = [Some(it.label.clone()).filter(|l| !l.is_empty()), it.date.clone()].into_iter().flatten().collect::<Vec<_>>().join(" · ");
+    let name = it.key.clone();
+    let meta = [Some(it.label.clone()).filter(|l| !l.is_empty()), it.date.clone(), Some(it.details.clone()).filter(|d| !d.is_empty())]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ");
     let row = h_flex()
         .id(ElementId::Name(format!("ep-row:{}", it.key).into()))
         .group(CARD_GROUP)
@@ -210,6 +258,7 @@ fn list_row(it: Item, loading: bool, on_play: &FileAction, cx: &mut App) -> AnyE
         .gap_4()
         .p_2()
         .cursor_pointer()
+        .tooltip(move |window, cx| Tooltip::new(name.clone()).build(window, cx))
         .on_click(move |_, w, cx| act(&f, w, cx))
         .child(div().w(rems(10.5)).flex_none().child(thumb))
         .child(
@@ -219,16 +268,45 @@ fn list_row(it: Item, loading: bool, on_play: &FileAction, cx: &mut App) -> AnyE
                 .gap_1()
                 .when(!meta.is_empty(), |d| d.child(div().text_xs().text_color(theme.muted_foreground).child(meta)))
                 .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).line_clamp(2).child(it.title.clone()))
+                .children(it.note.clone().map(|n| note(n, cx)))
                 .children(it.score.clone().map(|s| score(s, cx)))
                 .when(!it.overview.is_empty(), |d| {
                     d.child(div().text_xs().text_color(theme.muted_foreground).line_height(relative(1.4)).line_clamp(3).child(it.overview.clone()))
                 }),
         )
-        .child(div().flex_none().child(dl));
+        .child(actions);
     hover_fade(ElementId::Name(format!("ep-row-hover:{}", it.key).into()), row)
         .fill(theme.list_hover)
         .radius(theme.radius_lg)
         .into_any_element()
+}
+
+/// Botões do card/linha: "Assistir" (o caminho pelo teclado até um episódio:
+/// o `Button` do kit é parada de Tab e responde a Enter/Espaço) e o download.
+/// A área para o clique, para baixar não tocar o episódio.
+fn actions(it: &Item, on_play: &FileAction, cx: &mut App) -> Stateful<Div> {
+    let (act, f) = (on_play.clone(), it.file.clone());
+    let dl = download_button(ElementId::Name(format!("ep-dl:{}", it.key).into()), &it.path, cx);
+    stop_click(
+        ElementId::Name(format!("ep-actions:{}", it.key).into()),
+        h_flex()
+            .flex_none()
+            .gap_1()
+            .child(
+                Button::new(ElementId::Name(format!("ep-play:{}", it.key).into()))
+                    .ghost()
+                    .small()
+                    .icon(IconName::Play)
+                    .tooltip("Assistir")
+                    .on_click(move |_, w, cx| act(&f, w, cx)),
+            )
+            .child(dl),
+    )
+}
+
+/// Linha que separa arquivos com o mesmo rótulo (qualidade ou nome do arquivo).
+fn note(text: String, cx: &App) -> Div {
+    div().text_xs().text_color(cx.theme().muted_foreground).line_clamp(1).child(text)
 }
 
 /// Nota do episódio ("★ 8,5").
@@ -393,6 +471,28 @@ mod tests {
     fn card_text_without_number_uses_file_name() {
         let f = file("Abertura sem créditos.mkv");
         assert_eq!(card_text(&f, None), (String::new(), "Abertura sem créditos.mkv".into()));
+    }
+
+    fn pairs(v: &[(&str, &str)]) -> Vec<(String, String)> {
+        v.iter().map(|(l, n)| (l.to_string(), n.to_string())).collect()
+    }
+
+    #[test]
+    fn repeated_label_shows_quality() {
+        let items = pairs(&[("E1", "Show - 01 [1080p].mkv"), ("E1", "Show - 01 [720p].mkv"), ("E2", "Show - 02 [1080p].mkv")]);
+        assert_eq!(disambiguators(&items), [Some("1080p".to_owned()), Some("720p".to_owned()), None]);
+    }
+
+    #[test]
+    fn repeated_label_with_same_quality_shows_file_name() {
+        let items = pairs(&[("E1", "Show - 01 [1080p].mkv"), ("E1", "Show - 01v2 [1080p].mkv")]);
+        assert_eq!(disambiguators(&items), [Some("Show - 01 [1080p].mkv".to_owned()), Some("Show - 01v2 [1080p].mkv".to_owned())]);
+    }
+
+    #[test]
+    fn unique_or_empty_labels_need_nothing() {
+        let items = pairs(&[("", "Abertura.mkv"), ("", "Encerramento.mkv"), ("E3", "Show - 03.mkv")]);
+        assert_eq!(disambiguators(&items), [None, None, None]);
     }
 
     #[test]

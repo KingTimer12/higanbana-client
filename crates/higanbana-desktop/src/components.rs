@@ -15,7 +15,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     assets::IconName, canvas, div, img, prelude::*, px, relative, Corners, AnimationExt as _, AnyElement, App,
-    Bounds, Div, ElementId, FontWeight, Hsla, IntoElement, ObjectFit, ParentElement, Pixels,
+    Bounds, Div, ElementId, FontWeight, Hsla, IntoElement, MouseButton, ObjectFit, ParentElement, Pixels,
     SharedString, Stateful, Styled, Window,
 };
 use higanbana_core::{
@@ -363,6 +363,17 @@ pub fn is_comic(f: &FileEntry) -> bool {
             .is_some_and(|e| matches!(e.to_lowercase().as_str(), ".cbz" | ".zip" | ".cbr" | ".rar"))
 }
 
+/// Área de botões dentro de uma linha ou card clicável: o clique (e o aperto)
+/// para aqui e não chega ao pai. O `Button` do kit não para a propagação, e os
+/// estados sem botão (baixando, "Baixado") também não podem tocar o episódio.
+pub fn stop_click(id: impl Into<ElementId>, child: impl IntoElement) -> Stateful<Div> {
+    div()
+        .id(id)
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(|_, _, cx| cx.stop_propagation())
+        .child(child)
+}
+
 /// Ação "Baixar" de um arquivo, mostrando o estado do download no mesmo lugar.
 pub fn download_button(id: impl Into<ElementId>, path: &str, cx: &mut App) -> AnyElement {
     let id = id.into();
@@ -567,7 +578,7 @@ pub fn file_list_in(
             format_bytes(f.size),
         ]
         .join(" · ");
-        // Clicar na linha faz a ação principal (assistir ou ler); os botões param a propagação.
+        // Clicar na linha faz a ação principal (assistir ou ler); a área dos botões (`stop_click`) não repassa o clique.
         let primary: Option<FileAction> = if playable { on_play.clone() } else if readable { on_read.clone() } else { None };
         let mut row = row
             .id(ElementId::Name(format!("ep:{key}").into()))
@@ -631,14 +642,15 @@ pub fn file_list_in(
             );
         if playable {
             let (act, f2) = (on_play.clone().unwrap(), f.clone());
-            row = row.child(
+            row = row.child(stop_click(
+                ElementId::Name(format!("play-area:{key}").into()),
                 Button::new(ElementId::Name(format!("play:{key}").into()))
                     .ghost()
                     .small()
                     .icon(IconName::Play)
                     .label("Assistir")
                     .on_click(move |_, w, cx| act(&f2, w, cx)),
-            );
+            ));
         }
         if readable {
             let (act, f2) = (on_read.clone().unwrap(), f.clone());
@@ -647,20 +659,24 @@ pub fn file_list_in(
             } else {
                 "Ler"
             };
-            row = row.child(
+            row = row.child(stop_click(
+                ElementId::Name(format!("read-area:{key}").into()),
                 Button::new(ElementId::Name(format!("read:{key}").into()))
                     .ghost()
                     .small()
                     .icon(IconName::BookOpen)
                     .label(label)
                     .on_click(move |_, w, cx| act(&f2, w, cx)),
-            );
+            ));
         }
-        row = row.child(div().w_20().flex().justify_end().child(download_button(
-            ElementId::Name(format!("dl:{key}").into()),
-            &path,
-            cx,
-        )));
+        row = row.child(stop_click(
+            ElementId::Name(format!("dl-area:{key}").into()),
+            div().w_20().flex().justify_end().child(download_button(
+                ElementId::Name(format!("dl:{key}").into()),
+                &path,
+                cx,
+            )),
+        ));
         list = list.child(
             hover_fade(ElementId::Name(format!("ep-hover:{key}").into()), row)
                 .fill(theme.list_hover)

@@ -748,15 +748,15 @@ impl Render for TitleView {
                             let _ = this.update(cx, |v, cx| v.play(f.clone(), cx));
                         }
                     });
+                    let on_read: FileAction = Rc::new(move |f, _, cx| {
+                        let _ = this.update(cx, |v, cx| v.read(f.clone(), cx));
+                    });
                     if self.media_type == MediaType::Anime {
                         let layout = self.state.read(cx).episode_layout();
                         let cols = columns(width, 15.5 * rem, rem);
                         let eps = episodes_state.as_ref().map(|e| e.as_deref());
-                        episode_list(&files_path, &list, eps, layout, cols, on_play, cx).into_any_element()
+                        episode_list(&files_path, &list, eps, layout, cols, on_play, Some(on_read), cx).into_any_element()
                     } else {
-                        let on_read: FileAction = Rc::new(move |f, _, cx| {
-                            let _ = this.update(cx, |v, cx| v.read(f.clone(), cx));
-                        });
                         file_list(&files_path, &list, Some(on_play), Some(on_read), cx).into_any_element()
                     }
                 }
