@@ -3,6 +3,7 @@
 pub mod catalog;
 pub mod catalog_filters;
 pub mod folder;
+pub mod franchise;
 pub mod home;
 pub mod login;
 pub mod shelf;

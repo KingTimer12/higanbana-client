@@ -175,6 +175,8 @@ pub struct PosterProps {
     pub width: Pixels,
     pub badge: bool,
     pub dimmed: bool,
+    /// Linha de baixo; `None` mostra formato · ano.
+    pub meta: Option<String>,
 }
 
 /// Card de pôster (capa + título + formato/ano). O clique vem de quem usa.
@@ -196,14 +198,16 @@ pub fn poster(p: PosterProps, cx: &mut App) -> Stateful<Div> {
     } else {
         cover(media, &p.name, Some(p.width), cx).into_any_element()
     };
-    let meta = [
-        format.filter(|f| !f.is_empty()),
-        year.map(|y| y.to_string()),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join(" · ");
+    let meta = p.meta.clone().unwrap_or_else(|| {
+        [
+            format.filter(|f| !f.is_empty()),
+            year.map(|y| y.to_string()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ")
+    });
     let theme = cx.theme().clone();
     v_flex()
         .id(p.id)
@@ -706,6 +710,7 @@ pub fn title_card(id: ElementId, name: &str, target: String, media: MediaType, w
             width,
             badge: false,
             dimmed: false,
+            meta: None,
         },
         cx,
     )

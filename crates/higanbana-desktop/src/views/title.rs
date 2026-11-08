@@ -2,6 +2,8 @@
 //!   <Título>/[ANO] <Temporada>/<Release [tags]>/arquivos
 //! Temporadas = subpastas com ano; releases = subpastas da temporada.
 //! Cada temporada casa com sua própria entrada no AniList.
+//! Anime com a maioria das subpastas datadas é franquia: sem obra escolhida
+//! mostra a [`FranchiseView`]; com obra, `title_path/<obra>` vira a raiz da página.
 
 use crate::interact::hover_layer;
 use crate::interact::Button;
@@ -25,7 +27,7 @@ use higanbana_core::{
         MediaType, text,
         types::{MediaDetail, MediaSummary},
     },
-    library::{base_name, folder_title, folder_year, join_path, natural_cmp, release_tags},
+    library::{base_name, folder_title, folder_year, is_franchise, join_path, natural_cmp, release_tags},
     nuvem::FileEntry,
     player::logic::{episode_number, format_time, video_files},
     reader::logic::{chapter_label, comic_files, label_text},
@@ -42,7 +44,7 @@ use crate::{
     theme::ProductColors as _,
     ui::{empty_state, truncate},
     video::PlayTarget,
-    views::load_listing,
+    views::{franchise::FranchiseView, load_listing},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -73,6 +75,7 @@ pub struct TitleView {
     expanded: bool,
     album: Option<Entity<AlbumView>>,
     not_album: bool,
+    franchise: Option<Entity<FranchiseView>>,
     _subs: Vec<Subscription>,
 }
 
@@ -119,6 +122,7 @@ impl TitleView {
             expanded: false,
             album: None,
             not_album: false,
+            franchise: None,
             _subs: subs,
         }
     }
@@ -127,7 +131,23 @@ impl TitleView {
         dirs(&self.title_listing).into_iter().filter(|d| folder_year(&d.name).is_some()).collect()
     }
 
+    /// Anime cuja pasta tem a maioria das subpastas datadas (cada uma é uma obra).
+    fn is_franchise(&self) -> bool {
+        let dirs = dirs(&self.title_listing);
+        self.media_type == MediaType::Anime && is_franchise(&dirs.iter().map(|d| d.name.as_str()).collect::<Vec<_>>())
+    }
+
+    /// Na franquia sem obra escolhida, quem desenha a página é a [`FranchiseView`].
+    fn shows_franchise(&self) -> bool {
+        self.is_franchise() && self.season_name().is_none()
+    }
+
+    /// Temporada (ou obra, na franquia) aberta.
     fn season_name(&self) -> Option<String> {
+        if self.is_franchise() {
+            let wanted = self.rest.first()?;
+            return dirs(&self.title_listing).into_iter().map(|d| d.name).find(|d| d == wanted);
+        }
         let seasons = self.seasons();
         let first = seasons.first()?.name.clone();
         let wanted = self.rest.first();
@@ -195,6 +215,13 @@ impl TitleView {
     /// Busca o que falta conforme as listagens e o AniList respondem.
     fn sync(&mut self, cx: &mut Context<Self>) {
         if self.title_listing.is_none() {
+            return;
+        }
+        if self.shows_franchise() {
+            if self.franchise.is_none() {
+                let (path, works) = (self.title_path.clone(), dirs(&self.title_listing));
+                self.franchise = Some(cx.new(|cx| FranchiseView::new(path, works, cx)));
+            }
             return;
         }
         if let Some(season) = self.season_name()
@@ -286,6 +313,9 @@ impl TitleView {
 
 impl Render for TitleView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(view) = self.franchise.clone().filter(|_| self.shows_franchise()) {
+            return view.into_any_element();
+        }
         let theme = cx.theme().clone();
         let rem = f32::from(window.rem_size());
         let width = content_width(window, 72. * rem);
@@ -468,7 +498,8 @@ impl Render for TitleView {
             let release_name = self.release_name();
             let single_tags = if releases.len() == 1 { release_tags(&releases[0].name) } else { Vec::new() };
             let mut options = v_flex().gap_3();
-            if seasons.len() > 1 {
+            // Franquias trocam de obra pela página da franquia (link de volta acima do título).
+            if seasons.len() > 1 && self.media_type != MediaType::Anime {
                 options = options.child(option_group("Temporada", cx).child(h_flex().flex_wrap().gap_2().children(seasons.iter().map(|s| {
                     let target = join_path(&self.title_path, &s.name);
                     let st = self.state.clone();
@@ -527,6 +558,17 @@ impl Render for TitleView {
         let english = media.as_ref().and_then(|m| m.title.english.clone()).filter(|n| *n != heading);
         let genres = media.as_ref().map(|m| m.genres.iter().map(|g| text::genre(g)).collect::<Vec<_>>().join(", ")).filter(|g| !g.is_empty());
         let tab_ids: Vec<Section> = tabs.iter().map(|t| t.0).collect();
+        let back = self.is_franchise().then(|| {
+            let (st, target) = (self.state.clone(), self.title_path.clone());
+            h_flex().child(
+                Button::new("franchise-back")
+                    .ghost()
+                    .small()
+                    .icon(IconName::ChevronLeft)
+                    .label(folder_title(base_name(&self.title_path)))
+                    .on_click(move |_, _, cx| st.update(cx, |s, cx| s.go(target.clone(), cx))),
+            )
+        });
 
         div()
             .relative()
@@ -573,6 +615,7 @@ impl Render for TitleView {
                                     .flex_1()
                                     .min_w_0()
                                     .gap_4()
+                                    .children(back)
                                     .child(
                                         v_flex()
                                             .gap_1()
@@ -617,6 +660,7 @@ impl Render for TitleView {
                             .child(panel),
                     ),
             )
+            .into_any_element()
     }
 }
 
