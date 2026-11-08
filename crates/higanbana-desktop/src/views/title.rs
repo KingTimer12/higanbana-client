@@ -270,7 +270,7 @@ impl TitleView {
             dir,
             file,
             files,
-            mal_id: self.full().and_then(|d| d.id_mal),
+            mal_id: self.full().and_then(|d| d.summary.id_mal).and_then(|v| u32::try_from(v).ok()),
             is_anime: self.media_type == MediaType::Anime,
             anime_title: self.heading(cx),
         };
@@ -760,7 +760,7 @@ fn facts(d: &MediaDetail, cx: &gpui_kit::App) -> gpui_kit::Div {
             "Exibição",
             vec![
                 ("Situação", m.status.as_deref().map(|s| text::status(Some(s)))),
-                ("Temporada", d.season.as_deref().zip(m.season_year).map(|(s, y)| format!("{} de {y}", text::season(Some(s))))),
+                ("Temporada", d.summary.season.as_deref().zip(m.season_year).map(|(s, y)| format!("{} de {y}", text::season(Some(s))))),
                 ("Estreia", text::date(m.start_date)),
                 ("Fim", text::date(d.end_date)),
             ],
