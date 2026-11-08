@@ -74,7 +74,7 @@ pub fn classify_chapters(chapters: &[Chapter], duration: f64) -> SkipTimes {
     SkipTimes { op: find(&OP_WORDS), ed: find(&ED_WORDS) }
 }
 
-static SE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)S\d+E(\d+)").unwrap());
+static SE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)S(\d+)E(\d+)").unwrap());
 // ` - 06 [1080p]`: o número logo antes das tags vence títulos como "100 Years Quest".
 static DASH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s-\s(\d{1,4})(?:v\d)?\s*(?:\[|$)").unwrap());
 static LOOSE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)[_\s.]-?[_\s.]?(\d{1,4})[_\s.]*(?:\[|$)").unwrap());
@@ -83,7 +83,7 @@ static LOOSE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)[_\s.]-?[_\s.]
 pub fn episode_number(file_name: &str) -> Option<u32> {
     let base = strip_ext(file_name);
     if let Some(c) = SE.captures(base) {
-        return c[1].parse().ok();
+        return c[2].parse().ok();
     }
     if let Some(c) = DASH.captures(base) {
         return c[1].parse().ok();
@@ -93,6 +93,11 @@ pub fn episode_number(file_name: &str) -> Option<u32> {
             return Some(n.trunc() as u32);
         }
     LOOSE.captures(base).and_then(|c| c[1].parse().ok())
+}
+
+/// Temporada explícita no nome do arquivo (`S02E03` → 2); `None` sem o padrão `SxxEyy`.
+pub fn episode_season(file_name: &str) -> Option<u32> {
+    SE.captures(strip_ext(file_name)).and_then(|c| c[1].parse().ok())
 }
 
 pub fn is_video(f: &FileEntry) -> bool {
@@ -276,6 +281,12 @@ mod tests {
         ] {
             assert_eq!(episode_number(name), n, "{name}");
         }
+    }
+
+    #[test]
+    fn episode_seasons() {
+        assert_eq!(episode_season("[G] X S02E03 [1080p].mkv"), Some(2));
+        assert_eq!(episode_season("X - 03.mkv"), None);
     }
 
     fn file(name: &str, dir: bool) -> FileEntry {

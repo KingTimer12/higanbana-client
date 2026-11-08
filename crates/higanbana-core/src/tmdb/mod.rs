@@ -5,6 +5,7 @@
 
 pub mod client;
 pub mod credentials;
+pub mod matching;
 pub mod types;
 
 use thiserror::Error;
