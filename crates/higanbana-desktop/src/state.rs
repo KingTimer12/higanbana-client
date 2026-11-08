@@ -14,6 +14,9 @@ use higanbana_core::{
     auth::Session,
     nuvem::download::DownloadProgress,
     player::store::PlayerData,
+    ratings::{self, RatingSource},
+    settings::EpisodeLayout,
+    tmdb::{WorkEpisodes, matching::WorkQuery},
 };
 
 use crate::video::PlayTarget;
@@ -123,6 +126,8 @@ pub struct AppState {
     /// Nomes adiados (`Pending`): tentativas seguidas sem progresso.
     lookup_retries: HashMap<(MediaType, String), u32>,
     catalog: HashMap<i64, Option<Option<String>>>,
+    /// Episódios do TMDB por obra (`tmdb::work_key`): `None` = buscando; `Some(None)` = sem dados.
+    episodes: HashMap<String, Option<Option<Arc<WorkEpisodes>>>>,
     pub downloads: Vec<Download>,
     next_download: u64,
     pub player_data: PlayerData,
@@ -162,6 +167,7 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             lookup_due: None,
             lookup_retries: HashMap::new(),
             catalog: HashMap::new(),
+            episodes: HashMap::new(),
             downloads: Vec::new(),
             next_download: 1,
             player_data,
@@ -570,6 +576,54 @@ impl AppState {
             });
         })
         .detach();
+    }
+
+    // --- Episódios (TMDB) e preferências de exibição ---
+
+    /// `None` = buscando ou não pedido; `Some(None)` = sem TMDB para a obra.
+    pub fn episodes(&self, key: &str) -> Option<Option<Arc<WorkEpisodes>>> {
+        self.episodes.get(key).cloned().flatten()
+    }
+
+    /// Pede os episódios da obra uma vez por chave. Falha ou TMDB sem token
+    /// → `Some(None)` até o fim da sessão (sem repetir).
+    pub fn want_episodes(&mut self, key: String, q: WorkQuery, cx: &mut Context<Self>) {
+        if self.episodes.contains_key(&key) {
+            return;
+        }
+        if !self.core.tmdb().configured() {
+            self.episodes.insert(key, Some(None));
+            cx.notify();
+            return;
+        }
+        self.episodes.insert(key.clone(), None);
+        let core = self.core.clone();
+        let task = self.core.spawn(async move { core.tmdb().work_episodes(&q).await });
+        cx.spawn(async move |this, cx| {
+            let found = task.await.ok().and_then(Result::ok).flatten().map(Arc::new);
+            let _ = this.update(cx, |s, cx| {
+                s.episodes.insert(key, Some(found));
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    // Lidos pela lista de episódios (próxima etapa); até lá ficam sem uso.
+    #[allow(dead_code)]
+    pub fn episode_layout(&self) -> EpisodeLayout {
+        self.core.settings().episode_layout()
+    }
+
+    #[allow(dead_code)]
+    pub fn set_episode_layout(&mut self, layout: EpisodeLayout, cx: &mut Context<Self>) {
+        self.core.settings().set_episode_layout(layout);
+        cx.notify();
+    }
+
+    /// Fonte das notas escolhida nas preferências.
+    pub fn rating_source(&self) -> &'static dyn RatingSource {
+        ratings::source(self.core.settings().rating_provider())
     }
 
     // --- Avisos ---
