@@ -16,6 +16,8 @@ const BASE: &str = "https://api.themoviedb.org/3";
 const MIN_INTERVAL: Duration = Duration::from_millis(100);
 const MAX_ATTEMPTS: usize = 3;
 const DEFAULT_RETRY: Duration = Duration::from_secs(10);
+/// Teto da espera do `429`: um `Retry-After` enorme não segura a fila por minutos.
+const MAX_RETRY: Duration = Duration::from_secs(30);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const TOTAL_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -116,11 +118,12 @@ impl TmdbClient {
     }
 }
 
-/// Espera do `429`: segundos do `Retry-After` + 1 s; ausente ou data HTTP → 10 s.
+/// Espera do `429`: segundos do `Retry-After` + 1 s, no máximo 30 s; ausente ou
+/// data HTTP → 10 s.
 fn retry_after(header: Option<&str>) -> Duration {
     header
         .and_then(|h| h.trim().parse::<u64>().ok())
-        .map(|s| Duration::from_secs(s.saturating_add(1)))
+        .map(|s| Duration::from_secs(s.saturating_add(1)).min(MAX_RETRY))
         .unwrap_or(DEFAULT_RETRY)
 }
 
@@ -144,6 +147,14 @@ mod tests {
     fn retry_after_number_adds_one_second() {
         assert_eq!(retry_after(Some("3")), Duration::from_secs(4));
         assert_eq!(retry_after(Some(" 0 ")), Duration::from_secs(1));
+    }
+
+    #[test]
+    fn retry_after_is_capped_at_thirty_seconds() {
+        assert_eq!(retry_after(Some("29")), Duration::from_secs(30));
+        assert_eq!(retry_after(Some("30")), Duration::from_secs(30));
+        assert_eq!(retry_after(Some("3600")), Duration::from_secs(30));
+        assert_eq!(retry_after(Some("18446744073709551615")), Duration::from_secs(30));
     }
 
     #[test]
