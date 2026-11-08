@@ -21,6 +21,7 @@ pub mod paths;
 pub mod player;
 pub mod prefs;
 pub mod reader;
+pub mod tmdb;
 
 pub use cloud::Cloud;
 pub use core::Core;

@@ -4,6 +4,8 @@ const KEY_VAR: &str = "ANITSU_SUPABASE_ANON_KEY";
 
 fn main() {
     embed_anon_key();
+    embed_optional("TMDB_TOKEN", "TMDB_TOKEN_MASKED", "TMDB_TOKEN_MASK");
+    embed_optional("TMDB_KEY", "TMDB_KEY_MASKED", "TMDB_KEY_MASK");
 }
 
 /// Lê a chave anon da Anitsu de `ANITSU_SUPABASE_ANON_KEY` (variável de ambiente
@@ -15,7 +17,7 @@ fn embed_anon_key() {
 
     let key = std::env::var(KEY_VAR)
         .ok()
-        .or_else(|| read_dotenv("../../.env"))
+        .or_else(|| read_dotenv("../../.env", KEY_VAR))
         .map(|k| k.trim().to_owned())
         .filter(|k| !k.is_empty())
         .unwrap_or_else(|| {
@@ -32,10 +34,28 @@ fn embed_anon_key() {
     println!("cargo:rustc-env=ANITSU_ANON_KEY_MASK={}", hex(&mask));
 }
 
-fn read_dotenv(path: &str) -> Option<String> {
+/// Como `embed_anon_key`, mas opcional: sem a variável (nem `.env`), emite as duas
+/// `rustc-env` vazias e o build segue (o recurso fica desligado em tempo de execução).
+fn embed_optional(var: &str, masked_env: &str, mask_env: &str) {
+    println!("cargo:rerun-if-env-changed={var}");
+
+    let value = std::env::var(var)
+        .ok()
+        .or_else(|| read_dotenv("../../.env", var))
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_default();
+
+    let mask = random_bytes(value.len());
+    let masked: Vec<u8> = value.bytes().zip(&mask).map(|(b, m)| b ^ m).collect();
+    println!("cargo:rustc-env={masked_env}={}", hex(&masked));
+    println!("cargo:rustc-env={mask_env}={}", hex(&mask));
+}
+
+fn read_dotenv(path: &str, var: &str) -> Option<String> {
     std::fs::read_to_string(path).ok()?.lines().find_map(|line| {
         let (k, v) = line.trim().split_once('=')?;
-        (k.trim() == KEY_VAR).then(|| v.trim().trim_matches('"').to_owned())
+        (k.trim() == var).then(|| v.trim().trim_matches('"').to_owned())
     })
 }
 
