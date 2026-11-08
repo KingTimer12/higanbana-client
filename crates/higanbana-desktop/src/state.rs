@@ -112,8 +112,12 @@ pub struct AppState {
     lookup_task: Option<Task<()>>,
     /// Lotes enviados ao AniList ainda sem resposta.
     lookups_inflight: usize,
-    /// Um lote falhou: nada sai até aqui.
+    /// Um lote da tela falhou: nada sai até aqui.
     lookups_cooldown_until: Option<Instant>,
+    /// Um lote do rastreio falhou: só a faixa dele espera até aqui.
+    background_cooldown_until: Option<Instant>,
+    /// Quando sai a próxima saída agendada (`lookup_task`).
+    lookup_due: Option<Instant>,
     catalog: HashMap<i64, Option<Option<String>>>,
     pub downloads: Vec<Download>,
     next_download: u64,
@@ -150,6 +154,8 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             lookup_task: None,
             lookups_inflight: 0,
             lookups_cooldown_until: None,
+            background_cooldown_until: None,
+            lookup_due: None,
             catalog: HashMap::new(),
             downloads: Vec::new(),
             next_download: 1,
@@ -192,6 +198,22 @@ pub(crate) fn next_lane(interactive: usize, background: usize) -> Option<(Priori
 /// Fim da pausa depois de um lote que falhou: a nossa espera mínima ou a pedida pelo AniList, a mais longa.
 pub(crate) fn cooldown_end(now: Instant, anilist_paused: Option<Instant>) -> Instant {
     (now + LOOKUP_COOLDOWN).max(anilist_paused.unwrap_or(now))
+}
+
+/// Até quando uma faixa espera: a pausa de falha da tela (`global`) e o 429 do cliente
+/// valem para as duas; a de falha do rastreio (`background`) só para a dele.
+pub(crate) fn lane_paused_until(
+    priority: Priority,
+    now: Instant,
+    global: Option<Instant>,
+    background: Option<Instant>,
+    client: Option<Instant>,
+) -> Option<Instant> {
+    let own = match priority {
+        Priority::Interactive => None,
+        Priority::Background => background,
+    };
+    [global, own, client].into_iter().flatten().filter(|t| *t > now).max()
 }
 
 impl AppState {
@@ -336,11 +358,16 @@ impl AppState {
         self.lookups.get(&(media, name.to_owned())).and_then(Option::as_ref).map(Option::as_ref)
     }
 
-    /// Até quando as buscas no AniList estão paradas: pausa nossa depois de um lote
-    /// que falhou ou pausa pedida ao cliente pelo AniList (429).
+    /// Até quando a faixa espera (falha de lote ou 429 pedido ao cliente).
+    fn lane_paused(&self, priority: Priority) -> Option<Instant> {
+        let client = self.core.anilist().paused_until();
+        lane_paused_until(priority, Instant::now(), self.lookups_cooldown_until, self.background_cooldown_until, client)
+    }
+
+    /// Até quando o rastreio está parado por pausa: depois de um lote que falhou
+    /// ou pausa pedida ao cliente pelo AniList (429). A da tela também conta.
     pub(crate) fn anilist_paused_until(&self) -> Option<Instant> {
-        let now = Instant::now();
-        self.lookups_cooldown_until.filter(|t| *t > now).max(self.core.anilist().paused_until())
+        self.lane_paused(Priority::Background)
     }
 
     /// Há buscas na fila, prestes a sair, esperando resposta ou em pausa (o rastreio espera).
@@ -385,21 +412,26 @@ impl AppState {
         }
     }
 
-    /// Agenda a próxima saída da fila, se ainda não houver uma agendada.
+    /// Agenda a próxima saída da fila; uma já agendada só é trocada se esta sair antes
+    /// (um card visível não espera a pausa do rastreio).
     fn schedule_flush(&mut self, after: Duration, cx: &mut Context<Self>) {
-        if self.lookup_task.is_none() {
-            self.lookup_task = Some(cx.spawn(async move |this, cx| {
-                cx.background_executor().timer(after).await;
-                let _ = this.update(cx, |s, cx| s.flush_lookups(cx));
-            }));
+        let due = Instant::now() + after;
+        if self.lookup_task.is_some() && self.lookup_due.is_some_and(|d| d <= due) {
+            return;
         }
+        self.lookup_due = Some(due);
+        self.lookup_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(after).await;
+            let _ = this.update(cx, |s, cx| s.flush_lookups(cx));
+        }));
     }
 
     fn flush_lookups(&mut self, cx: &mut Context<Self>) {
         self.lookup_task = None;
+        self.lookup_due = None;
         let Some((priority, n)) = next_lane(self.lookup_queue.len(), self.lookup_background.len()) else { return };
-        // Em pausa: nada sai; a fila espera o fim dela.
-        if let Some(until) = self.anilist_paused_until() {
+        // Faixa em pausa: nada sai; a fila espera o fim dela.
+        if let Some(until) = self.lane_paused(priority) {
             self.schedule_flush(until.saturating_duration_since(Instant::now()), cx);
             return;
         }
@@ -450,10 +482,15 @@ impl AppState {
                         }
                         s.crawl_lookups_done(&answered, false);
                     }
-                    // Falha de rede/limite: libera os nomes e pausa a fila (sem isso os cards
-                    // visíveis pediriam de novo no quadro seguinte). O rastreio pede de novo os dele.
+                    // Falha de rede/limite: libera os nomes e pausa a faixa (sem isso os cards
+                    // visíveis pediriam de novo no quadro seguinte). Falha do rastreio só pausa
+                    // o rastreio; falha da tela pausa as duas. O rastreio pede de novo os dele.
                     None => {
-                        s.lookups_cooldown_until = Some(cooldown_end(Instant::now(), s.core.anilist().paused_until()));
+                        let end = Some(cooldown_end(Instant::now(), s.core.anilist().paused_until()));
+                        match priority {
+                            Priority::Interactive => s.lookups_cooldown_until = end,
+                            Priority::Background => s.background_cooldown_until = end,
+                        }
                         let failed: Vec<String> = batch.iter().filter_map(anime).collect();
                         for key in batch {
                             s.lookups.remove(&key);
@@ -625,6 +662,23 @@ mod tests {
         // O rastreio só sai com a faixa da pessoa vazia, um lote de uma requisição.
         assert_eq!(next_lane(0, 7), Some((Priority::Background, 7)));
         assert_eq!(next_lane(0, 100), Some((Priority::Background, 18)));
+    }
+
+    #[test]
+    fn crawl_failure_pauses_only_its_lane() {
+        let now = Instant::now();
+        let (i, b) = (Priority::Interactive, Priority::Background);
+        let later = |s| Some(now + Duration::from_secs(s));
+        assert_eq!(lane_paused_until(i, now, None, None, None), None);
+        // Lote do rastreio falhou: os cards da tela seguem; o rastreio espera.
+        assert_eq!(lane_paused_until(i, now, None, later(30), None), None);
+        assert_eq!(lane_paused_until(b, now, None, later(30), None), later(30));
+        // Lote da tela falhou: as duas faixas esperam.
+        assert_eq!(lane_paused_until(i, now, later(30), None, None), later(30));
+        assert_eq!(lane_paused_until(b, now, later(30), later(10), None), later(30));
+        // 429 no cliente vale para todos; pausa vencida não conta.
+        assert_eq!(lane_paused_until(i, now, Some(now - Duration::from_secs(1)), None, later(12)), later(12));
+        assert_eq!(lane_paused_until(b, now, None, Some(now), None), None);
     }
 
     #[test]
