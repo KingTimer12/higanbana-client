@@ -125,17 +125,19 @@ pub fn episode_list(
     let tmdb = eps.flatten();
 
     let s = state(cx);
-    let texts: Vec<(String, String)> = videos.iter().map(|f| card_text(f, tmdb.and_then(|w| w.link(&f.name)))).collect();
+    // Cada arquivo ligado uma vez, com a numeração decidida para a pasta inteira.
+    let names: Vec<&str> = videos.iter().map(|f| f.name.as_str()).collect();
+    let links: Vec<Option<&EpisodeView>> = tmdb.map_or_else(|| vec![None; names.len()], |w| w.links(&names));
+    let texts: Vec<(String, String)> = videos.iter().zip(&links).map(|(f, ep)| card_text(f, *ep)).collect();
     let notes = disambiguators(&texts.iter().zip(&videos).map(|((l, _), f)| (l.clone(), f.name.clone())).collect::<Vec<_>>());
     let items: Vec<Item> = {
         let st = s.read(cx);
         let ratings = st.rating_source();
         videos
             .into_iter()
-            .zip(texts.into_iter().zip(notes))
-            .map(|(f, ((label, title), note))| {
+            .zip(links.iter().zip(texts.into_iter().zip(notes)))
+            .map(|(f, (&ep, ((label, title), note)))| {
                 let path = join_path(dir, &f.name);
-                let ep = tmdb.and_then(|w| w.link(&f.name));
                 let ext = f.extension.clone().unwrap_or_default();
                 let p = st.player_data.progress.get(&path);
                 let minutes = ep.and_then(|e| e.runtime).filter(|&m| m > 0).or_else(|| {

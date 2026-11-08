@@ -158,20 +158,37 @@ pub fn pick_anchor(show: &TvShow, seasons: &[(u32, Vec<Episode>)], q: &WorkQuery
     }
 }
 
+/// A pasta segue a numeração da própria temporada? Só com âncora numa temporada
+/// regular e deslocamento > 0: sim quando o menor número entre os arquivos da
+/// pasta passa do deslocamento (ex. 13–25 numa obra que começa no 13); senão a
+/// pasta é relativa à obra (1, 2, … → 13, 14, …). Decidido uma vez por pasta,
+/// nunca arquivo a arquivo: numa temporada de 25 com a obra a partir do 13, o
+/// arquivo "13" é o ep. 13 numa pasta 13–25 e o ep. 25 numa pasta 1–13.
+pub fn season_numbered(anchor: Anchor, numbers: impl IntoIterator<Item = u32>) -> bool {
+    anchor.season > 0
+        && anchor.offset > 0
+        && numbers.into_iter().filter(|&n| n > 0).min().is_some_and(|min| min > anchor.offset)
+}
+
 /// Arquivo de número `number` → `(temporada, episódio)` no TMDB. Regras, em ordem:
 /// 1. temporada explícita no nome (`S02E03`) diferente da âncora e que existe no
 ///    TMDB vence; se o número não cabe nela, não liga (dúvida). Igual à âncora
 ///    (`S01E01` numa obra que começa no ep. 13 da S1) segue as regras abaixo. Com
 ///    âncora na temporada 0, só `S00` vale aqui;
-/// 2. `offset + number <= total` → `(âncora, offset + number)`;
-/// 3. temporada regular com deslocamento, `offset + number > total` e
-///    `number <= total`: arquivos numerados pela própria temporada (ex. 13–24
-///    numa obra que começa no 13) → `(âncora, number)`. Disjunta da regra 2;
+/// 2. pasta numerada pela temporada (`season_numbered`, decidido para a pasta
+///    inteira) → `(âncora, number)` se couber na temporada;
+/// 3. senão, `offset + number <= total` → `(âncora, offset + number)`;
 /// 4. só com `offset == 0` numa temporada regular: numeração absoluta, somando os
 ///    totais das temporadas regulares a partir da 1 (caso One Piece), nunca
 ///    caindo numa temporada anterior à da âncora;
 /// 5. nada disso → `None`.
-pub fn map_file(anchor: Anchor, show: &TvShow, file_season: Option<u32>, number: u32) -> Option<(u32, u32)> {
+pub fn map_file(
+    anchor: Anchor,
+    show: &TvShow,
+    file_season: Option<u32>,
+    number: u32,
+    season_numbered: bool,
+) -> Option<(u32, u32)> {
     if number == 0 {
         return None;
     }
@@ -183,13 +200,13 @@ pub fn map_file(anchor: Anchor, show: &TvShow, file_season: Option<u32>, number:
             return (number <= total).then_some((season, number));
         }
     let total = count(anchor.season)?;
+    if season_numbered && anchor.season > 0 && anchor.offset > 0 {
+        return (number <= total).then_some((anchor.season, number));
+    }
     if let Some(ep) = anchor.offset.checked_add(number)
         && ep <= total {
             return Some((anchor.season, ep));
         }
-    if anchor.season > 0 && anchor.offset > 0 && number <= total {
-        return Some((anchor.season, number));
-    }
     if anchor.offset != 0 || anchor.season == 0 {
         return None;
     }
@@ -330,10 +347,10 @@ mod tests {
         let q = query(&["X"], Some(2022), Some("2022-10-01"), WorkKind::Series);
         let a = pick_anchor(&s, &eps, &q).unwrap();
         assert_eq!(a, Anchor { season: 1, offset: 12 });
-        assert_eq!(map_file(a, &s, None, 1), Some((1, 13)));
-        assert_eq!(map_file(a, &s, None, 13), Some((1, 13)));
-        assert_eq!(map_file(a, &s, None, 25), None);
-        assert_eq!(map_file(a, &s, None, 0), None);
+        assert_eq!(map_file(a, &s, None, 1, false), Some((1, 13)));
+        assert_eq!(map_file(a, &s, None, 13, true), Some((1, 13)));
+        assert_eq!(map_file(a, &s, None, 25, false), None);
+        assert_eq!(map_file(a, &s, None, 0, false), None);
     }
 
     #[test]
@@ -353,20 +370,20 @@ mod tests {
     fn absolute_numbering() {
         let s = show(&[(0, 5), (1, 61), (2, 16), (3, 14)]);
         let a = Anchor { season: 1, offset: 0 };
-        assert_eq!(map_file(a, &s, None, 5), Some((1, 5)));
-        assert_eq!(map_file(a, &s, None, 70), Some((2, 9)));
-        assert_eq!(map_file(a, &s, None, 91), Some((3, 14)));
-        assert_eq!(map_file(a, &s, None, 92), None);
+        assert_eq!(map_file(a, &s, None, 5, false), Some((1, 5)));
+        assert_eq!(map_file(a, &s, None, 70, false), Some((2, 9)));
+        assert_eq!(map_file(a, &s, None, 91, false), Some((3, 14)));
+        assert_eq!(map_file(a, &s, None, 92, false), None);
     }
 
     #[test]
     fn explicit_season_wins() {
         let s = show(&[(1, 61), (2, 16)]);
         let a = Anchor { season: 1, offset: 0 };
-        assert_eq!(map_file(a, &s, Some(2), 3), Some((2, 3)));
-        assert_eq!(map_file(a, &s, Some(9), 3), Some((1, 3)));
+        assert_eq!(map_file(a, &s, Some(2), 3, false), Some((2, 3)));
+        assert_eq!(map_file(a, &s, Some(9), 3, false), Some((1, 3)));
         // Temporada explícita existe mas o número não cabe: dúvida, não liga.
-        assert_eq!(map_file(a, &s, Some(2), 20), None);
+        assert_eq!(map_file(a, &s, Some(2), 20, false), None);
     }
 
     #[test]
@@ -379,9 +396,9 @@ mod tests {
         let q = query(&["X"], Some(2015), Some("2015-03-03"), WorkKind::Special);
         let a = pick_anchor(&s, &eps, &q).unwrap();
         assert_eq!(a, Anchor { season: 0, offset: 4 });
-        assert_eq!(map_file(a, &s, None, 1), Some((0, 5)));
-        assert_eq!(map_file(a, &s, None, 2), Some((0, 6)));
-        assert_eq!(map_file(a, &s, None, 3), None);
+        assert_eq!(map_file(a, &s, None, 1, false), Some((0, 5)));
+        assert_eq!(map_file(a, &s, None, 2, false), Some((0, 6)));
+        assert_eq!(map_file(a, &s, None, 3, false), None);
         let q = query(&["X"], Some(2018), Some("2018-03-03"), WorkKind::Special);
         assert_eq!(pick_anchor(&s, &eps, &q), None);
         let q = query(&["X"], Some(2015), None, WorkKind::Special);
@@ -449,13 +466,13 @@ mod tests {
     fn season_numbering_rule_is_disjoint() {
         let special = show(&[(0, 30), (1, 12)]);
         let a = Anchor { season: 0, offset: 10 };
-        assert_eq!(map_file(a, &special, None, 1), Some((0, 11)));
-        assert_eq!(map_file(a, &special, None, 2), Some((0, 12)));
-        assert_eq!(map_file(a, &special, None, 11), Some((0, 21)));
+        assert_eq!(map_file(a, &special, None, 1, false), Some((0, 11)));
+        assert_eq!(map_file(a, &special, None, 2, false), Some((0, 12)));
+        assert_eq!(map_file(a, &special, None, 11, false), Some((0, 21)));
         let s = show(&[(1, 24)]);
         let a = Anchor { season: 1, offset: 5 };
-        assert_eq!(map_file(a, &s, None, 6), Some((1, 11)));
-        assert_eq!(map_file(a, &s, None, 20), Some((1, 20)));
+        assert_eq!(map_file(a, &s, None, 6, false), Some((1, 11)));
+        assert_eq!(map_file(a, &s, None, 20, true), Some((1, 20)));
     }
 
     #[test]
@@ -473,18 +490,47 @@ mod tests {
     fn absolute_never_goes_before_anchor() {
         let s = show(&[(1, 61), (2, 16), (3, 14)]);
         let a = Anchor { season: 3, offset: 0 };
-        assert_eq!(map_file(a, &s, None, 15), None);
+        assert_eq!(map_file(a, &s, None, 15, false), None);
     }
 
     #[test]
     fn explicit_season_only_when_different() {
         let s = show(&[(0, 10), (1, 24), (2, 12)]);
         let a = Anchor { season: 1, offset: 12 };
-        assert_eq!(map_file(a, &s, Some(1), 1), Some((1, 13)));
-        assert_eq!(map_file(a, &s, Some(2), 1), Some((2, 1)));
+        assert_eq!(map_file(a, &s, Some(1), 1, false), Some((1, 13)));
+        assert_eq!(map_file(a, &s, Some(2), 1, false), Some((2, 1)));
         let a = Anchor { season: 0, offset: 4 };
-        assert_eq!(map_file(a, &s, Some(1), 2), Some((0, 6)));
-        assert_eq!(map_file(a, &s, Some(1), 7), None);
+        assert_eq!(map_file(a, &s, Some(1), 2, false), Some((0, 6)));
+        assert_eq!(map_file(a, &s, Some(1), 7, false), None);
+    }
+
+    /// Liga uma pasta inteira: o modo de numeração é decidido uma vez para ela.
+    fn map_folder(a: Anchor, s: &TvShow, files: impl IntoIterator<Item = u32> + Clone) -> Vec<Option<u32>> {
+        let mode = season_numbered(a, files.clone());
+        files.into_iter().map(|n| map_file(a, s, None, n, mode).map(|(_, e)| e)).collect()
+    }
+
+    #[test]
+    fn folder_numbering_decided_once() {
+        // Temporada de 25 exibida 12 + 13; a Parte 2 começa no ep. 13.
+        let s = show(&[(1, 25)]);
+        let a = Anchor { season: 1, offset: 12 };
+        let all: Vec<Option<u32>> = (13..=25).map(Some).collect();
+        assert_eq!(map_folder(a, &s, 13..=25), all);
+        assert_eq!(map_folder(a, &s, 1..=13), all);
+        // Pasta mista (1 e 13): relativa.
+        assert!(!season_numbered(a, [1, 13]));
+        assert_eq!(map_folder(a, &s, [1, 13]), vec![Some(13), Some(25)]);
+        // Temporada de 24: os dois jeitos continuam ligando 13–24.
+        let s = show(&[(1, 24)]);
+        let all: Vec<Option<u32>> = (13..=24).map(Some).collect();
+        assert_eq!(map_folder(a, &s, 13..=24), all);
+        assert_eq!(map_folder(a, &s, 1..=12), all);
+        assert_eq!(map_folder(a, &s, 13..=25).last(), Some(&None));
+        // Sem deslocamento ou na temporada 0: nunca numerada pela temporada.
+        assert!(!season_numbered(Anchor { season: 1, offset: 0 }, [5, 6]));
+        assert!(!season_numbered(Anchor { season: 0, offset: 4 }, [9]));
+        assert!(!season_numbered(a, []));
     }
 
     #[test]

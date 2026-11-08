@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 use super::{
     TmdbError, TmdbResult,
     client::TmdbClient,
-    matching::{Anchor, WorkKind, WorkQuery, map_file, pick_anchor, pick_overview, pick_show, pick_text},
+    matching::{
+        Anchor, WorkKind, WorkQuery, map_file, pick_anchor, pick_overview, pick_show, pick_text, season_numbered,
+    },
     types::{Episode, TvShow},
 };
 use crate::{
@@ -44,11 +46,24 @@ pub struct WorkEpisodes {
 }
 
 impl WorkEpisodes {
-    /// Episódio do TMDB que corresponde ao arquivo (número, temporada explícita e âncora).
-    pub fn link(&self, file_name: &str) -> Option<&EpisodeView> {
-        let number = episode_number(file_name)?;
-        let (season, n) = map_file(self.anchor, &self.show, episode_season(file_name), number)?;
-        self.episodes.iter().find(|e| e.season == season && e.number == n)
+    /// Episódio do TMDB de cada arquivo de uma pasta, na mesma ordem. A pasta decide
+    /// uma vez se segue a numeração da temporada (`season_numbered`), contando só os
+    /// arquivos sem temporada no nome ou com a temporada da âncora.
+    pub fn links(&self, file_names: &[&str]) -> Vec<Option<&EpisodeView>> {
+        let parsed: Vec<(Option<u32>, Option<u32>)> =
+            file_names.iter().map(|f| (episode_season(f), episode_number(f))).collect();
+        let anchor = self.anchor;
+        let mode = season_numbered(
+            anchor,
+            parsed.iter().filter(|(s, _)| s.is_none_or(|s| s == anchor.season)).filter_map(|&(_, n)| n),
+        );
+        parsed
+            .into_iter()
+            .map(|(season, number)| {
+                let (season, n) = map_file(anchor, &self.show, season, number?, mode)?;
+                self.episodes.iter().find(|e| e.season == season && e.number == n)
+            })
+            .collect()
     }
 }
 
@@ -236,8 +251,36 @@ mod tests {
             show,
             episodes: (13..=24).map(|n| view(1, n)).collect(),
         };
-        assert_eq!(w.link("[G] X - 01 [1080p].mkv").map(|e| e.number), Some(13));
-        assert!(w.link("ncop.mkv").is_none());
+        let first = |names: &[&str]| w.links(names)[0].map(|e| e.number);
+        assert_eq!(first(&["[G] X - 01 [1080p].mkv", "[G] X - 02 [1080p].mkv"]), Some(13));
+        assert_eq!(first(&["[G] X - 13 [1080p].mkv", "[G] X - 14 [1080p].mkv"]), Some(13));
+        let both: Vec<Option<u32>> = w.links(&["ncop.mkv", "[G] X - 02.mkv"]).iter().map(|e| e.map(|e| e.number)).collect();
+        assert_eq!(both, [None, Some(14)]);
+    }
+
+    #[test]
+    fn links_decide_numbering_per_folder() {
+        let show = TvShow {
+            id: 1,
+            name: "X".into(),
+            vote_average: 0.0,
+            vote_count: 0,
+            seasons: vec![SeasonInfo { season_number: 1, episode_count: 25, air_date: None }],
+        };
+        let w = WorkEpisodes {
+            show_id: 1,
+            show_vote: (0.0, 0),
+            anchor: Anchor { season: 1, offset: 12 },
+            show,
+            episodes: (1..=25).map(|n| view(1, n)).collect(),
+        };
+        let numbers = |names: Vec<String>| {
+            let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+            w.links(&refs).iter().map(|e| e.map(|e| e.number)).collect::<Vec<_>>()
+        };
+        let all: Vec<Option<u32>> = (13..=25).map(Some).collect();
+        assert_eq!(numbers((13..=25).map(|n| format!("X - {n:02}.mkv")).collect()), all);
+        assert_eq!(numbers((1..=13).map(|n| format!("X - {n:02}.mkv")).collect()), all);
     }
 
     #[test]
