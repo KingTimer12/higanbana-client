@@ -154,6 +154,11 @@ pub(crate) fn work_query(detail: &MediaSummary, folder_name: &str) -> Option<Wor
     Some(WorkQuery { titles, year: detail.year(), start, kind })
 }
 
+/// O detalhe `detail_id` é da obra aberta: foi o pedido por último e casa com o resumo atual.
+pub(crate) fn is_open_work(detail_id: i64, detail_for: Option<i64>, current: Option<i64>) -> bool {
+    detail_for == Some(detail_id) && current == Some(detail_id)
+}
+
 /// Rótulo do cartão de uma versão; a sintética de arquivos soltos tem nome fixo.
 fn label_of(folder: &str, work_title: &str) -> VersionLabel {
     if folder == LOOSE_FILES_VERSION {
@@ -350,6 +355,10 @@ impl TitleView {
         {
             self.season_for = Some(season);
             self.season_listing = None;
+            // Outra obra: nada do detalhe nem dos episódios da anterior fica.
+            self.detail = None;
+            self.detail_for = None;
+            self.episodes_key = None;
             self.refresh_work_dirs();
             load_listing(&self.state, self.season_path(), cx, |v: &mut Self, r, cx| {
                 v.season_listing = Some(r);
@@ -385,6 +394,10 @@ impl TitleView {
             cx.spawn(async move |this, cx| {
                 let d = task.await.ok().and_then(Result::ok).and_then(|v| serde_json::from_value::<MediaDetail>(v).ok());
                 let _ = this.update(cx, |v, cx| {
+                    // A obra pode ter mudado enquanto o detalhe vinha.
+                    if v.detail_for != Some(id) {
+                        return;
+                    }
                     v.detail = Some(d);
                     v.want_episodes(cx);
                     cx.notify();
@@ -400,8 +413,9 @@ impl TitleView {
         if self.media_type != MediaType::Anime {
             return;
         }
-        // Ao trocar de obra o detalhe antigo fica até o novo chegar: não misturar.
-        let Some(d) = self.full().filter(|d| self.detail_for == Some(d.summary.id)) else { return };
+        // Só o detalhe da obra aberta: nunca misturar com o da anterior.
+        let current = self.summary(cx).flatten().map(|m| m.id);
+        let Some(d) = self.full().filter(|d| is_open_work(d.summary.id, self.detail_for, current)) else { return };
         let Some(q) = work_query(&d.summary, &self.lookup_name()) else { return };
         let key = work_key(&q);
         if self.episodes_key.as_deref() == Some(key.as_str()) {
@@ -1067,6 +1081,17 @@ mod tests {
         assert_eq!(default_version(&versions, Some("sumiu"), "Smile Precure!"), Some(glitter.clone()));
         assert_eq!(default_version(&versions, None, "Smile Precure!"), Some(glitter));
         assert_eq!(default_version(&[], None, "Smile Precure!"), None);
+    }
+
+    #[test]
+    fn detail_of_previous_work_is_ignored() {
+        assert!(is_open_work(7, Some(7), Some(7)));
+        // Trocou de obra: o resumo novo ainda não chegou ou já é outro.
+        assert!(!is_open_work(7, Some(7), None));
+        assert!(!is_open_work(7, Some(7), Some(8)));
+        // O detalhe pedido agora é outro (ou foi zerado na troca).
+        assert!(!is_open_work(7, Some(8), Some(8)));
+        assert!(!is_open_work(7, None, Some(7)));
     }
 
     fn media(json: &str) -> MediaSummary {
