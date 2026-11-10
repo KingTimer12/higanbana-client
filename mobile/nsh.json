@@ -1,0 +1,12 @@
+{
+  "name": "Higanbana",
+  "id": "dev.kingtimer12.higanbana",
+  "version": "0.1.0",
+  "build": 1,
+  "rust": ".",
+  "appearance": "dark",
+  "theme": "theme.json",
+  "statusBar": {
+    "foreground": "light"
+  }
+}
