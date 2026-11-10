@@ -82,22 +82,30 @@ impl AuthManager {
     /// Login pelo navegador padrão (Discord já logado lá). Termina quando o
     /// navegador volta para o servidor loopback, ou com cancelamento/timeout.
     pub async fn login(&self) -> AuthResult<Session> {
-        let _login = self.login_lock.try_lock().map_err(|_| AuthError::InProgress)?;
+        self.login_with(browser_login::open_browser).await
+    }
 
+    /// Como [`AuthManager::login`], mas quem abre a página é `open` (no celular
+    /// a interface abre a URL pelo sistema; ver [`AuthManager::pending_login_url`]).
+    pub async fn login_with(&self, open: impl FnOnce(&str) -> AuthResult<()>) -> AuthResult<Session> {
+        let _login = self.login_lock.try_lock().map_err(|_| AuthError::InProgress)?;
         let (listener, pkce, url) = browser_login::start(&self.gotrue).await?;
         let (cancel_tx, cancel_rx) = oneshot::channel();
         *self.pending_login.lock().await = Some(PendingLogin { url: url.clone(), cancel: cancel_tx });
-
-        let result = match browser_login::open_browser(&url) {
+        let result = match open(&url) {
             Ok(()) => browser_login::finish(&self.events, &self.gotrue, listener, pkce, cancel_rx).await,
             Err(e) => Err(e),
         };
         self.pending_login.lock().await.take();
-
         let session = result?;
         let mut guard = self.session.lock().await;
         self.set_locked(&mut guard, Some(session.clone()))?;
         Ok(session)
+    }
+
+    /// URL de autorização do login em andamento; `None` fora de um login.
+    pub async fn pending_login_url(&self) -> Option<String> {
+        self.pending_login.lock().await.as_ref().map(|p| p.url.clone())
     }
 
     /// Abre de novo a página de login (ex.: a aba foi fechada sem querer).

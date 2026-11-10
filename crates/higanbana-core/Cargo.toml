@@ -23,14 +23,21 @@ bytes.workspace = true
 futures-util.workspace = true
 urlencoding.workspace = true
 flate2.workspace = true
-unrar.workspace = true
-symphonia.workspace = true
-rubato.workspace = true
-ebur128.workspace = true
-cpal.workspace = true
-souvlaki.workspace = true
+unrar = { workspace = true, optional = true }
+symphonia = { workspace = true, optional = true }
+rubato = { workspace = true, optional = true }
+ebur128 = { workspace = true, optional = true }
+cpal = { workspace = true, optional = true }
+souvlaki = { workspace = true, optional = true }
 dirs.workspace = true
 open.workspace = true
+
+[features]
+default = ["music", "reader"]
+# Motor de música (decodificação, saída de áudio, teclas de mídia). Só desktop.
+music = ["dep:symphonia", "dep:rubato", "dep:ebur128", "dep:cpal", "dep:souvlaki"]
+# Leitor de mangá (zip/rar).
+reader = ["dep:unrar"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

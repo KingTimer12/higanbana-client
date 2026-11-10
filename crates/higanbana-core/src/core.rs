@@ -4,9 +4,12 @@ use std::{future::Future, sync::Arc};
 
 use tokio::runtime::{Handle, Runtime};
 
+#[cfg(feature = "music")]
+use crate::music::Music;
+#[cfg(feature = "reader")]
+use crate::reader::Reader;
 use crate::{
-    anilist::AniList, tmdb::Tmdb, anime_index::AnimeIndex, auth::AuthManager, catalog::Catalog, cloud::Cloud, events::EventFn, music::Music, paths::Paths, player::Player, prefs::Prefs, settings::Settings,
-    reader::Reader,
+    anilist::AniList, tmdb::Tmdb, anime_index::AnimeIndex, auth::AuthManager, catalog::Catalog, cloud::Cloud, events::EventFn, paths::Paths, player::Player, prefs::Prefs, settings::Settings,
 };
 
 /// Tudo que a interface usa. Os métodos `async` rodam no runtime de [`Core::rt`]
@@ -21,8 +24,10 @@ pub struct Core {
     prefs: Prefs,
     settings: Settings,
     web: reqwest::Client,
+    #[cfg(feature = "reader")]
     reader: Reader,
     player: Player,
+    #[cfg(feature = "music")]
     music: Music,
 }
 
@@ -37,10 +42,29 @@ impl Core {
         let prefs = Prefs::open(paths.data.join("prefs.json"));
         let settings = Settings::open(paths.data.join("settings.json"));
         let web = reqwest::Client::builder().user_agent(concat!("higanbana-client/", env!("CARGO_PKG_VERSION"))).build()?;
+        #[cfg(feature = "reader")]
         let reader = Reader::new(cloud.clone());
         let player = rt.block_on(Player::start(cloud.clone()))?;
+        #[cfg(feature = "music")]
         let music = Music::start(rt.handle().clone(), cloud.clone(), events);
-        Ok(Self { rt, cloud, anilist, tmdb, catalog, anime_index, prefs, settings, web, reader, player, music })
+        #[cfg(not(feature = "music"))]
+        drop(events);
+        Ok(Self {
+            rt,
+            cloud,
+            anilist,
+            tmdb,
+            catalog,
+            anime_index,
+            prefs,
+            settings,
+            web,
+            #[cfg(feature = "reader")]
+            reader,
+            player,
+            #[cfg(feature = "music")]
+            music,
+        })
     }
 
     pub fn rt(&self) -> &Handle {
@@ -113,6 +137,7 @@ impl Core {
         self.catalog.check(&self.anime_index, &self.cloud, &self.anilist, m).await
     }
 
+    #[cfg(feature = "reader")]
     pub fn reader(&self) -> &Reader {
         &self.reader
     }
@@ -121,6 +146,7 @@ impl Core {
         &self.player
     }
 
+    #[cfg(feature = "music")]
     pub fn music(&self) -> &Music {
         &self.music
     }
