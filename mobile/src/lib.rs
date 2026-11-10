@@ -63,6 +63,21 @@ fn user_of(session: &Session) -> JsonValue {
     })
 }
 
+/// A pasta que o release recebe como `process.dataDir`: o NSH põe
+/// `nsh/<id do app>` dentro do `setStorageDirectory(getFilesDir())` do host.
+/// O pacote sai do nome do processo (no Android, o do pacote; aqui igual ao id
+/// do `nsh.json`). Fora do Android, `None`.
+fn android_files_dir() -> Option<String> {
+    if !cfg!(target_os = "android") {
+        return None;
+    }
+    let cmdline = std::fs::read("/proc/self/cmdline").ok()?;
+    let name = String::from_utf8_lossy(cmdline.split(|b| *b == 0).next()?).into_owned();
+    // Processos secundários se chamam `pacote:nome`; a pasta é a do pacote.
+    let package = name.split(':').next().filter(|p| !p.is_empty() && !p.contains('/'))?;
+    Some(format!("/data/user/0/{package}/files/nsh/{package}"))
+}
+
 /// Sessão do Anitsu (login pelo Discord).
 #[module]
 pub struct Account;
@@ -75,6 +90,10 @@ impl Account {
         if CORE.get().is_some() {
             return Ok(());
         }
+        // A sessão do `nsh dev` no Android não recebe a pasta do host
+        // (`setStorageDirectory` só vale para o bundle embutido): sem ela, a
+        // mesma pasta que o `getFilesDir()` dá, para dev e release dividirem a sessão.
+        let data_dir = data_dir.filter(|d| !d.is_empty()).or_else(android_files_dir);
         // Thread própria: o núcleo cria um runtime tokio e bloqueia nele ao subir o proxy.
         let core = std::thread::spawn(move || {
             let paths = match data_dir {

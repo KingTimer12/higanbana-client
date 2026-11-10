@@ -32,6 +32,9 @@ public final class MainActivity extends Activity {
         edgeToEdge();
         view = new NshView(this);
         view.setErrorListener(message -> Log.e(TAG, message));
+        // Vira o `process.dataDir` das telas: sem ele o núcleo procura a pasta de
+        // dados do sistema, que o Android não tem (sessão, cache e progresso ficam aqui).
+        view.setStorageDirectory(getFilesDir());
         // Um app inteiro, não um módulo embutido: chamadas ao núcleo podem demorar mais que o padrão.
         view.setLimits(0, 0, 30_000, 15_000, 0);
         // `adb shell am start ... --es hwdec no`: decodifica por software (emuladores cujo

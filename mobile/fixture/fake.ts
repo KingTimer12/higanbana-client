@@ -122,6 +122,20 @@ export function fakeBackend(options: { signedIn: boolean }): Backend {
 
     open: async (path) => work(path),
     episodes: async (path) => episodesOf(path),
+    // O primeiro episódio casa com o TMDB; os outros ficam com o rótulo do arquivo.
+    episodeInfo: async (_media, _folder, files) =>
+      files.map((_, i) =>
+        i === 0
+          ? {
+              title: "O fim da jornada",
+              overview: "O grupo do herói volta à capital depois de derrotar o Rei Demônio.",
+              still: "https://picsum.photos/seed/higanbana-still/300/169",
+              airDate: "2023-09-29",
+              runtime: 24,
+              vote: 8.7,
+            }
+          : null,
+      ),
     rememberVersion: () => {},
 
     streamUrl: () => SAMPLE_VIDEO,

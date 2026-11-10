@@ -1,9 +1,11 @@
 import { Image, List, resource, Scroll, signal, Text, View } from "nsh";
 import { Button, Menu, MenuItem, NavPage } from "nsh/base";
-import { Cover, EmptyState, IconButton, Loading, OutlineButton, SectionTitle, WatchBar } from "../components/ui";
+import { POSTER_COLUMNS, POSTER_GRID, POSTER_HEIGHT, SeasonPoster } from "../components/Poster";
+import { EpisodeFrame } from "../components/Episode";
+import { EmptyState, IconButton, SectionCard, SectionTitle, Skeleton } from "../components/ui";
 import { backend, type Media, type Resume, type User } from "../lib/backend";
-import { errorMessage, mediaCover, mediaTitle } from "../lib/format";
-import { nav, openingMedia, openMedia, sessionState, signOut } from "../store";
+import { errorMessage, seasonHeading } from "../lib/format";
+import { cloudPathOf, nav, sessionState, signOut } from "../store";
 
 const resume = signal<Resume[]>([]);
 
@@ -48,39 +50,59 @@ function ResumeCard(props: { item: Resume }) {
   const open = () =>
     nav.push({ name: "player", dir: props.item.dir, file: props.item.name, title: props.item.title, malId: null });
   return (
-    <Button
-      onPress={open}
-      accessibilityLabel={`Continuar ${props.item.title}, ${props.item.label}`}
-      class="w-56 gap-2 rounded-(--radius) bg-card p-3 active:bg-accent"
-    >
-      <Text class="text-base font-medium text-card-foreground" style={{ numberOfLines: 1 }}>
-        {props.item.title}
-      </Text>
-      <Text class="text-sm text-muted-foreground" style={{ numberOfLines: 1 }}>
-        {props.item.label}
-      </Text>
-      <WatchBar value={(props.item.position / Math.max(props.item.duration, 1)) * 100} />
+    <Button onPress={open} accessibilityLabel={`Continuar ${props.item.title}, ${props.item.label}`} class="group w-60 gap-2">
+      <EpisodeFrame seen={props.item.position / Math.max(props.item.duration, 1)} />
+      <View class="gap-0.5">
+        <Text class="text-sm font-semibold text-foreground" style={{ numberOfLines: 1 }}>
+          {props.item.title}
+        </Text>
+        <Text class="text-xs text-muted-foreground" style={{ numberOfLines: 1 }}>
+          {props.item.label}
+        </Text>
+      </View>
     </Button>
   );
 }
 
-function HomeHeader(props: { user: User | null; seasonState: string; seasonError: unknown; onRetry: () => void }) {
+/** `3 de 12 no acervo`, contando os que já se sabe; o resto ainda está sendo procurado. */
+function SeasonCount(props: { season: Media[] }) {
+  const known = () => props.season.map((m) => cloudPathOf(m.id)).filter((p) => p !== undefined);
+  const inLibrary = () => known().filter(Boolean).length;
   return (
-    <View class="gap-6 pb-4">
+    <If when={props.season.length > 0}>
+      <Text class="text-sm tabular-nums text-muted-foreground">
+        {known().length < props.season.length ? "Procurando… " : ""}
+        {inLibrary()} de {props.season.length} no acervo
+      </Text>
+    </If>
+  );
+}
+
+function HomeHeader(props: { user: User | null; season: Media[]; seasonState: string; seasonError: unknown; onRetry: () => void }) {
+  return (
+    <View class="gap-8 pb-4">
       <View class="flex-row items-center gap-1">
-        <View class="flex-1">
-          <Text class="text-sm text-muted-foreground">Olá, {props.user?.name ?? ""}</Text>
-          <Text role="header" class="text-2xl font-bold text-foreground">
-            Higanbana
+        <View class="flex-1 gap-1">
+          <Text role="header" class="text-2xl font-semibold text-foreground" style={{ numberOfLines: 1 }}>
+            {props.user ? `Olá, ${props.user.name}` : "Bem-vindo de volta"}
           </Text>
+          <Text class="text-sm text-muted-foreground">Busque um anime ou abra o catálogo.</Text>
         </View>
         <IconButton icon="search" label="Buscar" onPress={() => nav.push({ name: "search" })} />
         <If when={props.user}>{(user) => <AccountMenu user={user()} />}</If>
       </View>
 
+      <SectionCard
+        icon="tv"
+        label="Animes"
+        blurb="Catálogo de A a Z, por letra"
+        onPress={() => nav.push({ name: "catalog" })}
+        testID="section-animes"
+      />
+
       <If when={resume().length > 0}>
-        <View class="gap-3">
-          <SectionTitle>Continuar assistindo</SectionTitle>
+        <View>
+          <SectionTitle class="mb-4">Continuar assistindo</SectionTitle>
           <Scroll horizontal scrollbar={false} class="-mx-4" contentClass="flex-row gap-3 px-4">
             <Each of={resume()} key={(item) => item.path}>
               {(item) => <ResumeCard item={item()} />}
@@ -89,33 +111,29 @@ function HomeHeader(props: { user: User | null; seasonState: string; seasonError
         </View>
       </If>
 
-      <OutlineButton label="Catálogo A–Z" icon="grid" onPress={() => nav.push({ name: "catalog" })} />
-
-      <View class="gap-1">
-        <SectionTitle>Temporada</SectionTitle>
-        <Text class="text-sm text-muted-foreground">Animes em exibição agora</Text>
+      <View>
+        <SectionTitle aside={<SeasonCount season={props.season} />}>{seasonHeading()}</SectionTitle>
+        <If when={props.seasonState === "pending"}>
+          <View class="mt-4 flex-row gap-3">
+            <Each of={[0, 1, 2]}>{() => <Skeleton class="aspect-2/3 flex-1 rounded-(--radius-lg)" />}</Each>
+          </View>
+        </If>
+        <If when={props.seasonState === "errored"}>
+          <View class="h-48">
+            <EmptyState
+              title="Não foi possível carregar a temporada agora"
+              detail={errorMessage(props.seasonError)}
+              action="Tentar de novo"
+              onAction={props.onRetry}
+            />
+          </View>
+        </If>
       </View>
-
-      <If when={props.seasonState === "pending"}>
-        <View class="h-40">
-          <Loading label="Carregando a temporada" />
-        </View>
-      </If>
-      <If when={props.seasonState === "errored"}>
-        <View class="h-48">
-          <EmptyState
-            title="Não foi possível carregar a temporada"
-            detail={errorMessage(props.seasonError)}
-            action="Tentar de novo"
-            onAction={props.onRetry}
-          />
-        </View>
-      </If>
     </View>
   );
 }
 
-/** Início: o que continuar, a entrada do catálogo e os animes da temporada. */
+/** Início: saudação, a entrada do catálogo, o que continuar e os animes da temporada. */
 export function Home() {
   const season = resource(() => backend().season());
   refreshResume();
@@ -128,29 +146,25 @@ export function Home() {
   return (
     <NavPage title="Início" headerVisible={false}>
       <View class="flex-1 bg-background pt-[env(safe-area-inset-top)]">
-      <List<Media>
-        each={season() ?? []}
-        keyExtractor={(media) => String(media.id)}
-        numColumns={3}
-        estimatedItemSize={220}
-        class="flex-1"
-        contentClass="gap-3 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+16px)]"
-        header={<HomeHeader user={user()} seasonState={season.state()} seasonError={season.error()} onRetry={season.refetch} />}
-      >
-        {(media) => (
-          <Button
-            onPress={() => openMedia(media(), mediaTitle(media()))}
-            accessibilityLabel={mediaTitle(media())}
-            class="flex-1 gap-2 active:opacity-70"
-            classList={{ "opacity-50": openingMedia() === media().id }}
-          >
-            <Cover src={mediaCover(media())} title={mediaTitle(media())} />
-            <Text class="text-sm text-foreground" style={{ numberOfLines: 2 }}>
-              {mediaTitle(media())}
-            </Text>
-          </Button>
-        )}
-      </List>
+        <List<Media>
+          each={season() ?? []}
+          keyExtractor={(media) => String(media.id)}
+          numColumns={POSTER_COLUMNS}
+          estimatedItemSize={POSTER_HEIGHT}
+          class="flex-1"
+          contentClass={`${POSTER_GRID} px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+24px)]`}
+          header={
+            <HomeHeader
+              user={user()}
+              season={season() ?? []}
+              seasonState={season.state()}
+              seasonError={season.error()}
+              onRetry={season.refetch}
+            />
+          }
+        >
+          {(media) => <SeasonPoster media={media()} />}
+        </List>
       </View>
     </NavPage>
   );

@@ -7,6 +7,7 @@ import type {
   Backend,
   Chapter,
   Episode,
+  EpisodeInfo,
   Media,
   PlayerSettings,
   Resume,
@@ -22,6 +23,7 @@ import type {
 export function nativeBackend(): Backend {
   // No celular os dados ficam na pasta do app; no desktop, nas pastas do
   // sistema, as mesmas do app desktop (mesma sessão e progresso).
+  // `process.dataDir` é nulo na sessão do `nsh dev` no Android; aí o crate usa a pasta do app.
   Account.start(platform.desktop ? null : process.dataDir);
   return {
     user: () => Account.user() as Promise<User | null>,
@@ -40,6 +42,7 @@ export function nativeBackend(): Backend {
 
     open: (path) => Library.open(path) as Promise<Work>,
     episodes: (path) => Library.episodes(path) as Promise<Episode[]>,
+    episodeInfo: (media, folder, files) => Library.tmdbEpisodes(media.id, folder, files) as Promise<(EpisodeInfo | null)[]>,
     rememberVersion: (workPath, folder) => Library.rememberVersion(workPath, folder),
 
     streamUrl: (path, size) => Player.streamUrl(path, size),
