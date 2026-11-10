@@ -52,7 +52,7 @@ fn main() {
                 round_corners(h);
             }
             core.music().attach_media_keys(hwnd);
-            let surface = Rc::new(hwnd.and_then(video::Surface::new).expect("janela do vídeo"));
+            let surface = Rc::new(video_parent(window).and_then(video::Surface::new).expect("janela do vídeo"));
             let handle = window.window_handle();
             cx.new(|cx| app::AppView::new(core.clone(), surface, rx, handle, window, cx))
         })
@@ -67,6 +67,16 @@ fn hwnd(window: &Window) -> Option<usize> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     match HasWindowHandle::window_handle(window).ok()?.as_raw() {
         RawWindowHandle::Win32(h) => Some(h.hwnd.get() as usize),
+        _ => None,
+    }
+}
+
+/// Onde pendurar a superfície do vídeo: HWND no Windows, `NSView` do GPUI no macOS.
+fn video_parent(window: &Window) -> Option<usize> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    match HasWindowHandle::window_handle(window).ok()?.as_raw() {
+        RawWindowHandle::Win32(h) => Some(h.hwnd.get() as usize),
+        RawWindowHandle::AppKit(h) => Some(h.ns_view.as_ptr() as usize),
         _ => None,
     }
 }

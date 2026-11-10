@@ -90,14 +90,13 @@ enum Drag {
 }
 
 /// Opções fixas: nada da interface do próprio mpv, cache só em RAM.
-fn base_options(wid: usize, cache_mib: u32, decode_threads: u8) -> Vec<(&'static str, String)> {
-    vec![
+/// `surface` traz as opções de saída de vídeo da plataforma (`wid`/`vo`).
+fn base_options(surface: Vec<(&'static str, String)>, cache_mib: u32, decode_threads: u8) -> Vec<(&'static str, String)> {
+    let mut opts = surface;
+    opts.extend([
         ("vd-lavc-threads", decode_threads.to_string()),
-        ("wid", wid.to_string()),
-        ("vo", "gpu-next".into()),
         ("hwdec", "auto-safe".into()),
         ("keep-open", "yes".into()),
-        ("force-window", "yes".into()),
         ("osc", "no".into()),
         ("osd-level", "0".into()),
         ("input-default-bindings", "no".into()),
@@ -109,7 +108,8 @@ fn base_options(wid: usize, cache_mib: u32, decode_threads: u8) -> Vec<(&'static
         ("demuxer-max-bytes", format!("{cache_mib}MiB")),
         ("demuxer-max-back-bytes", "50MiB".into()),
         ("sub-auto", "no".into()),
-    ]
+    ]);
+    opts
 }
 
 const OBSERVED: [(&str, Observe); 11] = [
@@ -256,7 +256,8 @@ impl PlayerView {
             _events: None,
             _subs: subs,
         };
-        match Mpv::new(&base_options(this.surface.wid(), this.data.settings.cache_mib, this.data.settings.decode_threads), &OBSERVED) {
+        let opts = base_options(this.surface.mpv_options(), this.data.settings.cache_mib, this.data.settings.decode_threads);
+        match Mpv::new(&opts, &OBSERVED).and_then(|(mpv, rx)| this.surface.attach(&mpv).map(|()| (mpv, rx))) {
             Ok((mpv, mut rx)) => {
                 this.mpv = Some(mpv);
                 this._events = Some(cx.spawn_in(window, async move |this, cx| {
@@ -787,7 +788,11 @@ impl PlayerView {
 impl Drop for PlayerView {
     fn drop(&mut self) {
         self.record_progress(true);
-        // O mpv recebe `quit` ao ser descartado; a janela filha some já.
+        // O render (macOS) sai antes do núcleo; o mpv recebe `quit` ao ser
+        // descartado; a janela filha some já.
+        if let Some(mpv) = &self.mpv {
+            self.surface.detach(mpv);
+        }
         self.mpv = None;
         self.surface.hide();
     }
