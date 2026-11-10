@@ -54,6 +54,19 @@ export interface Episode {
   watched: boolean;
 }
 
+/** O que o TMDB sabe de um episódio (casado pelo arquivo, como no desktop). */
+export interface EpisodeInfo {
+  title: string;
+  overview: string;
+  /** URL da miniatura (still), se o TMDB tem. */
+  still: string | null;
+  airDate: string | null;
+  /** Minutos. */
+  runtime: number | null;
+  /** Nota de 0 a 10, só com votos. */
+  vote: number | null;
+}
+
 /** Uma pasta de obra aberta: franquia (`seasons`), releases (`versions`) ou arquivos soltos (`episodes`). */
 export interface Work {
   path: string;
@@ -131,6 +144,9 @@ export interface Backend {
 
   open(path: string): Promise<Work>;
   episodes(path: string): Promise<Episode[]>;
+  /** Título e miniatura do TMDB de cada arquivo, na ordem de `files` (`null` onde não casa).
+   * `media` é o detalhe do AniList; `folder`, o nome da pasta da obra (ou da temporada). */
+  episodeInfo(media: Media, folder: string, files: string[]): Promise<(EpisodeInfo | null)[]>;
   rememberVersion(workPath: string, folder: string): void;
 
   streamUrl(path: string, size: number): string;

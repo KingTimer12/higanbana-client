@@ -1,8 +1,9 @@
-import { computed, Image, List, resource, Scroll, signal, Text, View } from "nsh";
+import { computed, Image, List, resource, Scroll, signal, Text, token, View } from "nsh";
 import { Button, NavPage } from "nsh/base";
-import { Chip, Cover, EmptyState, Icon, Loading, PageHeader, PrimaryButton, SectionTitle, WatchBar } from "../components/ui";
-import { backend, type Episode, type Media, type Version, type Work } from "../lib/backend";
-import { baseName, errorMessage, formatTime, mediaCover, mediaFacts, mediaTitle, plainText } from "../lib/format";
+import { EPISODE_HEIGHT, EpisodeCard } from "../components/Episode";
+import { Chip, Cover, EmptyState, Loading, PageHeader, PrimaryButton, SectionTitle } from "../components/ui";
+import { backend, type Episode, type EpisodeInfo, type Media, type Version, type Work } from "../lib/backend";
+import { baseName, errorMessage, mediaCover, mediaFacts, mediaTitle, plainText } from "../lib/format";
 import { SYSTEM_HEADER } from "../components/ui";
 import { nav, watchedOf } from "../store";
 
@@ -25,42 +26,6 @@ function nextToWatch(episodes: Episode[]): Episode | undefined {
   return episodes.find((e) => !e.watched) ?? episodes[0];
 }
 
-function EpisodeRow(props: { episode: Episode; onPress: () => void }) {
-  const inProgress = () => !props.episode.watched && props.episode.position > 0 && props.episode.duration > 0;
-  const detail = () => {
-    if (props.episode.watched) return "Visto";
-    if (inProgress()) return `Faltam ${formatTime(props.episode.duration - props.episode.position)}`;
-    return props.episode.quality ?? "";
-  };
-  return (
-    <Button
-      onPress={props.onPress}
-      testID={`episode-${props.episode.name}`}
-      class="min-h-16 flex-row items-center gap-3 border-b border-border px-4 py-3 active:bg-accent"
-    >
-      <View class="size-11 items-center justify-center rounded-(--radius) bg-secondary">
-        <If when={props.episode.watched} else={<Text class="text-base font-semibold tabular-nums text-secondary-foreground">{props.episode.number ?? "•"}</Text>}>
-          <Icon name="check" class="size-5 tint-success" />
-        </If>
-      </View>
-      <View class="flex-1 gap-1">
-        <Text class="text-base text-foreground" classList={{ "text-muted-foreground": props.episode.watched }} style={{ numberOfLines: 2 }}>
-          {props.episode.number !== null ? `Episódio ${props.episode.number}` : props.episode.label}
-        </Text>
-        <If when={detail()}>
-          <Text class="text-sm text-muted-foreground" style={{ numberOfLines: 1 }}>
-            {detail()}
-          </Text>
-        </If>
-        <If when={inProgress()}>
-          <WatchBar value={(props.episode.position / props.episode.duration) * 100} class="mt-1" />
-        </If>
-      </View>
-      <Icon name="play" class="size-5 tint-faint" />
-    </Button>
-  );
-}
-
 /** A página de uma obra: capa e sinopse, temporadas, versões e episódios. */
 export function Title(props: { path: string; media: Media | null }) {
   const root = resource(() => backend().open(props.path));
@@ -68,7 +33,10 @@ export function Title(props: { path: string; media: Media | null }) {
   // Franquia: a temporada escolhida é outra pasta de obra, aberta do mesmo jeito.
   const seasonPath = signal<string | null>(null);
   const seasons = () => root()?.seasons ?? [];
-  const currentSeason = () => seasonPath() ?? seasons()[0]?.path ?? null;
+  // Sem escolha, a temporada do pôster tocado (pelo ano); senão a primeira.
+  const initialSeason = () =>
+    seasons().find((s) => props.media?.seasonYear && s.year === props.media.seasonYear) ?? seasons()[0];
+  const currentSeason = () => seasonPath() ?? initialSeason()?.path ?? null;
   const seasonWork = resource(currentSeason, (path) => backend().open(path));
   const work = (): Work | undefined => (seasons().length > 0 ? seasonWork() : root());
 
@@ -89,11 +57,16 @@ export function Title(props: { path: string; media: Media | null }) {
   const episodes = computed(() => (version() ? (releaseEpisodes() ?? []) : (work()?.episodes ?? [])).map(withProgress));
 
   // Metadados: o resumo que veio da temporada, ou o que casa com o nome da pasta.
+  // Numa franquia cada temporada casa com a própria entrada do AniList, como no
+  // desktop: o pôster tocado é de uma temporada só.
+  const seasonal = () => seasons().length > 0;
   const matched = resource(
-    () => (props.media ? undefined : work()?.path),
+    () => (props.media && !seasonal() ? undefined : work()?.path),
     async (path) => (await backend().lookup([baseName(path)]))[0] ?? null,
   );
-  const media = () => props.media ?? matched() ?? null;
+  const media = () => (seasonal() ? matched() : props.media) ?? props.media ?? matched() ?? null;
+  /** A mídia que é exatamente a pasta aberta (a do TMDB): na franquia, só a casada pela temporada. */
+  const folderMedia = () => (seasonal() ? matched() : media()) ?? null;
   const detail = resource(
     () => media()?.id,
     (id) => backend().media(id),
@@ -106,7 +79,35 @@ export function Title(props: { path: string; media: Media | null }) {
     const text = detail()?.description ?? media()?.description;
     return text ? plainText(text) : "";
   };
+  // TMDB: título e miniatura de cada arquivo, casados como no desktop (detalhe do
+  // AniList + nome da pasta). Chave em texto: o progresso muda `episodes()` sem
+  // mudar os arquivos, e isso não deve pedir de novo.
+  const tmdbKey = () => {
+    const d = detail();
+    const w = work();
+    const names = episodes().map((e) => e.name);
+    if (!d || d.id !== folderMedia()?.id) return undefined;
+    return w && names.length > 0 ? JSON.stringify([d.id, baseName(w.path), names]) : undefined;
+  };
+  const tmdb = resource(tmdbKey, async (key) => {
+    const [, folder, names] = JSON.parse(key) as [number, string, string[]];
+    try {
+      const infos = await backend().episodeInfo(detail()!, folder, names);
+      return new Map(names.map((name, i) => [name, infos[i] ?? null]));
+    } catch (error) {
+      // Sem TMDB os episódios seguem com o rótulo do arquivo; o motivo fica no log.
+      console.warn(`TMDB: ${errorMessage(error)}`);
+      throw error;
+    }
+  });
+  /** `undefined` enquanto o TMDB responde; `null` sem episódio casado. */
+  const infoOf = (name: string): EpisodeInfo | null | undefined => {
+    const waiting = matched.state() === "pending" || detail.state() === "pending" || tmdb.state() === "pending";
+    if (waiting) return undefined;
+    return tmdb()?.get(name) ?? null;
+  };
   const expanded = signal(false);
+  const backdrop = () => media()?.bannerImage ?? mediaCover(media());
 
   const play = (episode: Episode) =>
     nav.push({ name: "player", dir: episodesDir(), file: episode.name, title: title(), malId: media()?.idMal ?? null });
@@ -122,14 +123,17 @@ export function Title(props: { path: string; media: Media | null }) {
   const failure = () => seasonWork.error() ?? releaseEpisodes.error();
 
   const header = (
-    <View class="gap-5 pb-2">
-      <If when={media()?.bannerImage}>
-        {(banner) => <Image src={banner()} class="aspect-21/9 w-full bg-card object-cover" />}
-      </If>
-      <View class="flex-row gap-4 px-4 pt-4">
-        <Cover src={mediaCover(media())} title={title()} class="w-28" />
+    <View class="gap-6 pb-2">
+      {/* Como no desktop: o banner (ou a capa) apagado atrás, e um véu até o fundo. */}
+      <View class="-mx-4 overflow-hidden">
+        <If when={backdrop()}>
+          {(src) => <Image src={src()} class="absolute inset-0 size-full object-cover" style={{ opacity: media()?.bannerImage ? 0.45 : 0.25 }} />}
+        </If>
+        <View class="absolute inset-0" style={{ backgroundImage: `linear-gradient(180deg, transparent 0%, ${token("background")} 92%)` }} />
+        <View class="flex-row gap-4 px-4 pt-10 pb-2">
+        <Cover src={mediaCover(media())} title={title()} color={media()?.coverImage?.color} class="w-28" />
         <View class="flex-1 justify-end gap-2">
-          <Text role="header" class="text-2xl font-bold text-foreground" style={{ numberOfLines: 3 }}>
+          <Text role="header" class="text-2xl font-semibold text-foreground" style={{ numberOfLines: 3 }}>
             {title()}
           </Text>
           <If when={media()}>{(m) => <Text class="text-sm text-muted-foreground">{mediaFacts(m())}</Text>}</If>
@@ -138,6 +142,7 @@ export function Title(props: { path: string; media: Media | null }) {
               {(media()?.genres ?? []).slice(0, 3).join(" · ")}
             </Text>
           </If>
+        </View>
         </View>
       </View>
 
@@ -151,13 +156,12 @@ export function Title(props: { path: string; media: Media | null }) {
                 : `Assistir ${episode().number !== null ? `episódio ${episode().number}` : ""}`.trim()
             }
             onPress={() => play(episode())}
-            class="mx-4"
           />
         )}
       </If>
 
       <If when={synopsis()}>
-        <Button onPress={() => expanded.update((e) => !e)} accessibilityLabel="Sinopse" class="gap-1 px-4 active:opacity-70">
+        <Button onPress={() => expanded.update((e) => !e)} accessibilityLabel="Sinopse" class="gap-1 active:opacity-70">
           <Text class="text-sm leading-relaxed text-muted-foreground" style={{ numberOfLines: expanded() ? undefined : 4 }}>
             {synopsis()}
           </Text>
@@ -169,8 +173,8 @@ export function Title(props: { path: string; media: Media | null }) {
 
       <If when={seasons().length > 0}>
         <View class="gap-2">
-          <SectionTitle class="px-4">Temporadas</SectionTitle>
-          <Scroll horizontal scrollbar={false} contentClass="flex-row gap-2 px-4">
+          <SectionTitle>Temporadas</SectionTitle>
+          <Scroll horizontal scrollbar={false} class="-mx-4" contentClass="flex-row gap-2 px-4">
             <Each of={seasons()} key={(s) => s.path}>
               {(s) => (
                 <Chip
@@ -186,8 +190,8 @@ export function Title(props: { path: string; media: Media | null }) {
 
       <If when={(work()?.versions.length ?? 0) > 1}>
         <View class="gap-2">
-          <SectionTitle class="px-4">Versão</SectionTitle>
-          <Scroll horizontal scrollbar={false} contentClass="flex-row gap-2 px-4">
+          <SectionTitle>Versão</SectionTitle>
+          <Scroll horizontal scrollbar={false} class="-mx-4" contentClass="flex-row gap-2 px-4">
             <Each of={work()?.versions ?? []} key={(v) => v.path}>
               {(v) => <Chip label={versionLabel(v())} selected={versionFolder() === v().folder} onPress={() => chooseVersion(v())} />}
             </Each>
@@ -195,7 +199,9 @@ export function Title(props: { path: string; media: Media | null }) {
         </View>
       </If>
 
-      <SectionTitle class="px-4">Episódios</SectionTitle>
+      <SectionTitle aside={<If when={episodes().length > 0}><Text class="text-sm tabular-nums text-muted-foreground">{episodes().length} vídeos</Text></If>}>
+        Episódios
+      </SectionTitle>
       <If when={loadingEpisodes()}>
         <View class="h-32">
           <Loading label="Carregando episódios" />
@@ -224,9 +230,10 @@ export function Title(props: { path: string; media: Media | null }) {
         <List<Episode>
           each={episodes()}
           keyExtractor={(episode) => episode.path}
-          estimatedItemSize={72}
+          numColumns={2}
+          estimatedItemSize={EPISODE_HEIGHT}
           class="flex-1"
-          contentClass="pb-[calc(env(safe-area-inset-bottom)+16px)]"
+          contentClass="gap-x-3 gap-y-6 px-4 pb-[calc(env(safe-area-inset-bottom)+24px)]"
           header={header}
           empty={
             <If when={!loadingEpisodes() && !failure()}>
@@ -236,7 +243,7 @@ export function Title(props: { path: string; media: Media | null }) {
             </If>
           }
         >
-          {(episode) => <EpisodeRow episode={episode()} onPress={() => play(episode())} />}
+          {(episode) => <EpisodeCard episode={episode()} info={infoOf(episode().name)} onPress={() => play(episode())} />}
         </List>
       </If>
       </View>

@@ -40,6 +40,35 @@ export function mediaFacts(media: Media): string {
   return facts.join(" · ");
 }
 
+/** Linha de baixo do pôster: `TV · 2024`, com o que houver (o ano da pasta quando o AniList não tem). */
+export function posterMeta(media: Media | null | undefined, folderYear: number | null = null): string {
+  const format = media?.format ? (FORMATS[media.format] ?? media.format) : null;
+  const year = media?.seasonYear ?? folderYear;
+  return [format, year ? String(year) : null].filter(Boolean).join(" · ");
+}
+
+const SEASONS = { WINTER: "inverno", SPRING: "primavera", SUMMER: "verão", FALL: "outono" } as const;
+
+/** `Temporada de outono 2026`: a mesma conta do núcleo (`season_at`), dezembro já é o inverno seguinte. */
+export function seasonHeading(now = new Date()): string {
+  const month = now.getMonth() + 1;
+  let year = now.getFullYear();
+  let season: keyof typeof SEASONS;
+  if (month === 12) {
+    season = "WINTER";
+    year += 1;
+  } else if (month <= 2) season = "WINTER";
+  else if (month <= 5) season = "SPRING";
+  else if (month <= 8) season = "SUMMER";
+  else season = "FALL";
+  return `Temporada de ${SEASONS[season]} ${year}`;
+}
+
+/** Número do episódio no card: `01`, `12`, `104`. */
+export function episodeNumber(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
 /** Sinopse do AniList sem as marcas de HTML. */
 export function plainText(html: string): string {
   return html

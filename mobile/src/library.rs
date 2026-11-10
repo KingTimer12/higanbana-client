@@ -3,6 +3,8 @@
 
 use higanbana_core::{
     Core,
+    anilist::types::MediaSummary,
+    tmdb::{matching::work_query, still_url},
     library::{
         base_name, folder_title, is_extra_folder, is_franchise, join_path, natural_cmp, parse_episode,
         parse_work_name, resolution_rank, version_label,
@@ -14,6 +16,9 @@ use nsh_core::{JsonValue, prelude::*};
 use serde_json::json;
 
 use crate::on_core;
+
+/// Tamanho do still pedido ao TMDB, o mesmo da grade do desktop.
+const STILL_SIZE: &str = "w300";
 
 /// Pastas de obra na nuvem.
 #[module]
@@ -79,6 +84,48 @@ impl Library {
         on_core(|c| async move {
             let listing = c.cloud().list(&path).await.map_err(|e| e.to_string())?;
             Ok(JsonValue::Array(episodes_of(&c, &path, &listing.files)))
+        })
+        .await
+    }
+
+    /// Título, sinopse e miniatura do TMDB de cada arquivo, na ordem de `files`
+    /// (`null` onde não casa), como a aba Episódios do desktop: a obra se acha
+    /// pelo detalhe do AniList (`media_id`, lido aqui, do cache) e pelo nome da
+    /// pasta (`folder`). Sem TMDB no build, filme ou obra não achada: todos `null`.
+    /// `[{ title, overview, still, airDate, runtime, vote } | null]`.
+    ///
+    /// Recebe o id, não o detalhe: um JSON que passa pelo TS volta com os
+    /// inteiros como `f64` (`154587.0`), e o `MediaSummary` não os aceita.
+    pub async fn tmdb_episodes(media_id: f64, folder: String, files: Vec<String>) -> Result<JsonValue, String> {
+        let n = files.len();
+        let none = move || JsonValue::Array(vec![JsonValue::Null; n]);
+        on_core(move |c| async move {
+            if !c.tmdb().configured() {
+                return Ok(none());
+            }
+            let media = c.anilist().media(media_id as i64).await.map_err(|e| e.to_string())?;
+            let detail = serde_json::from_value::<MediaSummary>(media).map_err(|e| format!("detalhe do AniList: {e}"))?;
+            let Some(query) = work_query(&detail, &folder) else { return Ok(none()) };
+            let Some(work) = c.tmdb().work_episodes(&query).await.map_err(|e| e.to_string())? else {
+                return Ok(none());
+            };
+            let names: Vec<&str> = files.iter().map(String::as_str).collect();
+            Ok(JsonValue::Array(
+                work.links(&names)
+                    .into_iter()
+                    .map(|ep| match ep {
+                        Some(e) => json!({
+                            "title": e.title,
+                            "overview": e.overview,
+                            "still": e.still_path.as_deref().map(|p| still_url(p, STILL_SIZE)),
+                            "airDate": e.air_date,
+                            "runtime": e.runtime,
+                            "vote": (e.vote_count > 0).then_some(e.vote_average),
+                        }),
+                        None => JsonValue::Null,
+                    })
+                    .collect(),
+            ))
         })
         .await
     }

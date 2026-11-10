@@ -119,10 +119,20 @@ export const openingMedia = () => opening();
 
 /** Abre a obra de uma mídia do AniList, se ela está na nuvem. */
 export async function openMedia(media: Media, title: string) {
+  const known = cloudPathOf(media.id);
+  if (known) {
+    nav.push({ name: "title", path: known, media });
+    return;
+  }
+  if (known === null) {
+    notify(`“${title}” ainda não está na nuvem.`);
+    return;
+  }
   if (opening() !== null) return;
   opening.set(media.id);
   try {
     const path = await backend().find(media);
+    cloudPaths.update((all) => ({ ...all, [media.id]: path }));
     if (path) nav.push({ name: "title", path, media });
     else notify(`“${title}” ainda não está na nuvem.`);
   } catch (error) {
@@ -130,6 +140,92 @@ export async function openMedia(media: Media, title: string) {
   } finally {
     opening.set(null);
   }
+}
+
+// --- O que se sabe de cada card, pedido quando ele aparece ---
+//
+// Como no desktop: cada pôster pede o que falta ao entrar na tela (a lista só
+// monta os cards perto da área visível), e os pedidos saem em lote. O estado
+// fica aqui, pela chave do item, nunca no card: a lista recicla os cards.
+
+/** Metadados por nome de pasta: `null` = sem correspondência no AniList; ausente = ainda não se sabe. */
+const lookups = signal<Record<string, Media | null>>({});
+const lookupQueue: string[] = [];
+const lookupAsked = new Set<string>();
+let lookupRunning = false;
+/** Nomes por pedido ao núcleo (ele casa e guarda em cache). */
+const LOOKUP_BATCH = 24;
+
+/** A mídia de uma pasta de obra: `undefined` enquanto não se sabe, `null` sem correspondência. */
+export const lookupOf = (name: string): Media | null | undefined => lookups()[name];
+
+/** Pede os metadados de uma pasta (uma vez por nome). */
+export function wantLookup(name: string) {
+  if (lookupAsked.has(name)) return;
+  lookupAsked.add(name);
+  lookupQueue.push(name);
+  if (!lookupRunning) {
+    lookupRunning = true;
+    // Junta os cards que aparecem no mesmo quadro num pedido só.
+    setTimeout(runLookups, 60);
+  }
+}
+
+async function runLookups() {
+  while (lookupQueue.length > 0) {
+    const batch = lookupQueue.splice(0, LOOKUP_BATCH);
+    try {
+      const found = await backend().lookup(batch);
+      lookups.update((all) => {
+        const next = { ...all };
+        batch.forEach((name, i) => (next[name] = found[i] ?? null));
+        return next;
+      });
+    } catch {
+      // Sem rede: o card fica com a capa tipográfica e tenta de novo ao reaparecer.
+      lookups.update((all) => {
+        const next = { ...all };
+        for (const name of batch) next[name] = null;
+        return next;
+      });
+      for (const name of batch) lookupAsked.delete(name);
+    }
+  }
+  lookupRunning = false;
+}
+
+/** Caminho na nuvem por id do AniList: `null` = fora do acervo; ausente = ainda não se sabe. */
+const cloudPaths = signal<Record<number, string | null>>({});
+const cloudQueue: Media[] = [];
+const cloudAsked = new Set<number>();
+let cloudRunning = false;
+
+/** Onde está a obra de uma mídia: `undefined` enquanto não se sabe, `null` fora do acervo. */
+export const cloudPathOf = (id: number): string | null | undefined => cloudPaths()[id];
+
+/** Pede onde está a obra de uma mídia da temporada (um de cada vez: a nuvem limita buscas seguidas). */
+export function wantCloudPath(media: Media) {
+  if (cloudAsked.has(media.id)) return;
+  cloudAsked.add(media.id);
+  cloudQueue.push(media);
+  if (!cloudRunning) {
+    cloudRunning = true;
+    runCloudPaths().catch(() => {});
+  }
+}
+
+async function runCloudPaths() {
+  while (cloudQueue.length > 0) {
+    const media = cloudQueue.shift()!;
+    try {
+      const path = await backend().find(media);
+      cloudPaths.update((all) => ({ ...all, [media.id]: path }));
+    } catch {
+      // Fica sem marca; tenta de novo quando o card reaparecer.
+      cloudAsked.delete(media.id);
+    }
+  }
+  cloudRunning = false;
 }
 
 // --- Progresso visto nesta sessão ---

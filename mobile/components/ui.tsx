@@ -5,7 +5,9 @@ import { Button, Progress } from "nsh/base";
 import back from "../assets/icons/back.svg";
 import check from "../assets/icons/check.svg";
 import chevron from "../assets/icons/chevron.svg";
+import clapperboard from "../assets/icons/clapperboard.svg";
 import close from "../assets/icons/close.svg";
+import folderCheck from "../assets/icons/folder-check.svg";
 import forward from "../assets/icons/forward.svg";
 import grid from "../assets/icons/grid.svg";
 import next from "../assets/icons/next.svg";
@@ -13,9 +15,28 @@ import pause from "../assets/icons/pause.svg";
 import play from "../assets/icons/play.svg";
 import rewind from "../assets/icons/rewind.svg";
 import search from "../assets/icons/search.svg";
+import star from "../assets/icons/star.svg";
 import subtitles from "../assets/icons/subtitles.svg";
+import tv from "../assets/icons/tv.svg";
 
-const ICONS = { back, check, chevron, close, forward, grid, next, pause, play, rewind, search, subtitles } satisfies Record<string, ImageAsset>;
+const ICONS = {
+  back,
+  check,
+  chevron,
+  clapperboard,
+  close,
+  "folder-check": folderCheck,
+  forward,
+  grid,
+  next,
+  pause,
+  play,
+  rewind,
+  search,
+  star,
+  subtitles,
+  tv,
+} satisfies Record<string, ImageAsset>;
 
 export type IconName = keyof typeof ICONS;
 
@@ -92,13 +113,44 @@ export function Chip(props: { label: string; selected: boolean; onPress: () => v
   );
 }
 
-/** O título de uma seção da tela. */
-export function SectionTitle(props: { children: string; class?: string }) {
+/** O título de uma seção da tela, com algo à direita (uma contagem, um estado). */
+export function SectionTitle(props: { children: string; aside?: JSX.Element; class?: string }) {
   return (
-    <Text role="header" class={`text-lg font-semibold text-foreground ${props.class ?? ""}`}>
-      {props.children}
-    </Text>
+    // O que vai à direita desce para a linha de baixo quando o título não deixa espaço.
+    <View class={`flex-row flex-wrap items-end justify-between gap-x-4 gap-y-1 ${props.class ?? ""}`}>
+      <Text role="header" class="text-xl font-semibold text-foreground">
+        {props.children}
+      </Text>
+      {props.aside}
+    </View>
   );
+}
+
+/** Uma entrada do acervo (como as seções do início no desktop): ícone, nome, o que tem dentro e a seta. */
+export function SectionCard(props: { icon: IconName; label: string; blurb: string; onPress: () => void; testID?: string }) {
+  return (
+    <Button
+      onPress={props.onPress}
+      testID={props.testID}
+      class="min-h-20 flex-row items-center gap-4 rounded-(--radius-lg) border border-border bg-card px-4 transition-transform duration-150 active:scale-[0.98] active:bg-accent motion-reduce:active:scale-100"
+    >
+      <View class="size-10 items-center justify-center rounded-(--radius) bg-muted">
+        <Icon name={props.icon} class="size-5" />
+      </View>
+      <View class="flex-1 gap-0.5">
+        <Text class="text-base font-semibold text-card-foreground">{props.label}</Text>
+        <Text class="text-sm text-muted-foreground" style={{ numberOfLines: 1 }}>
+          {props.blurb}
+        </Text>
+      </View>
+      <Icon name="chevron" class="size-4 tint-muted-foreground" />
+    </Button>
+  );
+}
+
+/** Lugar de algo que ainda chega da rede, no tamanho e na forma dele. */
+export function Skeleton(props: { class?: string }) {
+  return <View accessibilityLabel="Carregando" class={`bg-muted ${props.class ?? ""}`} />;
 }
 
 /** Quanto de um episódio já foi visto. */
@@ -143,22 +195,28 @@ export function EmptyState(props: { title: string; detail?: string; action?: str
   );
 }
 
-/** A capa de uma obra, 2:3; sem imagem, o título no lugar. */
-export function Cover(props: { src: string | null; title: string; class?: string }) {
+/** A capa de uma obra, 2:3, como no desktop: a imagem do AniList sobre a cor dela;
+ * sem imagem, uma capa tipográfica com o nome inteiro. `color` é dado (a cor da capa). */
+export function Cover(props: { src: string | null; title: string; color?: string | null; class?: string; children?: JSX.Element }) {
   return (
-    <View class={`aspect-2/3 overflow-hidden rounded-(--radius) bg-card ${props.class ?? ""}`}>
+    <View
+      class={`aspect-2/3 overflow-hidden rounded-(--radius-lg) bg-muted ${props.class ?? ""}`}
+      style={props.color ? { backgroundColor: props.color } : undefined}
+    >
       <If
         when={props.src}
         else={
-          <View class="flex-1 items-center justify-center p-2">
-            <Text class="text-center text-xs text-muted-foreground" style={{ numberOfLines: 4 }}>
+          <View class="flex-1 justify-between bg-muted p-3">
+            <Icon name="clapperboard" class="size-4 tint-muted-foreground" />
+            <Text class="text-base font-semibold leading-tight text-foreground opacity-80" style={{ numberOfLines: 5 }}>
               {props.title}
             </Text>
           </View>
         }
       >
-        {(src) => <Image src={src()} class="size-full object-cover" accessibilityLabel={props.title} />}
+        {(src) => <Image src={src()} fadeDuration={200} class="size-full object-cover" accessibilityLabel={props.title} />}
       </If>
+      {props.children}
     </View>
   );
 }

@@ -1,14 +1,15 @@
 {
   "cssVars": {
     "theme": {
-      "radius": "0.625rem"
+      "radius": "0.5rem",
+      "radius-lg": "0.75rem"
     },
     "light": {
       "background": "#07070a",
       "foreground": "#ededef",
       "card": "#111118",
       "card-foreground": "#ededef",
-      "popover": "#16161e",
+      "popover": "#111118",
       "popover-foreground": "#ededef",
       "primary": "#e8283c",
       "primary-foreground": "#ffffff",
@@ -21,21 +22,22 @@
       "destructive": "#f87171",
       "border": "rgb(255 255 255 / 0.08)",
       "input": "rgb(255 255 255 / 0.14)",
-      "ring": "#ff7a85",
+      "ring": "#e8283c",
       "faint": "#767b85",
       "brand-ink": "#ff7a85",
       "success": "#4ade80",
       "video": "#000000",
       "scrim": "#000000",
       "on-video": "#ffffff",
-      "on-video-muted": "rgb(255 255 255 / 0.7)"
+      "on-video-muted": "rgb(255 255 255 / 0.7)",
+      "score": "#facc15"
     },
     "dark": {
       "background": "#07070a",
       "foreground": "#ededef",
       "card": "#111118",
       "card-foreground": "#ededef",
-      "popover": "#16161e",
+      "popover": "#111118",
       "popover-foreground": "#ededef",
       "primary": "#e8283c",
       "primary-foreground": "#ffffff",
@@ -48,14 +50,15 @@
       "destructive": "#f87171",
       "border": "rgb(255 255 255 / 0.08)",
       "input": "rgb(255 255 255 / 0.14)",
-      "ring": "#ff7a85",
+      "ring": "#e8283c",
       "faint": "#767b85",
       "brand-ink": "#ff7a85",
       "success": "#4ade80",
       "video": "#000000",
       "scrim": "#000000",
       "on-video": "#ffffff",
-      "on-video-muted": "rgb(255 255 255 / 0.7)"
+      "on-video-muted": "rgb(255 255 255 / 0.7)",
+      "score": "#facc15"
     }
   }
 }
