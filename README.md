@@ -48,7 +48,7 @@ O player de vídeo usa o [mpv](https://mpv.io/) (libmpv), carregado em tempo de 
 
 ### Episódios (TMDB)
 
-Na aba Episódios de um anime, cada arquivo de vídeo que casa com um episódio do [TMDB](https://www.themoviedb.org/) mostra miniatura, título em português (ou em inglês, quando não há tradução), data de exibição, nota e duração. O TMDB só é consultado quando você abre a página da obra, e as miniaturas carregam conforme aparecem na tela.
+Na aba Episódios de um anime, cada arquivo de vídeo que casa com um episódio do [TMDB](https://www.themoviedb.org/) mostra miniatura, título em português (ou em inglês, quando não há tradução), data de exibição, nota e duração. O TMDB só é consultado quando você abre a página da obra, e as miniaturas carregam conforme aparecem na tela. Filmes e especiais de um episódio só aparecem como um card único com a imagem, o título, a nota e a duração do TMDB.
 
 1. Crie uma conta no TMDB e gere as credenciais da API em *Configurações › API*.
 2. No `.env` (copiado de `.env.example`), preencha `TMDB_TOKEN` com o *API Read Access Token* (v4, preferido) e, se quiser, `TMDB_KEY` com a *API Key* (v3, usada só quando não há token). Também valem variáveis de ambiente com os mesmos nomes.

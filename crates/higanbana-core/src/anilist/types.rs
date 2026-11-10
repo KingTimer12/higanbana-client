@@ -178,6 +178,8 @@ pub struct CharacterEdge {
 #[serde(rename_all = "camelCase", default)]
 pub struct RelatedTitle {
     pub user_preferred: Option<String>,
+    pub romaji: Option<String>,
+    pub native: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -59,7 +59,12 @@ const BAR_HEIGHT: f32 = 3.;
 /// arquivo tem número; senão o nome do arquivo, sem rótulo. O número do rótulo
 /// é o do arquivo (o que a pessoa vê no player); o do TMDB só quando o arquivo
 /// não tem número legível.
-pub fn card_text(file: &FileEntry, ep: Option<&EpisodeView>) -> (String, String) {
+/// Obra de um episódio só (`single`, filme ou especial único) ligada ao TMDB:
+/// sem rótulo, porque o número no nome ("Filme 02", "OVA 03") não é de episódio.
+pub fn card_text(file: &FileEntry, ep: Option<&EpisodeView>, single: bool) -> (String, String) {
+    if let Some(e) = ep.filter(|_| single) {
+        return (String::new(), e.title.clone());
+    }
     let number = episode_number(&file.name).or(ep.map(|e| e.number));
     let label = number.map(|n| format!("E{n}")).unwrap_or_default();
     let title = match (ep, number) {
@@ -154,8 +159,13 @@ pub fn episode_list(
     // Cada arquivo ligado uma vez, com a numeração decidida para a pasta inteira.
     let names: Vec<&str> = videos.iter().map(|f| f.name.as_str()).collect();
     let links: Vec<Option<&EpisodeView>> = tmdb.map_or_else(|| vec![None; names.len()], |w| w.links(&names));
-    let texts: Vec<(String, String)> = videos.iter().zip(&links).map(|(f, ep)| card_text(f, *ep)).collect();
-    let notes = disambiguators(&texts.iter().zip(&videos).map(|((l, _), f)| (l.clone(), f.name.clone())).collect::<Vec<_>>());
+    let single = tmdb.is_some_and(|w| w.single);
+    let texts: Vec<(String, String)> = videos.iter().zip(&links).map(|(f, ep)| card_text(f, *ep, single)).collect();
+    let mut notes = disambiguators(&texts.iter().zip(&videos).map(|((l, _), f)| (l.clone(), f.name.clone())).collect::<Vec<_>>());
+    // Obra de um episódio só com vários arquivos: são versões, o nome separa.
+    if single && videos.len() > 1 {
+        notes = videos.iter().map(|f| Some(f.name.clone())).collect();
+    }
     let items: Vec<Item> = {
         let st = s.read(cx);
         let ratings = st.rating_source();
@@ -785,19 +795,23 @@ mod tests {
     #[test]
     fn card_text_with_episode() {
         let f = file("[Grupo] Sousou no Frieren - 01 [1080p].mkv");
-        assert_eq!(card_text(&f, Some(&episode(1, "O fim da aventura"))), ("E1".into(), "O fim da aventura".into()));
+        assert_eq!(card_text(&f, Some(&episode(1, "O fim da aventura")), false), ("E1".into(), "O fim da aventura".into()));
+        // Filme: o número do nome do arquivo não vira rótulo.
+        let f = file("One Piece - Filme 02 [BD_1080p].mkv");
+        assert_eq!(card_text(&f, Some(&episode(1, "Aventura na Ilha Relógio")), true), (String::new(), "Aventura na Ilha Relógio".into()));
+        assert_eq!(card_text(&f, None, true), ("E2".into(), "Episódio 2".into()));
     }
 
     #[test]
     fn card_text_without_episode_uses_number() {
         let f = file("[Grupo] Sousou no Frieren - 05 [1080p].mkv");
-        assert_eq!(card_text(&f, None), ("E5".into(), "Episódio 5".into()));
+        assert_eq!(card_text(&f, None, false), ("E5".into(), "Episódio 5".into()));
     }
 
     #[test]
     fn card_text_without_number_uses_file_name() {
         let f = file("Abertura sem créditos.mkv");
-        assert_eq!(card_text(&f, None), (String::new(), "Abertura sem créditos.mkv".into()));
+        assert_eq!(card_text(&f, None, false), (String::new(), "Abertura sem créditos.mkv".into()));
     }
 
     fn pairs(v: &[(&str, &str)]) -> Vec<(String, String)> {

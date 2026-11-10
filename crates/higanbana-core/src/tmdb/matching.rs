@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use super::types::{Episode, TvHit, TvShow};
+use super::types::{Episode, MovieHit, TvHit, TvShow};
 
 /// Tolerância, em dias, entre o início da obra no AniList e a `air_date` do TMDB.
 const DATE_TOLERANCE: i64 = 7;
@@ -56,11 +56,12 @@ fn parse_date(s: Option<&str>) -> Option<Ymd> {
     s.and_then(Ymd::parse)
 }
 
-/// Tipo da obra. ONA/TV/TV_SHORT → `Series`; OVA/SPECIAL → `Special`. MOVIE fica fora.
+/// Tipo da obra. ONA/TV/TV_SHORT → `Series`; OVA/SPECIAL → `Special`; MOVIE → `Movie`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkKind {
     Series,
     Special,
+    Movie,
 }
 
 /// O que se sabe da obra (AniList/pasta) para achar a série e a temporada no TMDB.
@@ -73,6 +74,12 @@ pub struct WorkQuery {
     /// tem que estrear no mesmo ano e mês, e não a ±7 dias do dia 1.
     pub start_day_known: bool,
     pub kind: WorkKind,
+    /// Títulos das obras ligadas a esta no AniList (obra-mãe, anterior): quando a
+    /// série não é achada pelo próprio título (especial, continuação que o TMDB
+    /// guarda como temporada da série-mãe). Só valem com a data confirmando.
+    pub related: Vec<String>,
+    /// A obra tem um episódio só (filme, especial único): todo vídeo da pasta é ele.
+    pub single: bool,
 }
 
 /// Arquivo `n` → episódio `offset + n` da `season`.
@@ -92,7 +99,14 @@ fn normalize(s: &str) -> String {
 /// igual ao da obra; senão a estreia mais recente antes dele (parte posterior →
 /// série-mãe). Sem ano, o primeiro do grupo.
 pub fn pick_show(hits: &[TvHit], q: &WorkQuery) -> Option<u64> {
-    let titles: Vec<String> = q.titles.iter().map(|t| normalize(t)).filter(|t| !t.is_empty()).collect();
+    rank_shows(hits, &q.titles, q.year).first().copied()
+}
+
+/// Séries candidatas, da melhor para a pior, pela regra de `pick_show`: a do ano
+/// da obra, depois as que estrearam antes, da mais recente para a mais antiga.
+/// Sem ano, só a primeira. Quem chama confirma cada uma pela data dos episódios.
+pub fn rank_shows(hits: &[TvHit], titles: &[String], year: Option<i32>) -> Vec<u64> {
+    let titles: Vec<String> = titles.iter().map(|t| normalize(t)).filter(|t| !t.is_empty()).collect();
     let matching = |exact: bool| -> Vec<&TvHit> {
         hits.iter()
             .filter(|h| {
@@ -106,18 +120,49 @@ pub fn pick_show(hits: &[TvHit], q: &WorkQuery) -> Option<u64> {
     if found.is_empty() {
         found = matching(false);
     }
-    let Some(year) = q.year else {
-        return found.first().map(|h| h.id);
+    let Some(year) = year else {
+        return found.first().map(|h| h.id).into_iter().collect();
     };
     let premiere = |h: &TvHit| parse_date(h.first_air_date.as_deref());
     if let Some(h) = found.iter().find(|h| premiere(h).is_some_and(|d| d.y == year)) {
-        return Some(h.id);
+        return vec![h.id];
     }
-    found
-        .iter()
-        .filter_map(|h| premiere(h).filter(|d| d.y < year).map(|d| (d.days(), h.id)))
-        .max_by_key(|&(days, _)| days)
-        .map(|(_, id)| id)
+    let mut earlier: Vec<(i64, u64)> =
+        found.iter().filter_map(|h| premiere(h).filter(|d| d.y < year).map(|d| (d.days(), h.id))).collect();
+    earlier.sort_by_key(|&(days, _)| std::cmp::Reverse(days));
+    earlier.into_iter().map(|(_, id)| id).collect()
+}
+
+/// Filme do TMDB da obra. Título igual: lançamento a até um ano do da obra (sem
+/// ano na obra, só se for o único igual). Sem nenhum igual, nome que contém o
+/// título: só no mesmo ano e se for o único (franquias lançam vários por ano).
+pub fn pick_movie(hits: &[MovieHit], q: &WorkQuery) -> Option<u64> {
+    let titles: Vec<String> = q.titles.iter().map(|t| normalize(t)).filter(|t| !t.is_empty()).collect();
+    let matching = |exact: bool| -> Vec<&MovieHit> {
+        hits.iter()
+            .filter(|h| {
+                [&h.title, &h.original_title].into_iter().map(|n| normalize(n)).any(|n| {
+                    !n.is_empty() && titles.iter().any(|t| if exact { n == *t } else { n.contains(t.as_str()) })
+                })
+            })
+            .collect()
+    };
+    let year_of = |h: &MovieHit| parse_date(h.release_date.as_deref()).map(|d| d.y);
+    let exact = matching(true);
+    if !exact.is_empty() {
+        let Some(year) = q.year else {
+            return (exact.len() == 1).then(|| exact[0].id);
+        };
+        return exact
+            .iter()
+            .filter_map(|h| year_of(h).map(|y| ((y - year).abs(), h.id)))
+            .filter(|&(diff, _)| diff <= 1)
+            .min_by_key(|&(diff, _)| diff)
+            .map(|(_, id)| id);
+    }
+    let year = q.year?;
+    let same: Vec<&MovieHit> = matching(false).into_iter().filter(|h| year_of(h) == Some(year)).collect();
+    (same.len() == 1).then(|| same[0].id)
 }
 
 /// Episódio que estreou mais perto de `start`, a até `DATE_TOLERANCE` dias (sem o
@@ -164,7 +209,9 @@ pub fn pick_anchor(show: &TvShow, seasons: &[(u32, Vec<Episode>)], q: &WorkQuery
                 _ => None,
             }
         }
-        WorkKind::Special => anchor_near(seasons.iter().filter(|(s, _)| *s == 0), q.start?, q.start_day_known),
+        WorkKind::Special | WorkKind::Movie => {
+            anchor_near(seasons.iter().filter(|(s, _)| *s == 0), q.start?, q.start_day_known)
+        }
     }
 }
 
@@ -178,6 +225,23 @@ pub fn season_numbered(anchor: Anchor, numbers: impl IntoIterator<Item = u32>) -
     anchor.season > 0
         && anchor.offset > 0
         && numbers.into_iter().filter(|&n| n > 0).min().is_some_and(|min| min > anchor.offset)
+}
+
+/// Temporadas escritas nos nomes dos arquivos (`S03E15`) que não são as do TMDB:
+/// algum arquivo da pasta passa do total da temporada. Quem lançou dividiu a
+/// série de outro jeito, então nenhum arquivo dessa temporada é ligado (um
+/// `S03E01` de lá pode ser outro episódio aqui).
+pub fn foreign_seasons(show: &TvShow, files: impl IntoIterator<Item = (u32, u32)>) -> Vec<u32> {
+    let mut bad: Vec<u32> = files
+        .into_iter()
+        .filter(|&(season, number)| {
+            show.seasons.iter().find(|s| s.season_number == season).is_some_and(|s| number > s.episode_count)
+        })
+        .map(|(season, _)| season)
+        .collect();
+    bad.sort_unstable();
+    bad.dedup();
+    bad
 }
 
 /// Arquivo de número `number` → `(temporada, episódio)` no TMDB. Regras, em ordem:
@@ -302,7 +366,55 @@ mod tests {
             start: start.map(ymd),
             start_day_known: true,
             kind,
+            related: Vec::new(),
+            single: false,
         }
+    }
+
+    fn movie(id: u64, title: &str, original: &str, date: &str) -> MovieHit {
+        MovieHit { id, title: title.into(), original_title: original.into(), release_date: Some(date.into()) }
+    }
+
+    #[test]
+    fn movie_by_title_and_year() {
+        let hits = [
+            movie(1, "Pretty Cure Max Heart: O Filme", "映画 ふたりはプリキュア Max Heart", "2005-04-16"),
+            movie(2, "Pretty Cure Max Heart 2", "映画 ふたりはプリキュア Max Heart 2 雪空のともだち", "2005-12-10"),
+        ];
+        let q = query(&["映画 ふたりはプリキュア Max Heart"], Some(2005), None, WorkKind::Movie);
+        assert_eq!(pick_movie(&hits, &q), Some(1));
+        // Igual, mas longe no tempo: não liga.
+        let q = query(&["映画 ふたりはプリキュア Max Heart"], Some(2010), None, WorkKind::Movie);
+        assert_eq!(pick_movie(&hits, &q), None);
+        // Só "contém", dois no mesmo ano: dúvida.
+        let q = query(&["Pretty Cure Max Heart"], Some(2005), None, WorkKind::Movie);
+        assert_eq!(pick_movie(&hits, &q), None);
+        // Só "contém", um no ano: liga.
+        let hits = [movie(3, "One Piece Film: Red", "ONE PIECE FILM RED", "2022-08-06"), movie(4, "One Piece Film: Z", "", "2012-12-15")];
+        let q = query(&["One Piece Film"], Some(2022), None, WorkKind::Movie);
+        assert_eq!(pick_movie(&hits, &q), Some(3));
+        assert_eq!(pick_movie(&hits, &query(&["One Piece Film"], None, None, WorkKind::Movie)), None);
+    }
+
+    #[test]
+    fn shows_ranked_for_date_check() {
+        let hits = [
+            hit(111110, "ONE PIECE: A Série", "ONE PIECE", "2023-08-31"),
+            hit(37854, "One Piece", "ワンピース", "1999-10-20"),
+        ];
+        let t = ["One Piece".to_owned()];
+        // Especial de 2024: a série de 2023 vem primeiro, a de 1999 fica de reserva.
+        assert_eq!(rank_shows(&hits, &t, Some(2024)), vec![111110, 37854]);
+        assert_eq!(rank_shows(&hits, &t, Some(2000)), vec![37854]);
+        assert_eq!(rank_shows(&hits, &t, Some(1999)), vec![37854]);
+        assert_eq!(rank_shows(&hits, &t, None), vec![111110]);
+    }
+
+    #[test]
+    fn release_with_other_season_split_is_foreign() {
+        let s = show(&[(1, 61), (2, 16), (3, 14)]);
+        assert_eq!(foreign_seasons(&s, [(1, 61), (2, 16), (3, 15), (3, 1), (9, 99)]), vec![3]);
+        assert!(foreign_seasons(&s, [(1, 1), (2, 16)]).is_empty());
     }
 
     #[test]
