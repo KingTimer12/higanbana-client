@@ -383,7 +383,7 @@ impl TitleView {
         self.want_episodes(cx);
     }
 
-    /// Pede ao TMDB os episódios da obra (anime, fora filmes) quando o detalhe completo chega.
+    /// Pede ao TMDB os episódios da obra (anime; filme vira um episódio só) quando o detalhe completo chega.
     fn want_episodes(&mut self, cx: &mut Context<Self>) {
         if self.media_type != MediaType::Anime {
             return;
@@ -391,7 +391,7 @@ impl TitleView {
         // Só o detalhe da obra aberta: nunca misturar com o da anterior.
         let current = self.summary(cx).flatten().map(|m| m.id);
         let Some(d) = self.full().filter(|d| is_open_work(d.summary.id, self.detail_for, current)) else { return };
-        let Some(q) = work_query(&d.summary, &self.lookup_name()) else { return };
+        let Some(q) = work_query(d, &self.lookup_name()) else { return };
         let key = work_key(&q);
         if self.episodes_key.as_deref() == Some(key.as_str()) {
             return;
@@ -406,7 +406,7 @@ impl TitleView {
     }
 
     /// Episódios para a aba: `None` enquanto o AniList ou o TMDB respondem;
-    /// `Some(None)` sem dados do TMDB (mangá, filme, obra não achada, sem token).
+    /// `Some(None)` sem dados do TMDB (mangá, obra não achada, sem token).
     fn episodes_state(&self, cx: &gpui_kit::App) -> Option<Option<Arc<WorkEpisodes>>> {
         if self.media_type != MediaType::Anime {
             return Some(None);

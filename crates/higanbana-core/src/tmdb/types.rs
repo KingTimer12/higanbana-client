@@ -50,3 +50,35 @@ pub struct Episode {
     #[serde(default)]
     pub runtime: Option<u32>,
 }
+
+/// Resultado de `/search/movie`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MovieHit {
+    pub id: u64,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub original_title: String,
+    #[serde(default)]
+    pub release_date: Option<String>,
+}
+
+/// Detalhe de `/movie/{id}`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Movie {
+    pub id: u64,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub overview: String,
+    #[serde(default)]
+    pub release_date: Option<String>,
+    #[serde(default)]
+    pub backdrop_path: Option<String>,
+    #[serde(default)]
+    pub vote_average: f32,
+    #[serde(default)]
+    pub vote_count: u32,
+    #[serde(default)]
+    pub runtime: Option<u32>,
+}

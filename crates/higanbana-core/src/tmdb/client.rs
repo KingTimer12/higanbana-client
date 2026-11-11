@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 
 use super::{
     TmdbError, TmdbResult, credentials,
-    types::{Episode, TvHit, TvShow},
+    types::{Episode, Movie, MovieHit, TvHit, TvShow},
 };
 
 const BASE: &str = "https://api.themoviedb.org/3";
@@ -38,6 +38,11 @@ impl Default for TmdbClient {
 #[derive(Deserialize)]
 struct SearchPage {
     results: Vec<TvHit>,
+}
+
+#[derive(Deserialize)]
+struct MoviePage {
+    results: Vec<MovieHit>,
 }
 
 #[derive(Deserialize)]
@@ -78,6 +83,16 @@ impl TmdbClient {
     pub async fn season(&self, id: u64, season: u32, lang: &str) -> TmdbResult<Vec<Episode>> {
         let body = self.get(&format!("/tv/{id}/season/{season}"), &[("language", lang)]).await?;
         parse_season(&body)
+    }
+
+    pub async fn search_movie(&self, query: &str, lang: &str) -> TmdbResult<Vec<MovieHit>> {
+        let body = self.get("/search/movie", &[("query", query), ("language", lang)]).await?;
+        parse_json::<MoviePage>(&body).map(|p| p.results)
+    }
+
+    pub async fn movie(&self, id: u64, lang: &str) -> TmdbResult<Movie> {
+        let body = self.get(&format!("/movie/{id}"), &[("language", lang)]).await?;
+        parse_json(&body)
     }
 
     async fn get(&self, path: &str, query: &[(&str, &str)]) -> TmdbResult<String> {
@@ -201,6 +216,17 @@ mod tests {
         let hits = parse_search(body).unwrap();
         assert_eq!(hits[0].id, 209867);
         assert_eq!(hits[1].first_air_date.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn decodes_movie_search_and_detail() {
+        let body = r#"{"results":[{"id":9,"title":"Filme","original_title":"映画","release_date":"2005-04-16"},
+            {"id":10,"title":"Sem data"}]}"#;
+        let hits = parse_json::<MoviePage>(body).unwrap().results;
+        assert_eq!(hits[0].original_title, "映画");
+        assert_eq!(hits[1].release_date, None);
+        let m: Movie = parse_json(r#"{"id":9,"title":"Filme","overview":"x","backdrop_path":null,"runtime":70}"#).unwrap();
+        assert_eq!((m.backdrop_path, m.runtime), (None, Some(70)));
     }
 
     #[test]

@@ -3,7 +3,7 @@
 
 use higanbana_core::{
     Core,
-    anilist::types::MediaSummary,
+    anilist::types::MediaDetail,
     tmdb::{matching::work_query, still_url},
     library::{
         base_name, folder_title, is_extra_folder, is_franchise, join_path, natural_cmp, parse_episode,
@@ -104,7 +104,7 @@ impl Library {
                 return Ok(none());
             }
             let media = c.anilist().media(media_id as i64).await.map_err(|e| e.to_string())?;
-            let detail = serde_json::from_value::<MediaSummary>(media).map_err(|e| format!("detalhe do AniList: {e}"))?;
+            let detail = serde_json::from_value::<MediaDetail>(media).map_err(|e| format!("detalhe do AniList: {e}"))?;
             let Some(query) = work_query(&detail, &folder) else { return Ok(none()) };
             let Some(work) = c.tmdb().work_episodes(&query).await.map_err(|e| e.to_string())? else {
                 return Ok(none());

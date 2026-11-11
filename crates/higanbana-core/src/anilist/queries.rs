@@ -63,7 +63,7 @@ pub const DETAIL_QUERY: &str = "query ($id: Int) {
     relations {
       edges {
         relationType(version: 2)
-        node { id type format title { userPreferred } coverImage { large color } startDate { year } }
+        node { id type format title { userPreferred romaji native } coverImage { large color } startDate { year } }
       }
     }
     externalLinks { site url }
