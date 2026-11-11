@@ -86,24 +86,41 @@ struct Api {
     observe_property: unsafe extern "C" fn(Handle, u64, *const c_char, c_int) -> c_int,
     wait_event: unsafe extern "C" fn(Handle, f64) -> *mut RawEvent,
     error_string: unsafe extern "C" fn(c_int) -> *const c_char,
+    #[cfg(target_os = "macos")]
+    render: RenderApi,
 }
 
 static API: OnceLock<Result<Api, String>> = OnceLock::new();
 
-/// Pastas onde procurar a DLL: ao lado do executável e, em desenvolvimento, `lib/` do crate.
+#[cfg(windows)]
+const LIB_NAME: &str = "libmpv-2.dll";
+#[cfg(target_os = "macos")]
+const LIB_NAME: &str = "libmpv.2.dylib";
+#[cfg(not(any(windows, target_os = "macos")))]
+const LIB_NAME: &str = "libmpv.so.2";
+
+/// Onde procurar a biblioteca: ao lado do executável, `lib/` do crate em
+/// desenvolvimento e, no macOS, `Contents/Frameworks` do bundle e o Homebrew.
 fn dll_candidates() -> Vec<PathBuf> {
     let mut v = Vec::new();
     if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from)) {
-        v.push(dir.join("libmpv-2.dll"));
-        v.push(dir.join("lib").join("libmpv-2.dll"));
+        v.push(dir.join(LIB_NAME));
+        v.push(dir.join("lib").join(LIB_NAME));
+        #[cfg(target_os = "macos")]
+        v.push(dir.join("../Frameworks").join(LIB_NAME));
     }
-    v.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("lib").join("libmpv-2.dll"));
+    v.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("lib").join(LIB_NAME));
+    #[cfg(target_os = "macos")]
+    {
+        v.push(PathBuf::from("/opt/homebrew/lib").join(LIB_NAME));
+        v.push(PathBuf::from("/usr/local/lib").join(LIB_NAME));
+    }
     v
 }
 
 fn api() -> Result<&'static Api, String> {
     API.get_or_init(|| {
-        let path = dll_candidates().into_iter().find(|p| p.exists()).ok_or("libmpv-2.dll não encontrada")?;
+        let path = dll_candidates().into_iter().find(|p| p.exists()).ok_or_else(|| format!("{LIB_NAME} não encontrada"))?;
         // SAFETY: carrega a libmpv oficial; os símbolos abaixo têm as assinaturas da client API 2.x.
         unsafe {
             let lib = Library::new(&path).map_err(|e| format!("não foi possível carregar a libmpv: {e}"))?;
@@ -123,6 +140,15 @@ fn api() -> Result<&'static Api, String> {
                 observe_property: sym!("mpv_observe_property"),
                 wait_event: sym!("mpv_wait_event"),
                 error_string: sym!("mpv_error_string"),
+                #[cfg(target_os = "macos")]
+                render: RenderApi {
+                    create: sym!("mpv_render_context_create"),
+                    set_update_callback: sym!("mpv_render_context_set_update_callback"),
+                    update: sym!("mpv_render_context_update"),
+                    render: sym!("mpv_render_context_render"),
+                    report_swap: sym!("mpv_render_context_report_swap"),
+                    free: sym!("mpv_render_context_free"),
+                },
                 _lib: lib,
             })
         }
@@ -291,6 +317,131 @@ impl Mpv {
         let n = cstr(name);
         let mut v = value;
         check(unsafe { (api.set_property)(self.inner.handle, n.as_ptr(), FORMAT_DOUBLE, &mut v as *mut f64 as *mut c_void) })
+    }
+
+    /// Identifica a instância (para a superfície saber de quem é o contexto de render).
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn id(&self) -> usize {
+        self.inner.handle as usize
+    }
+}
+
+// --- Render API (macOS): o mpv desenha no FBO do nosso `CAOpenGLLayer` ---
+
+#[cfg(target_os = "macos")]
+struct RenderApi {
+    create: unsafe extern "C" fn(*mut *mut c_void, Handle, *mut RenderParam) -> c_int,
+    set_update_callback: unsafe extern "C" fn(*mut c_void, Option<unsafe extern "C" fn(*mut c_void)>, *mut c_void),
+    update: unsafe extern "C" fn(*mut c_void) -> u64,
+    render: unsafe extern "C" fn(*mut c_void, *mut RenderParam) -> c_int,
+    report_swap: unsafe extern "C" fn(*mut c_void),
+    free: unsafe extern "C" fn(*mut c_void),
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct RenderParam {
+    kind: c_int,
+    data: *mut c_void,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct OpenGlInitParams {
+    get_proc_address: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void,
+    get_proc_address_ctx: *mut c_void,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct OpenGlFbo {
+    fbo: c_int,
+    w: c_int,
+    h: c_int,
+    internal_format: c_int,
+}
+
+#[cfg(target_os = "macos")]
+const PARAM_INVALID: c_int = 0;
+#[cfg(target_os = "macos")]
+const PARAM_API_TYPE: c_int = 1;
+#[cfg(target_os = "macos")]
+const PARAM_OPENGL_INIT_PARAMS: c_int = 2;
+#[cfg(target_os = "macos")]
+const PARAM_OPENGL_FBO: c_int = 3;
+#[cfg(target_os = "macos")]
+const PARAM_FLIP_Y: c_int = 4;
+#[cfg(target_os = "macos")]
+const UPDATE_FRAME: u64 = 1;
+
+/// Contexto de render OpenGL de uma instância do mpv. Precisa ser criado e
+/// descartado com o contexto GL corrente, e antes de o núcleo ser destruído.
+#[cfg(target_os = "macos")]
+pub struct RenderContext {
+    ctx: *mut c_void,
+    // Mantém o handle vivo enquanto o contexto existir.
+    _inner: Arc<Inner>,
+}
+
+// SAFETY: o mpv permite usar o contexto de render de qualquer thread, uma por vez;
+// quem usa (a superfície) serializa o acesso com um mutex.
+#[cfg(target_os = "macos")]
+unsafe impl Send for RenderContext {}
+
+#[cfg(target_os = "macos")]
+impl RenderContext {
+    /// Cria com o contexto GL **corrente**. `on_update` é chamado de threads do mpv.
+    ///
+    /// # Safety
+    /// Um contexto OpenGL precisa estar corrente nesta thread.
+    pub unsafe fn new(
+        mpv: &Mpv,
+        get_proc_address: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void,
+        on_update: unsafe extern "C" fn(*mut c_void),
+    ) -> Result<Self, String> {
+        let api = api()?;
+        let mut init = OpenGlInitParams { get_proc_address, get_proc_address_ctx: std::ptr::null_mut() };
+        let mut params = [
+            RenderParam { kind: PARAM_API_TYPE, data: c"opengl".as_ptr() as *mut c_void },
+            RenderParam { kind: PARAM_OPENGL_INIT_PARAMS, data: &mut init as *mut _ as *mut c_void },
+            RenderParam { kind: PARAM_INVALID, data: std::ptr::null_mut() },
+        ];
+        let mut ctx = std::ptr::null_mut();
+        check(unsafe { (api.render.create)(&mut ctx, mpv.inner.handle, params.as_mut_ptr()) })?;
+        unsafe { (api.render.set_update_callback)(ctx, Some(on_update), std::ptr::null_mut()) };
+        Ok(Self { ctx, _inner: mpv.inner.clone() })
+    }
+
+    /// `true` se há quadro novo para desenhar.
+    pub fn update(&self) -> bool {
+        api().is_ok_and(|a| unsafe { (a.render.update)(self.ctx) } & UPDATE_FRAME != 0)
+    }
+
+    /// Desenha no FBO `fbo` (`w`×`h` pixels) do contexto GL corrente.
+    pub fn render(&self, fbo: i32, w: i32, h: i32) {
+        let Ok(api) = api() else { return };
+        let mut target = OpenGlFbo { fbo, w, h, internal_format: 0 };
+        let mut flip: c_int = 1;
+        let mut params = [
+            RenderParam { kind: PARAM_OPENGL_FBO, data: &mut target as *mut _ as *mut c_void },
+            RenderParam { kind: PARAM_FLIP_Y, data: &mut flip as *mut _ as *mut c_void },
+            RenderParam { kind: PARAM_INVALID, data: std::ptr::null_mut() },
+        ];
+        // SAFETY: contexto vivo; parâmetros vivem até o fim da chamada.
+        unsafe {
+            (api.render.render)(self.ctx, params.as_mut_ptr());
+            (api.render.report_swap)(self.ctx);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for RenderContext {
+    fn drop(&mut self) {
+        if let Ok(api) = api() {
+            // SAFETY: único dono; quem descarta deixa o contexto GL corrente.
+            unsafe { (api.render.free)(self.ctx) };
+        }
     }
 }
 

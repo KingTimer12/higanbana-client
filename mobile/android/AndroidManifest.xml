@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- O host Android do app: o runtime do NSH (NshView) mais o player libmpv,
+     que o `nsh package` sozinho não sabe empacotar. Montado por build.sh. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.kingtimer12.higanbana">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- usesCleartextTraffic: o vídeo vem do proxy local do núcleo (http://127.0.0.1) e,
+         em desenvolvimento, o bundle vem do `nsh dev`. -->
+    <application android:label="Higanbana"
+        android:extractNativeLibs="true"
+        android:enableOnBackInvokedCallback="true"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
+        android:theme="@android:style/Theme.Material.NoActionBar">
+        <activity android:name=".MainActivity" android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

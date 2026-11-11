@@ -2,7 +2,9 @@
 
 use std::sync::Arc;
 
-use crate::{auth::Session, music::engine::PlayerState, nuvem::download::DownloadProgress};
+#[cfg(feature = "music")]
+use crate::music::engine::PlayerState;
+use crate::{auth::Session, nuvem::download::DownloadProgress};
 
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -13,6 +15,7 @@ pub enum Event {
     /// Progresso de um download (a cada 250 ms e no fim).
     DownloadProgress(DownloadProgress),
     /// Estado do player de música (a cada 250 ms tocando, ou quando muda).
+    #[cfg(feature = "music")]
     MusicState(PlayerState),
 }
 

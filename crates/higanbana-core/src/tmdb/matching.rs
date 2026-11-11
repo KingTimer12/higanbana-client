@@ -6,6 +6,10 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use super::types::{Episode, MovieHit, TvHit, TvShow};
+use crate::{
+    anilist::{MediaType, types::MediaDetail},
+    library::parse_work_name,
+};
 
 /// Tolerância, em dias, entre o início da obra no AniList e a `air_date` do TMDB.
 const DATE_TOLERANCE: i64 = 7;
@@ -317,6 +321,60 @@ pub fn pick_text(pt: &str, en: &str, n: u32) -> String {
 /// Sinopse pt-BR; se vazia, a en-US; senão vazia (nunca "Episódio N").
 pub fn pick_overview(pt: &str, en: &str) -> String {
     [pt, en].into_iter().map(str::trim).find(|t| !t.is_empty()).unwrap_or_default().to_owned()
+}
+
+/// Relações do AniList que apontam para a série onde o TMDB pode guardar a obra:
+/// a obra-mãe de um especial, a anterior de uma continuação.
+const PARENT_RELATIONS: [&str; 4] = ["PARENT", "PREQUEL", "SIDE_STORY", "ALTERNATIVE"];
+
+/// Títulos (nativo e romaji) dos animes ligados à obra, a obra-mãe primeiro.
+pub fn related_titles(detail: &MediaDetail) -> Vec<String> {
+    let mut titles: Vec<String> = Vec::new();
+    for wanted in PARENT_RELATIONS {
+        for e in detail.relations.edges.iter().filter(|e| e.relation_type == wanted) {
+            if e.node.media_type != Some(MediaType::Anime) {
+                continue;
+            }
+            let t = &e.node.title;
+            for c in [t.native.as_deref(), t.romaji.as_deref(), t.user_preferred.as_deref()].into_iter().flatten() {
+                let c = c.trim();
+                if !c.is_empty() && !titles.iter().any(|t| t == c) {
+                    titles.push(c.to_owned());
+                }
+            }
+        }
+    }
+    titles
+}
+
+/// O que pedir ao TMDB sobre a obra: títulos do AniList e da pasta, ano, data de
+/// início (sem dia → dia 1 e `start_day_known` falso; sem mês → nenhuma), tipo,
+/// títulos das obras ligadas e se é de um episódio só. Música fica fora.
+pub fn work_query(full: &MediaDetail, folder_name: &str) -> Option<WorkQuery> {
+    let detail = &full.summary;
+    let kind = match detail.format.as_deref() {
+        Some("MUSIC") => return None,
+        Some("MOVIE") => WorkKind::Movie,
+        Some("OVA" | "SPECIAL") => WorkKind::Special,
+        _ => WorkKind::Series,
+    };
+    let t = &detail.title;
+    let folder = parse_work_name(folder_name).title;
+    let mut titles: Vec<String> = Vec::new();
+    let candidates = [t.romaji.as_deref(), t.english.as_deref(), t.native.as_deref()]
+        .into_iter()
+        .flatten()
+        .chain(detail.synonyms.iter().map(String::as_str))
+        .chain(std::iter::once(folder.as_str()));
+    for c in candidates.map(str::trim).filter(|c| !c.is_empty()) {
+        if !titles.iter().any(|t| t == c) {
+            titles.push(c.to_owned());
+        }
+    }
+    let start = detail.start_date.and_then(|d| Some(Ymd { y: d.year?, m: d.month?, d: d.day.unwrap_or(1) }));
+    let start_day_known = detail.start_date.is_some_and(|d| d.day.is_some());
+    let single = kind == WorkKind::Movie || detail.episodes == Some(1);
+    Some(WorkQuery { titles, year: detail.year(), start, start_day_known, kind, related: related_titles(full), single })
 }
 
 #[cfg(test)]
@@ -693,5 +751,70 @@ mod tests {
         assert_eq!(pick_overview("Sinopse", "Synopsis"), "Sinopse");
         assert_eq!(pick_overview("  ", "Synopsis"), "Synopsis");
         assert_eq!(pick_overview("", ""), "");
+    }
+
+    fn media(json: &str) -> MediaDetail {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn work_query_movie_is_single_and_music_is_out() {
+        let m = media(r#"{"id":1,"format":"MOVIE","title":{"romaji":"Kimi no Na wa."}}"#);
+        let q = work_query(&m, "[2016] Kimi no Na wa").unwrap();
+        assert_eq!(q.kind, WorkKind::Movie);
+        assert!(q.single);
+        let m = media(r#"{"id":1,"format":"MUSIC","title":{"romaji":"X"}}"#);
+        assert!(work_query(&m, "X").is_none());
+        // Especial de um episódio só também é único; série não.
+        let m = media(r#"{"id":1,"format":"SPECIAL","episodes":1,"title":{"romaji":"X"}}"#);
+        assert!(work_query(&m, "X").unwrap().single);
+        let m = media(r#"{"id":1,"format":"TV","episodes":12,"title":{"romaji":"X"}}"#);
+        assert!(!work_query(&m, "X").unwrap().single);
+    }
+
+    #[test]
+    fn related_titles_parent_first_anime_only() {
+        let d = media(
+            r#"{"id":1,"title":{"romaji":"X Special"},"relations":{"edges":[
+                {"relationType":"ADAPTATION","node":{"id":2,"type":"MANGA","title":{"romaji":"X manga"}}},
+                {"relationType":"PREQUEL","node":{"id":3,"type":"ANIME","title":{"romaji":"X 1","native":"エックス"}}},
+                {"relationType":"PARENT","node":{"id":4,"type":"ANIME","title":{"userPreferred":"X","romaji":"X"}}},
+                {"relationType":"PARENT","node":{"id":5,"type":"MANGA","title":{"romaji":"X gaiden"}}},
+                {"relationType":"SEQUEL","node":{"id":6,"type":"ANIME","title":{"romaji":"X 3"}}}]}}"#,
+        );
+        assert_eq!(related_titles(&d), ["X", "エックス", "X 1"]);
+        assert_eq!(work_query(&d, "X").unwrap().related, ["X", "エックス", "X 1"]);
+    }
+
+    #[test]
+    fn work_query_ova_is_special() {
+        let m = media(r#"{"id":2,"format":"OVA","title":{"romaji":"Hellsing Ultimate"}}"#);
+        assert_eq!(work_query(&m, "Hellsing Ultimate").unwrap().kind, WorkKind::Special);
+    }
+
+    #[test]
+    fn work_query_tv_uses_full_start_and_folder_title() {
+        let m = media(
+            r#"{"id":3,"format":"TV","title":{"romaji":"Sousou no Frieren","english":"Frieren: Beyond Journey's End","native":"葬送のフリーレン"},
+                "synonyms":["Frieren"],"seasonYear":2023,"startDate":{"year":2023,"month":9,"day":29}}"#,
+        );
+        let q = work_query(&m, "[2023] Frieren e a Jornada").unwrap();
+        assert_eq!(q.kind, WorkKind::Series);
+        assert_eq!(q.year, Some(2023));
+        assert_eq!(q.start, Some(Ymd { y: 2023, m: 9, d: 29 }));
+        assert!(q.start_day_known);
+        for t in ["Sousou no Frieren", "Frieren: Beyond Journey's End", "葬送のフリーレン", "Frieren", "Frieren e a Jornada"] {
+            assert!(q.titles.iter().any(|q| q == t), "faltou {t}: {:?}", q.titles);
+        }
+    }
+
+    #[test]
+    fn work_query_start_without_day_or_month() {
+        let m = media(r#"{"id":4,"format":"TV","title":{"romaji":"X"},"startDate":{"year":2020,"month":4}}"#);
+        let q = work_query(&m, "X").unwrap();
+        assert_eq!(q.start, Some(Ymd { y: 2020, m: 4, d: 1 }));
+        assert!(!q.start_day_known);
+        let m = media(r#"{"id":5,"format":"TV","title":{"romaji":"X"},"startDate":{"year":2020}}"#);
+        assert_eq!(work_query(&m, "X").unwrap().start, None);
     }
 }

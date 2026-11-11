@@ -129,6 +129,7 @@ re!(EP_WORD, r"(?i)\b(?:Ep(?:is[oó]dio)?\.?|E)\s*(\d{1,4}(?:\.\d)?)(?:v\d)?\b")
 re!(EP_DASH, r"\s-\s(\d{1,4}(?:\.\d)?)(?:v\d)?(?:\s|$|\[)");
 re!(QUALITY, r"(?i)\d{3,4}p|BD|WEB|x26[45]|H\.?26[45]");
 re!(UNDERSCORES, r"[_.]+");
+re!(CRC32, r"^[0-9A-Fa-f]{8}$");
 
 /// `[2018] B - The Beginning` / `Gantz G (2015)` → 2018 / 2015.
 pub fn folder_year(name: &str) -> Option<u32> {
@@ -339,9 +340,16 @@ pub fn parse_episode(file_name: &str) -> EpisodeName {
         .or_else(|| EP_DASH.captures(&spaced))
         .map(|c| c[1].to_owned());
     let label = folder_title(base);
-    // Último grupo entre colchetes costuma ser a qualidade; o primeiro, o grupo de fansub.
-    let groups: Vec<&str> = TAGS.captures_iter(base).map(|c| c.get(1).unwrap().as_str()).collect();
-    let raw = if groups.len() > 1 { groups.last().copied() } else { groups.iter().copied().find(|g| QUALITY.is_match(g)) };
+    // A qualidade é o último grupo entre colchetes que parece qualidade (o primeiro é
+    // o grupo de fansub); sem nenhum assim, o último grupo. CRC32 (`[E3B8A31E]`) nunca.
+    let groups: Vec<&str> =
+        TAGS.captures_iter(base).map(|c| c.get(1).unwrap().as_str()).filter(|g| !CRC32.is_match(g)).collect();
+    let raw = groups
+        .iter()
+        .rev()
+        .copied()
+        .find(|g| QUALITY.is_match(g))
+        .or_else(|| if groups.len() > 1 { groups.last().copied() } else { None });
     let quality = raw.map(|q| UNDERSCORES.replace_all(q, " ").trim().to_owned());
     EpisodeName { number, label, quality }
 }
@@ -518,6 +526,10 @@ mod tests {
         assert_eq!(parse_episode("Show - 12 [1080p].mkv").number.as_deref(), Some("12"));
         assert_eq!(parse_episode("Show Episódio 3.mp4").number.as_deref(), Some("3"));
         assert_eq!(parse_episode("[G] Filme [1080p].mkv").quality.as_deref(), Some("1080p"));
+        // O CRC no fim não é qualidade; a etiqueta com resolução, sim.
+        let a = parse_episode("[Anitsu] Kusuriya no Hitorigoto - 01 [BD 1080p x264 Opus] [DUAL][E3B8A31E].mkv");
+        assert_eq!(a.quality.as_deref(), Some("BD 1080p x264 Opus"));
+        assert_eq!(parse_episode("[G] Show - 01 [ABCDEF12].mkv").quality, None);
         let u = parse_episode("[#AnimeNSK]_Caligula_-_01_[BD_1920x1080]_[HEVC_10Bit]_(FB10B460).mkv");
         assert_eq!(u.number.as_deref(), Some("01"));
     }

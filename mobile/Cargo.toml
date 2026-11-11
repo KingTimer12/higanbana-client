@@ -1,0 +1,21 @@
+[package]
+name = "higanbana-mobile"
+description = "App mobile do higanbana (NSH): expõe o higanbana-core às telas TSX"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Workspace próprio: o `nsh` constrói os hosts do app a partir daqui, sem o
+# workspace do desktop (gpui) entrar na resolução.
+[workspace]
+
+[dependencies]
+nsh-core = "0.4.0"
+nsh-base = "0.4.0"
+# Sem `music` nem `reader`: o app mobile começa pelos animes.
+higanbana-core = { path = "../crates/higanbana-core", default-features = false }
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+strip = true

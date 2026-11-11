@@ -29,14 +29,14 @@ use higanbana_core::{
     },
     library::{
         LOOSE_FILES_VERSION, VersionLabel, base_name, folder_title, folder_year, is_extra_folder, is_franchise, join_path,
-        natural_cmp, parse_work_name, raw_path, release_tags, resolution_rank, version_label,
+        natural_cmp, raw_path, release_tags, resolution_rank, version_label,
     },
     nuvem::FileEntry,
     player::logic::{episode_number, format_time, video_files},
     reader::logic::{chapter_label, comic_files, label_text},
     tmdb::{
         WorkEpisodes, work_key,
-        matching::{WorkKind, WorkQuery, Ymd},
+        matching::work_query,
     },
 };
 
@@ -127,59 +127,6 @@ pub(crate) fn default_version(versions: &[FileEntry], remembered: Option<&str>, 
         _ => Some(v),
     })
     .map(|v| v.name.clone())
-}
-
-/// Relações do AniList que apontam para a série onde o TMDB pode guardar a obra:
-/// a obra-mãe de um especial, a anterior de uma continuação.
-const PARENT_RELATIONS: [&str; 4] = ["PARENT", "PREQUEL", "SIDE_STORY", "ALTERNATIVE"];
-
-/// Títulos (nativo e romaji) dos animes ligados à obra, a obra-mãe primeiro.
-pub(crate) fn related_titles(detail: &MediaDetail) -> Vec<String> {
-    let mut titles: Vec<String> = Vec::new();
-    for wanted in PARENT_RELATIONS {
-        for e in detail.relations.edges.iter().filter(|e| e.relation_type == wanted) {
-            if e.node.media_type != Some(MediaType::Anime) {
-                continue;
-            }
-            let t = &e.node.title;
-            for c in [t.native.as_deref(), t.romaji.as_deref(), t.user_preferred.as_deref()].into_iter().flatten() {
-                let c = c.trim();
-                if !c.is_empty() && !titles.iter().any(|t| t == c) {
-                    titles.push(c.to_owned());
-                }
-            }
-        }
-    }
-    titles
-}
-
-/// O que pedir ao TMDB sobre a obra: títulos do AniList e da pasta, ano, data de
-/// início (sem dia → dia 1 e `start_day_known` falso; sem mês → nenhuma), tipo,
-/// títulos das obras ligadas (`related`) e se é de um episódio só. Música fica fora.
-pub(crate) fn work_query(detail: &MediaSummary, related: Vec<String>, folder_name: &str) -> Option<WorkQuery> {
-    let kind = match detail.format.as_deref() {
-        Some("MUSIC") => return None,
-        Some("MOVIE") => WorkKind::Movie,
-        Some("OVA" | "SPECIAL") => WorkKind::Special,
-        _ => WorkKind::Series,
-    };
-    let t = &detail.title;
-    let folder = parse_work_name(folder_name).title;
-    let mut titles: Vec<String> = Vec::new();
-    let candidates = [t.romaji.as_deref(), t.english.as_deref(), t.native.as_deref()]
-        .into_iter()
-        .flatten()
-        .chain(detail.synonyms.iter().map(String::as_str))
-        .chain(std::iter::once(folder.as_str()));
-    for c in candidates.map(str::trim).filter(|c| !c.is_empty()) {
-        if !titles.iter().any(|t| t == c) {
-            titles.push(c.to_owned());
-        }
-    }
-    let start = detail.start_date.and_then(|d| Some(Ymd { y: d.year?, m: d.month?, d: d.day.unwrap_or(1) }));
-    let start_day_known = detail.start_date.is_some_and(|d| d.day.is_some());
-    let single = kind == WorkKind::Movie || detail.episodes == Some(1);
-    Some(WorkQuery { titles, year: detail.year(), start, start_day_known, kind, related, single })
 }
 
 /// O detalhe `detail_id` é da obra aberta: foi o pedido por último e casa com o resumo atual.
@@ -444,7 +391,7 @@ impl TitleView {
         // Só o detalhe da obra aberta: nunca misturar com o da anterior.
         let current = self.summary(cx).flatten().map(|m| m.id);
         let Some(d) = self.full().filter(|d| is_open_work(d.summary.id, self.detail_for, current)) else { return };
-        let Some(q) = work_query(&d.summary, related_titles(d), &self.lookup_name()) else { return };
+        let Some(q) = work_query(d, &self.lookup_name()) else { return };
         let key = work_key(&q);
         if self.episodes_key.as_deref() == Some(key.as_str()) {
             return;
@@ -1142,70 +1089,5 @@ mod tests {
         // O detalhe pedido agora é outro (ou foi zerado na troca).
         assert!(!is_open_work(7, Some(8), Some(8)));
         assert!(!is_open_work(7, None, Some(7)));
-    }
-
-    fn media(json: &str) -> MediaSummary {
-        serde_json::from_str(json).unwrap()
-    }
-
-    #[test]
-    fn work_query_movie_is_single_and_music_is_out() {
-        let m = media(r#"{"id":1,"format":"MOVIE","title":{"romaji":"Kimi no Na wa."}}"#);
-        let q = work_query(&m, Vec::new(), "[2016] Kimi no Na wa").unwrap();
-        assert_eq!(q.kind, WorkKind::Movie);
-        assert!(q.single);
-        let m = media(r#"{"id":1,"format":"MUSIC","title":{"romaji":"X"}}"#);
-        assert!(work_query(&m, Vec::new(), "X").is_none());
-        // Especial de um episódio só também é único; série não.
-        let m = media(r#"{"id":1,"format":"SPECIAL","episodes":1,"title":{"romaji":"X"}}"#);
-        assert!(work_query(&m, Vec::new(), "X").unwrap().single);
-        let m = media(r#"{"id":1,"format":"TV","episodes":12,"title":{"romaji":"X"}}"#);
-        assert!(!work_query(&m, Vec::new(), "X").unwrap().single);
-    }
-
-    #[test]
-    fn related_titles_parent_first_anime_only() {
-        let d: MediaDetail = serde_json::from_str(
-            r#"{"id":1,"title":{"romaji":"X Special"},"relations":{"edges":[
-                {"relationType":"ADAPTATION","node":{"id":2,"type":"MANGA","title":{"romaji":"X manga"}}},
-                {"relationType":"PREQUEL","node":{"id":3,"type":"ANIME","title":{"romaji":"X 1","native":"エックス"}}},
-                {"relationType":"PARENT","node":{"id":4,"type":"ANIME","title":{"userPreferred":"X","romaji":"X"}}},
-                {"relationType":"PARENT","node":{"id":5,"type":"MANGA","title":{"romaji":"X gaiden"}}},
-                {"relationType":"SEQUEL","node":{"id":6,"type":"ANIME","title":{"romaji":"X 3"}}}]}}"#,
-        )
-        .unwrap();
-        assert_eq!(related_titles(&d), ["X", "エックス", "X 1"]);
-    }
-
-    #[test]
-    fn work_query_ova_is_special() {
-        let m = media(r#"{"id":2,"format":"OVA","title":{"romaji":"Hellsing Ultimate"}}"#);
-        assert_eq!(work_query(&m, Vec::new(), "Hellsing Ultimate").unwrap().kind, WorkKind::Special);
-    }
-
-    #[test]
-    fn work_query_tv_uses_full_start_and_folder_title() {
-        let m = media(
-            r#"{"id":3,"format":"TV","title":{"romaji":"Sousou no Frieren","english":"Frieren: Beyond Journey's End","native":"葬送のフリーレン"},
-                "synonyms":["Frieren"],"seasonYear":2023,"startDate":{"year":2023,"month":9,"day":29}}"#,
-        );
-        let q = work_query(&m, Vec::new(), "[2023] Frieren e a Jornada").unwrap();
-        assert_eq!(q.kind, WorkKind::Series);
-        assert_eq!(q.year, Some(2023));
-        assert_eq!(q.start, Some(Ymd { y: 2023, m: 9, d: 29 }));
-        assert!(q.start_day_known);
-        for t in ["Sousou no Frieren", "Frieren: Beyond Journey's End", "葬送のフリーレン", "Frieren", "Frieren e a Jornada"] {
-            assert!(q.titles.iter().any(|q| q == t), "faltou {t}: {:?}", q.titles);
-        }
-    }
-
-    #[test]
-    fn work_query_start_without_day_or_month() {
-        let m = media(r#"{"id":4,"format":"TV","title":{"romaji":"X"},"startDate":{"year":2020,"month":4}}"#);
-        let q = work_query(&m, Vec::new(), "X").unwrap();
-        assert_eq!(q.start, Some(Ymd { y: 2020, m: 4, d: 1 }));
-        assert!(!q.start_day_known);
-        let m = media(r#"{"id":5,"format":"TV","title":{"romaji":"X"},"startDate":{"year":2020}}"#);
-        assert_eq!(work_query(&m, Vec::new(), "X").unwrap().start, None);
     }
 }

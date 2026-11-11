@@ -15,12 +15,14 @@ mod core;
 pub mod events;
 pub mod http;
 pub mod library;
+#[cfg(feature = "music")]
 pub mod music;
 pub mod nuvem;
 pub mod paths;
 pub mod player;
 pub mod prefs;
 pub mod ratings;
+#[cfg(feature = "reader")]
 pub mod reader;
 pub mod settings;
 pub mod tmdb;
