@@ -137,7 +137,7 @@ impl Player {
 
     /// Pausa a indexação do catálogo enquanto um vídeo toca (a nuvem limita as listagens).
     pub fn set_playing(playing: bool) -> Result<(), String> {
-        core()?.anime_index().set_paused(playing);
+        core()?.set_index_paused(playing);
         Ok(())
     }
 }

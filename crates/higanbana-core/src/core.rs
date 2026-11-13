@@ -22,6 +22,7 @@ pub struct Core {
     fanart: Fanart,
     catalog: Catalog,
     anime_index: AnimeIndex,
+    manga_index: AnimeIndex,
     prefs: Prefs,
     settings: Settings,
     web: reqwest::Client,
@@ -40,7 +41,8 @@ impl Core {
         let tmdb = Tmdb::new(&paths.cache);
         let fanart = Fanart::new(&paths.cache);
         let catalog = Catalog::open(paths.cache.join("catalog.json"));
-        let anime_index = AnimeIndex::open(paths.cache.join("anime-index.json"));
+        let anime_index = AnimeIndex::open(paths.cache.join("anime-index.json"), crate::anime_index::ANIME_ROOT);
+        let manga_index = AnimeIndex::open(paths.cache.join("manga-index.json"), crate::anime_index::MANGA_ROOT);
         let prefs = Prefs::open(paths.data.join("prefs.json"));
         let settings = Settings::open(paths.data.join("settings.json"));
         let web = reqwest::Client::builder().user_agent(concat!("higanbana-client/", env!("CARGO_PKG_VERSION"))).build()?;
@@ -59,6 +61,7 @@ impl Core {
             fanart,
             catalog,
             anime_index,
+            manga_index,
             prefs,
             settings,
             web,
@@ -125,6 +128,24 @@ impl Core {
 
     pub fn anime_index(&self) -> &AnimeIndex {
         &self.anime_index
+    }
+
+    pub fn manga_index(&self) -> &AnimeIndex {
+        &self.manga_index
+    }
+
+    /// Índice de letras da seção do tipo de mídia.
+    pub fn index(&self, media: crate::anilist::MediaType) -> &AnimeIndex {
+        match media {
+            crate::anilist::MediaType::Anime => &self.anime_index,
+            crate::anilist::MediaType::Manga => &self.manga_index,
+        }
+    }
+
+    /// Pausa (ou retoma) as varreduras dos índices; usado com vídeo tocando.
+    pub fn set_index_paused(&self, paused: bool) {
+        self.anime_index.set_paused(paused);
+        self.manga_index.set_paused(paused);
     }
 
     /// Bytes de uma URL pública (capas do AniList, avatar do Discord). Só https.

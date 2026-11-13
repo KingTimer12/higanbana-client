@@ -283,7 +283,7 @@ impl AppState {
 
     pub fn set_playing(&mut self, playing: bool, _cx: &mut Context<Self>) {
         self.cat.playing = playing;
-        self.core.anime_index().set_paused(playing);
+        self.core.set_index_paused(playing);
     }
 
     pub fn set_inner_works(&mut self, title_path: &str, names: Vec<String>) {
