@@ -70,9 +70,8 @@ temporada) antes de modelar.
 
 ### Escolha do pôster (decisão do Claude, regra de temporada do usuário)
 
-API v3 do fanart.tv: `GET /v3/tv/{tvdb_id}?api_key=…` e `GET /v3/movies/{tmdb_id}?api_key=…`.
-O usuário citou `https://api.fanart.tv/`; a base documentada historicamente é
-`https://webservice.fanart.tv/v3/` — o builder confere qual responde e usa essa.
+API v3 do fanart.tv, base `https://webservice.fanart.tv` (confirmada pelo usuário):
+`GET /v3/tv/{tvdb_id}?api_key=…` e `GET /v3/movies/{tmdb_id}?api_key=…`.
 
 - **Série, temporada N**: `seasonposter` com `season == N`.
 - **Temporada 1** sem `seasonposter` da 1: aceita `tvposter` (o pôster geral normalmente é
