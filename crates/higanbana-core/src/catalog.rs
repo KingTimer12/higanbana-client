@@ -94,6 +94,20 @@ pub fn letter_folder(title: &str) -> Option<String> {
     Some(if c.is_ascii_digit() { "0-9".into() } else { format!("Letra {}", c.to_ascii_uppercase()) })
 }
 
+/// Qual nome resolveu para `id`. Achou → `Ok(Some(posição))`; todos respondidos
+/// sem achar → `Ok(None)`; algum ainda sem resposta (`Pending`) → `Err`.
+pub(crate) fn pick_confirmed(results: Vec<Lookup>, id: i64) -> Result<Option<usize>, String> {
+    let mut pending = false;
+    for (i, l) in results.into_iter().enumerate() {
+        match l {
+            Lookup::Found(f) if f.get("id").and_then(|v| v.as_i64()) == Some(id) => return Ok(Some(i)),
+            Lookup::Pending => pending = true,
+            _ => {}
+        }
+    }
+    if pending { Err("AniList sem resposta".into()) } else { Ok(None) }
+}
+
 impl Catalog {
     pub fn open(file: PathBuf, folders: PathBuf) -> Self {
         let stored: Stored = std::fs::read(&file)
@@ -135,13 +149,11 @@ impl Catalog {
     }
 
     /// Posição do primeiro nome que resolve no AniList para `id` (lote, cache).
-    async fn confirms(anilist: &AniList, names: &[String], media: MediaType, id: i64) -> Option<usize> {
+    /// Sem resposta do AniList → `Err` (não vira "não está no acervo").
+    async fn confirms(anilist: &AniList, names: &[String], media: MediaType, id: i64) -> Result<Option<usize>, String> {
         let reqs: Vec<LookupRequest> = names.iter().map(|n| LookupRequest { name: n.clone(), media_type: media }).collect();
-        let found = anilist.lookup(&reqs).await.ok()?;
-        found.into_iter().position(|l| match l {
-            Lookup::Found(f) => f.get("id").and_then(|v| v.as_i64()) == Some(id),
-            _ => false,
-        })
+        let found = anilist.lookup(&reqs).await.map_err(|e| e.to_string())?;
+        pick_confirmed(found, id)
     }
 
     async fn resolve(
@@ -178,7 +190,7 @@ impl Catalog {
         // Nome parecido: a própria pasta base pode ser a obra (confirma pelo AniList).
         let names: Vec<String> = near.iter().map(|(n, _)| n.clone()).collect();
         if !names.is_empty()
-            && let Some(i) = Self::confirms(anilist, &names, media, m.id).await
+            && let Some(i) = Self::confirms(anilist, &names, media, m.id).await?
         {
             return Ok(Some(near[i].1.clone()));
         }
@@ -197,7 +209,7 @@ impl Catalog {
                     continue;
                 }
                 let names: Vec<String> = confirm.iter().map(|(n, _)| n.clone()).collect();
-                if let Some(i) = Self::confirms(anilist, &names, media, m.id).await {
+                if let Some(i) = Self::confirms(anilist, &names, media, m.id).await? {
                     return Ok(Some(confirm[i].1.clone()));
                 }
             }
@@ -258,6 +270,25 @@ mod tests {
         std::fs::write(&file, format!(r#"{{"v": {CATALOG_VERSION}, "at": {}, "paths": {{"5": "Animes/Letra A/X"}}}}"#, now())).unwrap();
         assert_eq!(Catalog::open(file, dir.join("folders.json")).known(5), Some(Some("Animes/Letra A/X".into())));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn found(id: i64) -> Lookup {
+        Lookup::Found(serde_json::json!({ "id": id }))
+    }
+
+    #[test]
+    fn confirm_pending_is_not_a_negative() {
+        assert!(pick_confirmed(vec![found(9), Lookup::Pending], 1).is_err());
+    }
+
+    #[test]
+    fn confirm_all_answered_without_match_is_negative() {
+        assert_eq!(pick_confirmed(vec![found(9), Lookup::NotFound], 1), Ok(None));
+    }
+
+    #[test]
+    fn confirm_match_wins_even_with_pending() {
+        assert_eq!(pick_confirmed(vec![Lookup::Pending, found(1)], 1), Ok(Some(1)));
     }
 
     #[test]
