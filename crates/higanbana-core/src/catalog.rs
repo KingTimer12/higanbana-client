@@ -69,6 +69,32 @@ impl ListBudget {
     }
 }
 
+/// Saldo de listagens que vale por uma janela de tempo: voltar à entrada várias
+/// vezes seguidas não renova o saldo; passada a janela, começa outro.
+pub struct BudgetWindow {
+    size: u32,
+    span: std::time::Duration,
+    current: Mutex<(std::time::Instant, Arc<ListBudget>)>,
+}
+
+impl BudgetWindow {
+    pub fn new(size: u32, span: std::time::Duration) -> Self {
+        Self { size, span, current: Mutex::new((std::time::Instant::now(), ListBudget::new(size))) }
+    }
+
+    pub fn get(&self) -> Arc<ListBudget> {
+        self.get_at(std::time::Instant::now())
+    }
+
+    pub fn get_at(&self, now: std::time::Instant) -> Arc<ListBudget> {
+        let mut cur = self.current.lock().unwrap();
+        if now.saturating_duration_since(cur.0) >= self.span {
+            *cur = (now, ListBudget::new(self.size));
+        }
+        cur.1.clone()
+    }
+}
+
 const NO_BUDGET: &str = "orçamento de listagens esgotado";
 
 pub struct Catalog {
@@ -289,6 +315,18 @@ mod tests {
     #[test]
     fn confirm_match_wins_even_with_pending() {
         assert_eq!(pick_confirmed(vec![Lookup::Pending, found(1)], 1), Ok(Some(1)));
+    }
+
+    #[test]
+    fn budget_window_shares_until_it_expires() {
+        let w = BudgetWindow::new(2, std::time::Duration::from_secs(600));
+        let t0 = std::time::Instant::now();
+        assert!(w.get_at(t0).take());
+        // Outra visita dentro da janela continua do mesmo saldo.
+        assert!(w.get_at(t0 + std::time::Duration::from_secs(60)).take());
+        assert!(!w.get_at(t0 + std::time::Duration::from_secs(120)).take());
+        // Janela nova, saldo novo.
+        assert!(w.get_at(t0 + std::time::Duration::from_secs(601)).take());
     }
 
     #[test]

@@ -27,9 +27,6 @@ use crate::{
     ui::empty_state,
 };
 
-/// Listagens da nuvem que uma visita à entrada pode gastar conferindo o acervo.
-const LIST_BUDGET: u32 = 20;
-
 pub struct HomeView {
     state: Entity<AppState>,
     sections: Option<Result<Vec<String>, String>>,
@@ -124,7 +121,7 @@ impl HomeView {
         })
         .detach();
 
-        let budget = ListBudget::new(LIST_BUDGET);
+        let budget = core.home_budget();
         let hero = cx.new(|cx| hero::Hero::new(budget.clone(), cx));
         let cont = cx.new(continue_row::ContinueRow::new);
         // A altura do Continuar muda com o progresso: a entrada refaz o layout.

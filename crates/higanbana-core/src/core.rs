@@ -21,6 +21,8 @@ pub struct Core {
     tmdb: Tmdb,
     fanart: Fanart,
     catalog: Catalog,
+    /// Listagens que a entrada pode gastar conferindo o acervo: 20 a cada 10 min.
+    home_budget: crate::catalog::BudgetWindow,
     anime_index: AnimeIndex,
     manga_index: AnimeIndex,
     prefs: Prefs,
@@ -60,6 +62,7 @@ impl Core {
             tmdb,
             fanart,
             catalog,
+            home_budget: crate::catalog::BudgetWindow::new(20, std::time::Duration::from_secs(600)),
             anime_index,
             manga_index,
             prefs,
@@ -202,6 +205,11 @@ impl Core {
             on_found,
         )
         .await
+    }
+
+    /// Saldo de listagens da entrada na janela atual (compartilhado entre visitas).
+    pub fn home_budget(&self) -> std::sync::Arc<crate::catalog::ListBudget> {
+        self.home_budget.get()
     }
 
     fn media_of(m: &crate::anilist::types::MediaSummary) -> crate::anilist::MediaType {
