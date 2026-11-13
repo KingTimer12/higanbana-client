@@ -145,6 +145,7 @@ pub struct AppState {
     pub music: Option<higanbana_core::music::engine::PlayerState>,
     pub music_session: crate::music::session::MusicSession,
     pub(crate) cat: crate::catalog_state::CatalogState,
+    pub(crate) update: crate::updater::UpdateState,
 }
 
 struct GlobalState(Entity<AppState>);
@@ -188,8 +189,10 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             music: None,
             music_session: Default::default(),
             cat: Default::default(),
+            update: Default::default(),
         };
         s.load_session(cx);
+        s.check_update(cx);
         s
     });
     cx.set_global(GlobalState(s.clone()));

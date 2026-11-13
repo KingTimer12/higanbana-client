@@ -101,6 +101,18 @@ Os dados ficam na mesma pasta que a versão Tauri usava (`dev.kingtimer12.higanb
 
 **Uso leve das APIs:** consultas ao AniList são agrupadas e guardadas em cache; a checagem de quais animes estão no acervo só acontece quando o card aparece na tela, com poucos pedidos em paralelo.
 
+## Lançar uma versão
+
+A versão do app fica no arquivo [`VERSION`](VERSION), não no `Cargo.toml`: mudar a versão do manifesto invalidaria o cache de build do CI. O app mostra a versão na barra de título.
+
+1. Edite o `VERSION` (ex.: `0.1.1`) e faça commit.
+2. Crie e envie a tag: `git tag v0.1.1 && git push origin v0.1.1`.
+3. O workflow [`release.yml`](.github/workflows/release.yml) compila, baixa a libmpv, gera o instalador (Inno Setup, [`packaging/higanbana.iss`](packaging/higanbana.iss)) e um `.zip` portátil, calcula o `SHA256SUMS` e publica a release. A tag precisa bater com o `VERSION`.
+
+Secrets necessários em *Settings › Secrets and variables › Actions*: `ANITSU_SUPABASE_ANON_KEY` (obrigatório) e, opcionais, `TMDB_TOKEN`, `TMDB_KEY` e `FANART_TV`.
+
+**Atualização automática (Windows):** ao abrir, o app consulta a última release. Se houver versão maior, aparece o botão "Atualizar" na barra de título; ele baixa o instalador, confere o SHA-256 contra o `SHA256SUMS` da mesma release e roda o instalador em silêncio, que fecha o app e abre o novo. Os binários ainda não são assinados (Authenticode), então o Windows SmartScreen pode avisar na primeira instalação manual.
+
 ## Créditos
 
 - [mpv](https://mpv.io/): motor de vídeo, usado como biblioteca dinâmica (build LGPL; licença do mpv: LGPL-2.1+ / GPL-2.0+ conforme a build).

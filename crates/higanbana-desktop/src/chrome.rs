@@ -360,10 +360,12 @@ pub fn title_bar(state: &Entity<AppState>, palette: &Entity<SearchPalette>, cx: 
             .h_full()
             .pr_2()
             .gap_1()
-            .child(div().pr_3().font_weight(FontWeight::BOLD).text_color(cx.theme().primary).child("higanbana"))
+            .child(div().font_weight(FontWeight::BOLD).text_color(cx.theme().primary).child("higanbana"))
+            .child(div().pr_3().text_xs().text_color(cx.theme().muted_foreground).child(format!("v{}", higanbana_core::version::current())))
             .child(nav("back", IconName::ChevronLeft, "Voltar (Alt+←)", can_back, true))
             .child(nav("forward", IconName::ChevronRight, "Avançar (Alt+→)", can_fwd, false))
             .child(h_flex().flex_1().justify_center().child(search_trigger(palette, cx)))
+            .child(update_button(state, cx))
             .child(downloads_menu(state, cx)),
     )
 }
@@ -416,4 +418,24 @@ pub fn sidebar(state: &Entity<AppState>, sections: &[String], cx: &mut App) -> i
             })),
     );
     Sidebar::new("nav").collapsible(false).child(menu).footer(footer)
+}
+
+/// Aviso de versão nova na barra de título (some quando não há atualização).
+fn update_button(state: &Entity<AppState>, cx: &App) -> impl IntoElement {
+    use crate::updater::UpdateState;
+    let (label, tip, busy) = match &state.read(cx).update {
+        UpdateState::Idle => return div().into_any_element(),
+        UpdateState::Available(r) => (format!("Atualizar para v{}", r.version), "Baixar e instalar a nova versão (o app reinicia)".to_string(), false),
+        UpdateState::Downloading(r) => (format!("Baixando v{}...", r.version), "Baixando e conferindo a atualização".to_string(), true),
+    };
+    let st = state.clone();
+    Button::new("update")
+        .primary()
+        .small()
+        .icon(IconName::Download)
+        .label(label)
+        .tooltip(tip)
+        .disabled(busy)
+        .on_click(move |_, _, cx| st.update(cx, |s, cx| s.install_update(cx)))
+        .into_any_element()
 }

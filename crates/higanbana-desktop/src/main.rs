@@ -13,6 +13,7 @@ mod reader;
 mod state;
 mod theme;
 mod ui;
+mod updater;
 mod video;
 mod views;
 
