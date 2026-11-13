@@ -6,6 +6,7 @@ fn main() {
     embed_anon_key();
     embed_optional("TMDB_TOKEN", "TMDB_TOKEN_MASKED", "TMDB_TOKEN_MASK");
     embed_optional("TMDB_KEY", "TMDB_KEY_MASKED", "TMDB_KEY_MASK");
+    embed_optional("FANART_TV", "FANART_TV_MASKED", "FANART_TV_MASK");
 }
 
 /// Lê a chave anon da Anitsu de `ANITSU_SUPABASE_ANON_KEY` (variável de ambiente

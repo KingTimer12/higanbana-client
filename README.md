@@ -58,6 +58,16 @@ Sem token o build continua e o app funciona normalmente: a aba mostra os mesmos 
 
 O botão de ícone à direita, acima dos episódios, alterna entre **grade** (cards com miniatura, estilo Crunchyroll) e **lista** (miniatura, título, nota e sinopse curta). A escolha vale para todas as obras e fica salva.
 
+### Capas (fanart.tv, opcional)
+
+As capas dos animes vêm do [fanart.tv](https://fanart.tv/) quando há chave e, sem ela (ou quando o fanart.tv não tem a obra), do AniList.
+
+1. Crie uma conta no fanart.tv e copie a *Personal API Key*.
+2. No `.env`, preencha `FANART_TV` (ou defina a variável de ambiente com o mesmo nome).
+3. Compile de novo: a chave é embutida no executável mascarada, como as demais.
+
+Sem a chave o build continua e as capas vêm do AniList.
+
 ### Comandos
 
 ```sh

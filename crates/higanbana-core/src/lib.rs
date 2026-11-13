@@ -13,6 +13,7 @@ pub mod catalog_filter;
 mod cloud;
 mod core;
 pub mod events;
+pub mod fanart;
 pub mod http;
 pub mod library;
 #[cfg(feature = "music")]
@@ -24,6 +25,7 @@ pub mod prefs;
 pub mod ratings;
 #[cfg(feature = "reader")]
 pub mod reader;
+mod secret;
 pub mod settings;
 pub mod tmdb;
 
