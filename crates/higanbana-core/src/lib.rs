@@ -10,6 +10,7 @@ pub mod anime_index;
 pub mod auth;
 pub mod catalog;
 pub mod catalog_filter;
+pub mod catalog_rules;
 mod cloud;
 mod core;
 pub mod events;
