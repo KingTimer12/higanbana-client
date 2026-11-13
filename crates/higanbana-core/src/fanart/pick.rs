@@ -50,25 +50,22 @@ pub fn pick_movie(images: &MovieImages) -> Option<String> {
     best(&images.movieposter.iter().collect::<Vec<_>>())
 }
 
-/// `en` > sem idioma (`00`/vazio) > `ja` > outros; empate pelas curtidas.
+/// `en` > sem idioma (`00`/vazio) > `ja`; empate pelas curtidas. Outros idiomas
+/// nunca: sem nenhum destes, a capa fica a do AniList.
 fn best(arts: &[&Art]) -> Option<String> {
     arts.iter()
         .filter(|a| !a.url.is_empty())
-        .max_by_key(|a| {
-            (
-                lang_rank(&a.lang),
-                a.likes.trim().parse::<u32>().unwrap_or(0),
-            )
-        })
-        .map(|a| a.url.clone())
+        .filter_map(|a| Some(((lang_rank(&a.lang)?, a.likes.trim().parse::<u32>().unwrap_or(0)), a)))
+        .max_by_key(|(rank, _)| *rank)
+        .map(|(_, a)| a.url.clone())
 }
 
-fn lang_rank(lang: &str) -> u8 {
+fn lang_rank(lang: &str) -> Option<u8> {
     match lang.trim().to_ascii_lowercase().as_str() {
-        "en" => 3,
-        "00" | "" => 2,
-        "ja" => 1,
-        _ => 0,
+        "en" => Some(3),
+        "00" | "" => Some(2),
+        "ja" => Some(1),
+        _ => None,
     }
 }
 
@@ -140,6 +137,27 @@ mod tests {
         assert_eq!(pick_tv(&imgs, 1, true).as_deref(), Some("en"));
         imgs.tvposter.remove(2);
         assert_eq!(pick_tv(&imgs, 1, true).as_deref(), Some("none"));
+    }
+
+    #[test]
+    fn other_languages_are_never_picked() {
+        // Kusuriya no Hitorigoto: a 2ª temporada só tinha pôster em francês.
+        let imgs = TvImages {
+            tvposter: vec![art("t-en", "en", "5", None)],
+            seasonposter: vec![art("s2-fr", "fr", "9", Some("2"))],
+        };
+        assert_eq!(pick_tv(&imgs, 2, false), None);
+        let movie = MovieImages { movieposter: vec![art("fr", "fr", "9", None)] };
+        assert_eq!(pick_movie(&movie), None);
+    }
+
+    #[test]
+    fn season_one_in_other_language_falls_to_series_poster() {
+        let imgs = TvImages {
+            tvposter: vec![art("t-en", "en", "5", None)],
+            seasonposter: vec![art("s1-fr", "fr", "9", Some("1"))],
+        };
+        assert_eq!(pick_tv(&imgs, 1, true).as_deref(), Some("t-en"));
     }
 
     #[test]

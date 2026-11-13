@@ -47,15 +47,16 @@ fn now() -> i64 {
         .unwrap_or(0)
 }
 
-/// Chave das caches por alvo.
+/// Chave das caches por alvo. `v2`: só idiomas aceitos (en, sem texto, ja); as
+/// escolhas antigas, que podiam ser em outro idioma, não valem mais.
 fn target_key(t: Target) -> String {
     match t {
         Target::Season {
             tvdb,
             season,
             series_poster,
-        } => format!("tv:{tvdb}:{season}:{series_poster}"),
-        Target::Movie { tmdb } => format!("movie:{tmdb}"),
+        } => format!("v2|tv:{tvdb}:{season}:{series_poster}"),
+        Target::Movie { tmdb } => format!("v2|movie:{tmdb}"),
     }
 }
 
@@ -431,7 +432,7 @@ mod tests {
             &t.0,
             DEAD.into(),
         );
-        f.misses.insert("tv:5:1:true".into(), true);
+        f.misses.insert("v2|tv:5:1:true".into(), true);
         assert!(matches!(f.cover(&media(5, "ANIME")).await, Ok(None)));
     }
 
@@ -440,7 +441,7 @@ mod tests {
         let t = Tmp::new();
         let f = Fanart::with_parts(FanartClient::with_key(None), Some(map()), &t.0, DEAD.into());
         let url = "https://assets.fanart.tv/a.jpg";
-        f.hits.insert("tv:5:1:true".into(), url.into());
+        f.hits.insert("v2|tv:5:1:true".into(), url.into());
         let path = f.store.save(url, b"x", "webp").unwrap();
         assert_eq!(f.cover_cached(&media(5, "ANIME")), Some(path));
     }
@@ -450,7 +451,7 @@ mod tests {
         let t = Tmp::new();
         let f = Fanart::with_parts(FanartClient::with_key(None), Some(map()), &t.0, DEAD.into());
         f.hits.insert(
-            "tv:5:1:true".into(),
+            "v2|tv:5:1:true".into(),
             "https://assets.fanart.tv/a.jpg".into(),
         );
         assert_eq!(f.cover_cached(&media(5, "ANIME")), None);
@@ -473,7 +474,7 @@ mod tests {
             DEAD.into(),
         );
         let url = "https://assets.fanart.tv/a.jpg";
-        f.hits.insert("tv:5:1:true".into(), url.into());
+        f.hits.insert("v2|tv:5:1:true".into(), url.into());
         let path = f.store.save(url, b"x", "webp").unwrap();
         assert_eq!(f.cover(&media(5, "ANIME")).await.unwrap(), Some(path));
         assert!(!t.0.join("fanart-hits.json").exists());
@@ -503,7 +504,7 @@ mod tests {
         );
         f.preload();
         let url = "https://assets.fanart.tv/a.jpg";
-        f.hits.insert("tv:5:1:true".into(), url.into());
+        f.hits.insert("v2|tv:5:1:true".into(), url.into());
         let path = f.store.save(url, b"x", "webp").unwrap();
         assert_eq!(f.cover_cached(&media(5, "ANIME")), Some(path));
         assert!(!f.stale_pending.load(Ordering::Acquire));
@@ -551,7 +552,7 @@ mod tests {
             list_url,
         );
         let url = "https://assets.fanart.tv/a.jpg";
-        f.hits.insert("tv:5:1:true".into(), url.into());
+        f.hits.insert("v2|tv:5:1:true".into(), url.into());
         let path = f.store.save(url, b"x", "webp").unwrap();
         let got = tokio::time::timeout(Duration::from_secs(3), f.cover(&media(5, "ANIME"))).await;
         assert_eq!(
