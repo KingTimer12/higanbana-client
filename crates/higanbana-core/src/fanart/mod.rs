@@ -4,7 +4,9 @@
 //! capas continuam vindo do AniList.
 
 pub mod credentials;
+pub mod client;
 pub mod mapping;
+pub mod pick;
 
 use thiserror::Error;
 
