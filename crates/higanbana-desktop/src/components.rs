@@ -121,8 +121,9 @@ pub fn cover(media: Option<&MediaSummary>, name: &str, width: Option<Pixels>, cx
         None => base.w_full(),
     };
     let radius = cx.theme().radius_lg;
-    match media.and_then(|m| m.cover()) {
-        Some(url) => base.child(rounded_image(Some(url), Some(radius), cx)),
+    let key = media.and_then(|m| state(cx).update(cx, |s, scx| s.cover_key(m, false, scx)));
+    match key {
+        Some(url) => base.child(rounded_image(Some(&url), Some(radius), cx)),
         None => base.child(type_poster(name, cx)),
     }
 }
