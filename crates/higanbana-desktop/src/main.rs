@@ -5,6 +5,7 @@ mod app;
 mod catalog_state;
 mod chrome;
 mod components;
+mod image_cache;
 mod interact;
 mod motion;
 mod music;

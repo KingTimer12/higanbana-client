@@ -31,13 +31,17 @@ cpal = { workspace = true, optional = true }
 souvlaki = { workspace = true, optional = true }
 dirs.workspace = true
 open.workspace = true
+image = { workspace = true, default-features = false, features = ["jpeg", "png", "webp"] }
+webp = { workspace = true, optional = true }
 
 [features]
-default = ["music", "reader"]
+default = ["music", "reader", "webp-lossy"]
 # Motor de música (decodificação, saída de áudio, teclas de mídia). Só desktop.
 music = ["dep:symphonia", "dep:rubato", "dep:ebur128", "dep:cpal", "dep:souvlaki"]
 # Leitor de mangá (zip/rar).
 reader = ["dep:unrar"]
+# Capas em WebP com perdas (libwebp). Sem ela, as capas são gravadas em JPEG.
+webp-lossy = ["dep:webp"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

@@ -3,6 +3,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -19,7 +20,10 @@ use higanbana_core::{
     tmdb::{WorkEpisodes, matching::WorkQuery},
 };
 
-use crate::video::PlayTarget;
+use crate::{
+    image_cache::{decoded_weight, ImageCache, IMAGE_BUDGET},
+    video::PlayTarget,
+};
 
 const LOOKUP_DELAY: Duration = Duration::from_millis(60);
 /// Nomes por lote do que a pessoa está vendo (duas requisições de 18 no AniList).
@@ -106,7 +110,7 @@ pub struct AppState {
     pub user: Option<User>,
     stack: Vec<String>,
     index: usize,
-    images: HashMap<String, Img>,
+    images: ImageCache<Img>,
     lookups: HashMap<(MediaType, String), Option<Option<MediaSummary>>>,
     /// Muda a cada lote de respostas do AniList (nomes resolvidos).
     lookups_gen: u64,
@@ -126,6 +130,12 @@ pub struct AppState {
     /// Nomes adiados (`Pending`): tentativas seguidas sem progresso.
     lookup_retries: HashMap<(MediaType, String), u32>,
     catalog: HashMap<i64, Option<Option<String>>>,
+    /// Capa do fanart.tv por id de mídia: `None` = buscando; `Some(None)` = usar a do AniList.
+    covers: HashMap<i64, Option<Option<PathBuf>>>,
+    /// Ids cuja busca do fanart falhou (rede): não pede de novo até a próxima navegação.
+    covers_failed: HashSet<i64>,
+    /// Chave `file:` de cada capa local → id da mídia (para voltar ao AniList se o arquivo estragar).
+    cover_files: HashMap<String, i64>,
     /// Episódios do TMDB por obra (`tmdb::work_key`): `None` = buscando; `Some(None)` = sem dados.
     episodes: HashMap<String, Option<Option<Arc<WorkEpisodes>>>>,
     /// Obras cuja última busca no TMDB falhou (rede, 429): a tela mostra sem dados,
@@ -158,7 +168,7 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             user: None,
             stack: vec![String::new()],
             index: 0,
-            images: HashMap::new(),
+            images: ImageCache::new(IMAGE_BUDGET),
             lookups: HashMap::new(),
             lookups_gen: 0,
             lookup_queue: Vec::new(),
@@ -170,6 +180,9 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             lookup_due: None,
             lookup_retries: HashMap::new(),
             catalog: HashMap::new(),
+            covers: HashMap::new(),
+            covers_failed: HashSet::new(),
+            cover_files: HashMap::new(),
             episodes: HashMap::new(),
             episodes_failed: HashSet::new(),
             downloads: Vec::new(),
@@ -184,6 +197,48 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
     });
     cx.set_global(GlobalState(s.clone()));
     s
+}
+
+/// Solta o que o gpui guarda por conta própria das imagens descartadas do cache:
+/// o decodificado no cache de assets e a textura no atlas de sprites. Só soltar o
+/// `Arc<Image>` não basta, o gpui mantém os dois até pedirmos. Adiado para depois
+/// do quadro atual porque `image()` roda durante o desenho, com a janela emprestada.
+fn release_images(evicted: Vec<Img>, cx: &mut Context<AppState>) {
+    let images: Vec<Arc<gpui_kit::Image>> = evicted
+        .into_iter()
+        .filter_map(|i| match i {
+            Img::Ready(image) => Some(image),
+            _ => None,
+        })
+        .collect();
+    if images.is_empty() {
+        return;
+    }
+    cx.spawn(async move |_, cx| {
+        let _ = cx.update(|cx| {
+            for image in images {
+                let windows = cx.windows();
+                let render = windows
+                    .iter()
+                    .find_map(|w| w.update(cx, |_, window, cx| image.clone().get_render_image(window, cx)).ok().flatten());
+                if let Some(render) = render {
+                    cx.drop_image(render, None);
+                }
+                image.remove_asset(cx);
+            }
+        });
+    })
+    .detach();
+}
+
+/// Chave de imagem de um arquivo local.
+fn file_key(path: &std::path::Path) -> String {
+    format!("file:{}", path.display())
+}
+
+/// Caminho de uma chave `file:`; `None` para URLs.
+fn file_key_path(key: &str) -> Option<PathBuf> {
+    key.strip_prefix("file:").map(PathBuf::from)
 }
 
 /// Formato da imagem pelos primeiros bytes.
@@ -274,7 +329,8 @@ impl AppState {
         self.stack.truncate(self.index + 1);
         self.stack.push(path);
         self.index += 1;
-        cx.emit(AppEvent::Navigated);
+        self.covers_failed.clear();
+            cx.emit(AppEvent::Navigated);
         cx.notify();
     }
 
@@ -289,6 +345,7 @@ impl AppState {
     pub fn back(&mut self, cx: &mut Context<Self>) {
         if self.can_back() {
             self.index -= 1;
+            self.covers_failed.clear();
             cx.emit(AppEvent::Navigated);
             cx.notify();
         }
@@ -297,6 +354,7 @@ impl AppState {
     pub fn forward(&mut self, cx: &mut Context<Self>) {
         if self.can_forward() {
             self.index += 1;
+            self.covers_failed.clear();
             cx.emit(AppEvent::Navigated);
             cx.notify();
         }
@@ -312,29 +370,101 @@ impl AppState {
 
     // --- Imagens ---
 
-    /// Imagem de uma URL pública; começa a baixar na primeira vez.
+    /// Imagem de uma URL pública ou de um arquivo local (`file:<caminho>`, capas do
+    /// fanart); começa a carregar na primeira vez.
     pub fn image(&mut self, url: &str, cx: &mut Context<Self>) -> Img {
         if let Some(i) = self.images.get(url) {
-            return i.clone();
+            return i;
         }
-        self.images.insert(url.to_owned(), Img::Loading);
+        self.images.insert(url.to_owned(), Img::Loading, 0);
         let core = self.core.clone();
         let owned = url.to_owned();
-        let task = self.core.spawn(async move { core.fetch_public(&owned).await });
+        let local = file_key_path(url);
+        let task = self.core.spawn(async move {
+            match local {
+                Some(path) => tokio::fs::read(path).await.map_err(|e| e.to_string()),
+                None => core.fetch_public(&owned).await,
+            }
+        });
         let key = url.to_owned();
         cx.spawn(async move |this, cx| {
             let result = task.await.ok().and_then(Result::ok);
             let _ = this.update(cx, |s, cx| {
-                let img = match result.as_deref().and_then(|b| Some((sniff(b)?, b))) {
-                    Some((fmt, b)) => Img::Ready(Arc::new(gpui_kit::Image::from_bytes(fmt, b.to_vec()))),
-                    None => Img::Failed,
+                let (img, weight) = match result.as_deref().and_then(|b| Some((sniff(b)?, b))) {
+                    Some((fmt, b)) => (
+                        Img::Ready(Arc::new(gpui_kit::Image::from_bytes(fmt, b.to_vec()))),
+                        decoded_weight(b),
+                    ),
+                    None => (Img::Failed, 0),
                 };
-                s.images.insert(key, img);
+                if matches!(img, Img::Failed) {
+                    s.cover_file_failed(&key);
+                }
+                let evicted = s.images.insert(key, img, weight);
+                release_images(evicted, cx);
                 cx.notify();
             });
         })
         .detach();
         Img::Loading
+    }
+
+    /// Capa local que não abriu ou não decodifica: apaga o arquivo e volta ao AniList.
+    fn cover_file_failed(&mut self, key: &str) {
+        let Some(path) = file_key_path(key) else { return };
+        self.core.fanart().discard(&path);
+        if let Some(id) = self.cover_files.remove(key) {
+            self.covers.insert(id, Some(None));
+        }
+    }
+
+    /// Chave de imagem da capa: fanart local (`file:<caminho>`) se já existe, senão a URL
+    /// do AniList. Pede o fanart uma vez por id de mídia na sessão.
+    pub fn cover_key(&mut self, m: &MediaSummary, small: bool, cx: &mut Context<Self>) -> Option<String> {
+        let anilist = if small { m.cover_small() } else { m.cover() };
+        if m.media_type == Some(MediaType::Manga) || self.covers_failed.contains(&m.id) {
+            return anilist.map(str::to_owned);
+        }
+        if !self.covers.contains_key(&m.id) {
+            match self.core.fanart().cover_cached(m) {
+                Some(p) => {
+                    self.covers.insert(m.id, Some(Some(p)));
+                }
+                None => {
+                    self.covers.insert(m.id, None);
+                    let core = self.core.clone();
+                    let media = m.clone();
+                    let task = self.core.spawn(async move { core.fanart().cover(&media).await });
+                    let id = m.id;
+                    cx.spawn(async move |this, cx| {
+                        let res = task.await.ok();
+                        let _ = this.update(cx, |s, cx| {
+                            match res {
+                                Some(Ok(path)) => {
+                                    s.covers.insert(id, Some(path));
+                                }
+                                // Rede ou tarefa perdida: AniList agora; tenta de novo na próxima navegação.
+                                _ => {
+                                    s.covers.remove(&id);
+                                    s.covers_failed.insert(id);
+                                }
+                            }
+                            cx.notify();
+                        });
+                    })
+                    .detach();
+                }
+            }
+        }
+        let local = match self.covers.get(&m.id) {
+            Some(Some(Some(p))) => Some(file_key(p)),
+            _ => None,
+        };
+        if let Some(key) = local {
+            self.cover_files.insert(key.clone(), m.id);
+            return Some(key);
+        }
+        anilist.map(str::to_owned)
     }
 
     /// Guarda bytes já baixados (páginas, capas da nuvem) sob uma chave.
@@ -343,25 +473,27 @@ impl AppState {
             Some(fmt) => Img::Ready(Arc::new(gpui_kit::Image::from_bytes(fmt, bytes))),
             None => Img::Failed,
         };
-        self.images.insert(key, img);
+        // Bytes da nuvem: fixos fora do LRU, para não refazer a busca; saem em `forget_image`.
+        let evicted = self.images.insert_pinned(key, img);
+        release_images(evicted, cx);
         cx.notify();
     }
 
     pub fn cached_image(&self, key: &str) -> Option<Img> {
-        self.images.get(key).cloned()
+        self.images.get(key)
     }
 
     pub fn mark_image_loading(&mut self, key: &str) {
-        self.images.insert(key.to_owned(), Img::Loading);
+        self.images.insert(key.to_owned(), Img::Loading, 0);
     }
 
     pub fn fail_image(&mut self, key: &str, cx: &mut Context<Self>) {
-        self.images.insert(key.to_owned(), Img::Failed);
+        self.images.insert(key.to_owned(), Img::Failed, 0);
         cx.notify();
     }
 
-    pub fn forget_image(&mut self, key: &str) {
-        self.images.remove(key);
+    pub fn forget_image(&mut self, key: &str, cx: &mut Context<Self>) {
+        release_images(self.images.remove(key).into_iter().collect(), cx);
     }
 
     // --- AniList em lote ---
@@ -815,6 +947,15 @@ mod tests {
         assert_eq!(cooldown_end(now, None), now + Duration::from_secs(30));
         assert_eq!(cooldown_end(now, Some(now + Duration::from_secs(5))), now + Duration::from_secs(30));
         assert_eq!(cooldown_end(now, Some(now + Duration::from_secs(61))), now + Duration::from_secs(61));
+    }
+
+    #[test]
+    fn file_keys_roundtrip() {
+        let p = PathBuf::from("covers").join("a b.jpg");
+        let key = file_key(&p);
+        assert!(key.starts_with("file:"));
+        assert_eq!(file_key_path(&key), Some(p));
+        assert_eq!(file_key_path("https://x/y.jpg"), None);
     }
 
     #[test]

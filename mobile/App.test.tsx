@@ -1,5 +1,6 @@
 // As telas, de ponta a ponta, sobre o acervo de mentira (`fixture/fake.ts`).
 import { expect, open, test } from "nsh/test";
+import { coverRequests } from "./fixture/fake";
 import { seasonHeading } from "./lib/format";
 
 test("quem não tem sessão entra pelo Discord e chega ao início", async () => {
@@ -78,4 +79,13 @@ test("os episódios trazem o título do TMDB quando casam", async () => {
   expect(app.texts()).toContain("24 min");
   // Sem episódio casado, o rótulo do arquivo, como no desktop.
   expect(app.texts()).toContain("Episódio 2");
+});
+
+test("os pôsteres da temporada pedem a capa do fanart", async () => {
+  const app = await open("./Fixture.tsx");
+  await app.waitFor("Sousou no Frieren");
+  await app.waitFor("Dandadan");
+  // O pôster pede a capa de cada mídia (id 1 tem arquivo do fanart; o 2 fica com o AniList).
+  expect(coverRequests.has(1)).toBe(true);
+  expect(coverRequests.has(2)).toBe(true);
 });

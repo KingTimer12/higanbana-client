@@ -151,7 +151,7 @@ impl SearchPalette {
     fn result_item(&self, r: &SearchResult, cx: &mut App) -> CommandItem {
         let thumb = media_for_kind(r.kind)
             .and_then(|m| self.state.read(cx).lookup(&r.name, m).flatten())
-            .and_then(|m| m.cover_small().map(str::to_owned));
+            .and_then(|m| self.state.update(cx, |s, scx| s.cover_key(&m, true, scx)));
         let parent = split_path(&r.path).iter().rev().skip(1).rev().copied().collect::<Vec<_>>().join(" / ");
         let name = r.name.clone();
         CommandItem::new().label(name.clone()).child(move |_, cx| {

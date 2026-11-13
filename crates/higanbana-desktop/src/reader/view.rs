@@ -383,7 +383,7 @@ impl ReaderView {
     }
 
     fn retry_page(&mut self, key: &str, cx: &mut Context<Self>) {
-        self.state.update(cx, |s, _| s.forget_image(key));
+        self.state.update(cx, |s, cx| s.forget_image(key, cx));
         cx.notify();
     }
 
@@ -506,7 +506,7 @@ impl ReaderView {
         }
         // As páginas ficam na memória só enquanto o leitor está aberto.
         let keys = std::mem::take(&mut self.page_keys);
-        self.state.update(cx, |s, _| keys.iter().for_each(|k| s.forget_image(k)));
+        self.state.update(cx, |s, cx| keys.iter().for_each(|k| s.forget_image(k, cx)));
         cx.emit(ReaderEvent::Close);
     }
 

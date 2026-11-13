@@ -1,11 +1,11 @@
-import { computed, Image, List, resource, Scroll, signal, Text, token, View } from "nsh";
+import { computed, effect, Image, List, resource, Scroll, signal, Text, token, View } from "nsh";
 import { Button, NavPage } from "nsh/base";
 import { EPISODE_HEIGHT, EpisodeCard } from "../components/Episode";
 import { Chip, Cover, EmptyState, Loading, PageHeader, PrimaryButton, SectionTitle } from "../components/ui";
 import { backend, type Episode, type EpisodeInfo, type Media, type Version, type Work } from "../lib/backend";
 import { baseName, errorMessage, mediaCover, mediaFacts, mediaTitle, plainText } from "../lib/format";
 import { SYSTEM_HEADER } from "../components/ui";
-import { nav, watchedOf } from "../store";
+import { coverOf, nav, watchedOf, wantCover } from "../store";
 
 /** Sinopse maior que isso começa recolhida, com "Mostrar mais". */
 const LONG_SYNOPSIS = 240;
@@ -106,6 +106,11 @@ export function Title(props: { path: string; media: Media | null }) {
     if (waiting) return undefined;
     return tmdb()?.get(name) ?? null;
   };
+  // A capa do fanart (o pôster que abriu a página já a pediu; aqui cobre a entrada pelo acervo).
+  effect(() => {
+    const m = media();
+    if (m) wantCover(m);
+  });
   const expanded = signal(false);
   const backdrop = () => media()?.bannerImage ?? mediaCover(media());
 
@@ -131,7 +136,7 @@ export function Title(props: { path: string; media: Media | null }) {
         </If>
         <View class="absolute inset-0" style={{ backgroundImage: `linear-gradient(180deg, transparent 0%, ${token("background")} 92%)` }} />
         <View class="flex-row gap-4 px-4 pt-10 pb-2">
-        <Cover src={mediaCover(media())} title={title()} color={media()?.coverImage?.color} class="w-28" />
+        <Cover src={coverOf(media())} title={title()} color={media()?.coverImage?.color} class="w-28" />
         <View class="flex-1 justify-end gap-2">
           <Text role="header" class="text-2xl font-semibold text-foreground" style={{ numberOfLines: 3 }}>
             {title()}

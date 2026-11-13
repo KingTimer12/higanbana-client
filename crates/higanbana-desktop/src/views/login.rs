@@ -85,7 +85,8 @@ impl Render for LoginView {
                     .when(col % 2 == 1, |d| d.mt(cover_w * 0.5))
                     .children(self.covers.iter().skip(col).step_by(5).map(|m| {
                         let bg = hex_color(m.color()).unwrap_or(theme.muted);
-                        div().w(cover_w).h(cover_w * 1.5).flex_none().rounded(theme.radius_lg).overflow_hidden().bg(bg).child(remote_image(m.cover_small(), cx))
+                        let key = self.state.update(cx, |s, scx| s.cover_key(m, true, scx));
+                        div().w(cover_w).h(cover_w * 1.5).flex_none().rounded(theme.radius_lg).overflow_hidden().bg(bg).child(remote_image(key.as_deref(), cx))
                     }))
             }));
 

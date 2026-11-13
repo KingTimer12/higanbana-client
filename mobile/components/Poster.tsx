@@ -4,8 +4,8 @@
 import { effect, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import type { Media, WorkEntry } from "../lib/backend";
-import { mediaCover, mediaTitle, posterMeta } from "../lib/format";
-import { cloudPathOf, lookupOf, nav, openingMedia, openMedia, wantCloudPath, wantLookup } from "../store";
+import { mediaTitle, posterMeta } from "../lib/format";
+import { cloudPathOf, coverOf, lookupOf, nav, openingMedia, openMedia, wantCloudPath, wantCover, wantLookup } from "../store";
 import { Cover, Icon, Skeleton } from "./ui";
 
 /** Colunas das grades de pôsteres no telefone. */
@@ -53,6 +53,10 @@ function LibraryMark() {
 }
 
 export function Poster(props: PosterProps) {
+  // A capa nítida do fanart chega depois; até lá fica a do AniList.
+  effect(() => {
+    if (props.media) wantCover(props.media);
+  });
   const meta = () => props.meta ?? posterMeta(props.media, props.year ?? null);
   return (
     <Button
@@ -63,7 +67,7 @@ export function Poster(props: PosterProps) {
       classList={{ "opacity-55": !!props.dimmed, "opacity-50": !!props.busy }}
     >
       <If when={props.media !== undefined} else={<Skeleton class="aspect-2/3 w-full rounded-(--radius-lg)" />}>
-        <Cover src={mediaCover(props.media)} title={props.title} color={props.media?.coverImage?.color} class="w-full">
+        <Cover src={coverOf(props.media)} title={props.title} color={props.media?.coverImage?.color} class="w-full">
           <If when={props.inLibrary}>
             <LibraryMark />
           </If>

@@ -90,6 +90,9 @@ function work(path: string): Work {
   return { path, title, seasons: [], versions: [], defaultVersion: null, episodes: episodesOf(path) };
 }
 
+/** Ids de mídia para os quais a tela pediu a capa do fanart (os testes conferem). */
+export const coverRequests = new Set<number>();
+
 /** Um backend com dados fixos. `signedIn: false` começa na tela de login. */
 export function fakeBackend(options: { signedIn: boolean }): Backend {
   let user: User | null = options.signedIn ? USER : null;
@@ -105,6 +108,10 @@ export function fakeBackend(options: { signedIn: boolean }): Backend {
 
     season: async () => SEASON,
     find: async (m) => PATHS[m.id] ?? null,
+    cover: async (m) => {
+      coverRequests.add(m.id);
+      return m.id === 1 ? "file:///fanart/1.webp" : null;
+    },
     media: async (id) => ({
       ...(SEASON.find((m) => m.id === id) ?? media(id, "Anime")),
       description: "Uma elfa maga e seus companheiros seguem viagem depois do fim da aventura.<br><br>O tempo passa diferente para ela.",

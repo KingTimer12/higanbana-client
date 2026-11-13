@@ -136,6 +136,8 @@ export interface Backend {
   season(): Promise<Media[]>;
   /** Caminho da obra na nuvem, ou `null` se não está no acervo. */
   find(media: Media): Promise<string | null>;
+  /** URI do pôster local do fanart.tv, ou `null` (fica a capa do AniList). */
+  cover(media: Media): Promise<string | null>;
   media(id: number): Promise<Media>;
   lookup(names: string[]): Promise<(Media | null)[]>;
   search(query: string): Promise<WorkEntry[]>;

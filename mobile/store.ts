@@ -3,7 +3,7 @@
 import { openUrl, signal } from "nsh";
 import { createNavStack } from "nsh/base";
 import { backend, type Media, type User } from "./lib/backend";
-import { errorMessage } from "./lib/format";
+import { errorMessage, mediaCover } from "./lib/format";
 
 export type Route =
   | { name: "home" }
@@ -192,6 +192,40 @@ async function runLookups() {
     }
   }
   lookupRunning = false;
+}
+
+/** Capas do fanart.tv por id do AniList: `null` = sem capa de lá; ausente = ainda não se sabe. */
+const covers = signal<Record<number, string | null>>({});
+const coverQueue: Media[] = [];
+const coverAsked = new Set<number>();
+let coverRunning = false;
+
+/** A capa para mostrar: a do fanart se já chegou, senão a do AniList. */
+export const coverOf = (media: Media | null | undefined): string | null => (media && covers()[media.id]) || mediaCover(media);
+
+/** Pede a capa do fanart de uma mídia (uma vez por id; um pedido de cada vez, como a nuvem). */
+export function wantCover(media: Media) {
+  if (coverAsked.has(media.id)) return;
+  coverAsked.add(media.id);
+  coverQueue.push(media);
+  if (!coverRunning) {
+    coverRunning = true;
+    runCovers().catch(() => {});
+  }
+}
+
+async function runCovers() {
+  while (coverQueue.length > 0) {
+    const media = coverQueue.shift()!;
+    try {
+      const uri = await backend().cover(media);
+      covers.update((all) => ({ ...all, [media.id]: uri }));
+    } catch {
+      // Fica com a capa do AniList; o pedido é liberado e pode ser refeito se o card pedir de novo.
+      coverAsked.delete(media.id);
+    }
+  }
+  coverRunning = false;
 }
 
 /** Caminho na nuvem por id do AniList: `null` = fora do acervo; ausente = ainda não se sabe. */
