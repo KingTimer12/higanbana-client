@@ -19,7 +19,10 @@ use higanbana_core::{
     tmdb::{WorkEpisodes, matching::WorkQuery},
 };
 
-use crate::video::PlayTarget;
+use crate::{
+    image_cache::{decoded_weight, ImageCache, IMAGE_BUDGET},
+    video::PlayTarget,
+};
 
 const LOOKUP_DELAY: Duration = Duration::from_millis(60);
 /// Nomes por lote do que a pessoa está vendo (duas requisições de 18 no AniList).
@@ -106,7 +109,7 @@ pub struct AppState {
     pub user: Option<User>,
     stack: Vec<String>,
     index: usize,
-    images: HashMap<String, Img>,
+    images: ImageCache<Img>,
     lookups: HashMap<(MediaType, String), Option<Option<MediaSummary>>>,
     /// Muda a cada lote de respostas do AniList (nomes resolvidos).
     lookups_gen: u64,
@@ -158,7 +161,7 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             user: None,
             stack: vec![String::new()],
             index: 0,
-            images: HashMap::new(),
+            images: ImageCache::new(IMAGE_BUDGET),
             lookups: HashMap::new(),
             lookups_gen: 0,
             lookup_queue: Vec::new(),
@@ -184,6 +187,38 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
     });
     cx.set_global(GlobalState(s.clone()));
     s
+}
+
+/// Solta o que o gpui guarda por conta própria das imagens descartadas do cache:
+/// o decodificado no cache de assets e a textura no atlas de sprites. Só soltar o
+/// `Arc<Image>` não basta, o gpui mantém os dois até pedirmos. Adiado para depois
+/// do quadro atual porque `image()` roda durante o desenho, com a janela emprestada.
+fn release_images(evicted: Vec<Img>, cx: &mut Context<AppState>) {
+    let images: Vec<Arc<gpui_kit::Image>> = evicted
+        .into_iter()
+        .filter_map(|i| match i {
+            Img::Ready(image) => Some(image),
+            _ => None,
+        })
+        .collect();
+    if images.is_empty() {
+        return;
+    }
+    cx.spawn(async move |_, cx| {
+        let _ = cx.update(|cx| {
+            for image in images {
+                let windows = cx.windows();
+                let render = windows
+                    .iter()
+                    .find_map(|w| w.update(cx, |_, window, cx| image.clone().get_render_image(window, cx)).ok().flatten());
+                if let Some(render) = render {
+                    cx.drop_image(render, None);
+                }
+                image.remove_asset(cx);
+            }
+        });
+    })
+    .detach();
 }
 
 /// Formato da imagem pelos primeiros bytes.
@@ -315,9 +350,9 @@ impl AppState {
     /// Imagem de uma URL pública; começa a baixar na primeira vez.
     pub fn image(&mut self, url: &str, cx: &mut Context<Self>) -> Img {
         if let Some(i) = self.images.get(url) {
-            return i.clone();
+            return i;
         }
-        self.images.insert(url.to_owned(), Img::Loading);
+        self.images.insert(url.to_owned(), Img::Loading, 0);
         let core = self.core.clone();
         let owned = url.to_owned();
         let task = self.core.spawn(async move { core.fetch_public(&owned).await });
@@ -325,11 +360,15 @@ impl AppState {
         cx.spawn(async move |this, cx| {
             let result = task.await.ok().and_then(Result::ok);
             let _ = this.update(cx, |s, cx| {
-                let img = match result.as_deref().and_then(|b| Some((sniff(b)?, b))) {
-                    Some((fmt, b)) => Img::Ready(Arc::new(gpui_kit::Image::from_bytes(fmt, b.to_vec()))),
-                    None => Img::Failed,
+                let (img, weight) = match result.as_deref().and_then(|b| Some((sniff(b)?, b))) {
+                    Some((fmt, b)) => (
+                        Img::Ready(Arc::new(gpui_kit::Image::from_bytes(fmt, b.to_vec()))),
+                        decoded_weight(b),
+                    ),
+                    None => (Img::Failed, 0),
                 };
-                s.images.insert(key, img);
+                let evicted = s.images.insert(key, img, weight);
+                release_images(evicted, cx);
                 cx.notify();
             });
         })
@@ -339,24 +378,28 @@ impl AppState {
 
     /// Guarda bytes já baixados (páginas, capas da nuvem) sob uma chave.
     pub fn put_image(&mut self, key: String, bytes: Vec<u8>, cx: &mut Context<Self>) {
-        let img = match sniff(&bytes) {
-            Some(fmt) => Img::Ready(Arc::new(gpui_kit::Image::from_bytes(fmt, bytes))),
-            None => Img::Failed,
+        let (img, weight) = match sniff(&bytes) {
+            Some(fmt) => {
+                let weight = decoded_weight(&bytes);
+                (Img::Ready(Arc::new(gpui_kit::Image::from_bytes(fmt, bytes))), weight)
+            }
+            None => (Img::Failed, 0),
         };
-        self.images.insert(key, img);
+        let evicted = self.images.insert(key, img, weight);
+        release_images(evicted, cx);
         cx.notify();
     }
 
     pub fn cached_image(&self, key: &str) -> Option<Img> {
-        self.images.get(key).cloned()
+        self.images.get(key)
     }
 
     pub fn mark_image_loading(&mut self, key: &str) {
-        self.images.insert(key.to_owned(), Img::Loading);
+        self.images.insert(key.to_owned(), Img::Loading, 0);
     }
 
     pub fn fail_image(&mut self, key: &str, cx: &mut Context<Self>) {
-        self.images.insert(key.to_owned(), Img::Failed);
+        self.images.insert(key.to_owned(), Img::Failed, 0);
         cx.notify();
     }
 
