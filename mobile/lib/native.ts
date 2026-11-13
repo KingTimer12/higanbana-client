@@ -34,6 +34,7 @@ export function nativeBackend(): Backend {
 
     season: () => Catalog.season() as Promise<Media[]>,
     find: (media) => Catalog.find(media),
+    cover: (media) => Catalog.cover(media),
     media: (id) => Catalog.media(id) as Promise<Media>,
     lookup: (names) => Catalog.lookup(names) as Promise<(Media | null)[]>,
     search: (query) => Catalog.search(query) as Promise<WorkEntry[]>,

@@ -40,6 +40,13 @@ pub(crate) fn core() -> Result<Arc<Core>, String> {
     CORE.get().cloned().ok_or_else(|| "núcleo não iniciado".to_owned())
 }
 
+/// `file://` para o `Image` do NSH (que também lê URIs de arquivo): barras para frente,
+/// e `%`, `#` e `?` escapados para não virarem parte da URL.
+fn file_uri(path: &std::path::Path) -> String {
+    let path = path.to_string_lossy().replace('\\', "/").replace('%', "%25").replace('#', "%23").replace('?', "%3F");
+    if path.starts_with('/') { format!("file://{path}") } else { format!("file:///{path}") }
+}
+
 /// Roda `f` no runtime do núcleo e espera o resultado na thread da interface.
 pub(crate) async fn on_core<F, Fut, T>(f: F) -> Result<T, String>
 where
@@ -163,6 +170,20 @@ impl Catalog {
     pub async fn find(media: JsonValue) -> Result<Option<String>, String> {
         let media: MediaSummary = serde_json::from_value(media).map_err(|e| e.to_string())?;
         on_core(|c| async move { Ok(c.check_catalog(&media).await) }).await
+    }
+
+    /// URI do pôster local do fanart (`file://…`), ou `null` (usar o AniList).
+    pub async fn cover(media: JsonValue) -> Result<Option<String>, String> {
+        let media: MediaSummary = serde_json::from_value(media).map_err(|e| e.to_string())?;
+        on_core(|c| async move {
+            // Sem rede ou sem chave o fanart falha: a tela segue com a capa do AniList.
+            let path = match c.fanart().cover_cached(&media) {
+                Some(path) => Some(path),
+                None => c.fanart().cover(&media).await.ok().flatten(),
+            };
+            Ok(path.map(|p| file_uri(&p)))
+        })
+        .await
     }
 
     /// Detalhe completo de uma mídia do AniList (sinopse, estúdios, relações).

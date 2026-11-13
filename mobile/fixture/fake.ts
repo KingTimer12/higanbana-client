@@ -105,6 +105,7 @@ export function fakeBackend(options: { signedIn: boolean }): Backend {
 
     season: async () => SEASON,
     find: async (m) => PATHS[m.id] ?? null,
+    cover: async (m) => (m.id === 1 ? "file:///fanart/1.webp" : null),
     media: async (id) => ({
       ...(SEASON.find((m) => m.id === id) ?? media(id, "Anime")),
       description: "Uma elfa maga e seus companheiros seguem viagem depois do fim da aventura.<br><br>O tempo passa diferente para ela.",

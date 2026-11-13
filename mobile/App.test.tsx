@@ -79,3 +79,12 @@ test("os episódios trazem o título do TMDB quando casam", async () => {
   // Sem episódio casado, o rótulo do arquivo, como no desktop.
   expect(app.texts()).toContain("Episódio 2");
 });
+
+test("as capas vêm do fanart quando existem e do AniList quando não", async () => {
+  const app = await open("./Fixture.tsx");
+  await app.waitFor("Sousou no Frieren");
+  await app.waitFor("Dandadan");
+  // Mídia 1 tem pôster local do fanart; a 2 segue com `coverImage.large`.
+  expect(app.images()).toContain("file:///fanart/1.webp");
+  expect(app.images()).toContain("https://picsum.photos/seed/higanbana-2/300/450");
+});
