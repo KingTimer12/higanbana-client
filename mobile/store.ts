@@ -221,7 +221,7 @@ async function runCovers() {
       const uri = await backend().cover(media);
       covers.update((all) => ({ ...all, [media.id]: uri }));
     } catch {
-      // Fica com a capa do AniList; tenta de novo quando o card reaparecer.
+      // Fica com a capa do AniList; o pedido é liberado e pode ser refeito se o card pedir de novo.
       coverAsked.delete(media.id);
     }
   }

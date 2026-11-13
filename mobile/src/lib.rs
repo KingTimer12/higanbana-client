@@ -241,3 +241,19 @@ impl Catalog {
 fn work_entry(name: &str, path: &str) -> JsonValue {
     json!({ "name": name, "path": path, "title": parse_work_name(name).title, "year": folder_year(name) })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::file_uri;
+    use std::path::Path;
+
+    #[test]
+    fn file_uri_do_android() {
+        assert_eq!(file_uri(Path::new("/data/user/0/x/files/covers/ab.webp")), "file:///data/user/0/x/files/covers/ab.webp");
+    }
+
+    #[test]
+    fn file_uri_do_windows() {
+        assert_eq!(file_uri(Path::new(r"D:\x\y.webp")), "file:///D:/x/y.webp");
+    }
+}
