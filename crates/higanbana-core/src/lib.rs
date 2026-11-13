@@ -11,6 +11,7 @@ pub mod auth;
 pub mod catalog;
 pub mod catalog_filter;
 pub mod catalog_rules;
+pub mod discover;
 mod cloud;
 mod core;
 pub mod events;

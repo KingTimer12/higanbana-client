@@ -170,6 +170,40 @@ impl Core {
         self.catalog.check(self.index(Self::media_of(m)), &self.cloud, &self.anilist, m, Some(budget)).await
     }
 
+    /// Vitrine da entrada: ranking do AniList filtrado pelo acervo, até `n` obras.
+    /// Popular/TopRated usam o ano atual e completam com o anterior; Trending não
+    /// filtra ano. A conferência espera enquanto há vídeo tocando.
+    pub async fn discover(
+        &self,
+        media: crate::anilist::MediaType,
+        ranking: crate::anilist::Ranking,
+        n: usize,
+        budget: std::sync::Arc<crate::catalog::ListBudget>,
+        on_found: impl FnMut(crate::anilist::types::RankedMedia, String) + Send,
+    ) -> usize {
+        let year = crate::anilist::current_year();
+        let years: Vec<Option<i32>> = match ranking {
+            crate::anilist::Ranking::Trending => vec![None],
+            _ => vec![Some(year), Some(year - 1)],
+        };
+        let index = self.index(media);
+        crate::discover::fill(
+            n,
+            &years,
+            |y| async move { self.anilist.ranking(media, ranking, y).await.unwrap_or_default() },
+            |m| {
+                let summary = m.summary.clone();
+                let budget = budget.clone();
+                async move {
+                    index.wait_unpaused().await;
+                    self.check_catalog_budgeted(&summary, &budget).await
+                }
+            },
+            on_found,
+        )
+        .await
+    }
+
     fn media_of(m: &crate::anilist::types::MediaSummary) -> crate::anilist::MediaType {
         m.media_type.unwrap_or(crate::anilist::MediaType::Anime)
     }
