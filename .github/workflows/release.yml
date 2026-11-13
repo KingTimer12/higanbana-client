@@ -1,0 +1,115 @@
+name: Release
+
+# Para lançar: edite o arquivo VERSION, faça commit, e crie a tag `v<VERSION>`:
+#   git tag v0.1.0 && git push origin v0.1.0
+# A versão vem do VERSION (e não do Cargo.toml) para não invalidar o cache de build.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: # só gera os arquivos como artefato, não publica
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ler a versão
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Get-Content VERSION -Raw).Trim()
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION inválido: '$v'" }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$v") {
+            throw "A tag $env:GITHUB_REF_NAME não bate com o VERSION (v$v)."
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # A chave de cache vem do Cargo.lock e dos Cargo.toml. Como a versão fica no
+      # VERSION, lançar uma release nova não muda nenhum deles.
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Compilar
+        shell: pwsh
+        env:
+          ANITSU_SUPABASE_ANON_KEY: ${{ secrets.ANITSU_SUPABASE_ANON_KEY }}
+          TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
+          TMDB_KEY: ${{ secrets.TMDB_KEY }}
+          FANART_TV: ${{ secrets.FANART_TV }}
+        run: |
+          if (-not $env:ANITSU_SUPABASE_ANON_KEY) { throw "Falta o secret ANITSU_SUPABASE_ANON_KEY (Settings > Secrets and variables > Actions)." }
+          cargo build --release --locked -p higanbana-desktop
+
+      # libmpv (build LGPL) é carregada em tempo de execução, de `lib\` ao lado do exe.
+      - name: Baixar a libmpv
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $asset = gh api repos/zhongfly/mpv-winbuild/releases/latest --jq '.assets[] | select(.name | test("^mpv-dev-lgpl-x86_64-[0-9]")) | .browser_download_url' | Select-Object -First 1
+          if (-not $asset) { throw "Não achei o mpv-dev-lgpl-x86_64 na última release do zhongfly/mpv-winbuild." }
+          Invoke-WebRequest $asset -OutFile mpv-dev.7z
+          7z x mpv-dev.7z -ompv-dev -y | Out-Null
+          $dll = Get-ChildItem mpv-dev -Recurse -Filter libmpv-2.dll | Select-Object -First 1
+          if (-not $dll) { throw "libmpv-2.dll não está no pacote baixado." }
+          New-Item -ItemType Directory -Force dist\windows\lib | Out-Null
+          Copy-Item $dll.FullName dist\windows\lib\libmpv-2.dll
+
+      - name: Montar os arquivos
+        shell: pwsh
+        run: |
+          $v = '${{ steps.version.outputs.version }}'
+          Copy-Item target\release\higanbana.exe dist\windows\higanbana.exe
+          Compress-Archive -Path dist\windows\* -DestinationPath "dist\Higanbana-$v-windows-x64.zip" -Force
+
+      - name: Instalador (Inno Setup)
+        shell: pwsh
+        run: |
+          $v = '${{ steps.version.outputs.version }}'
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DAppVersion=$v" packaging\higanbana.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC falhou ($LASTEXITCODE)" }
+
+      # Formato do `sha256sum` (hash, dois espaços, nome): é o que o atualizador do app lê.
+      - name: SHA256SUMS
+        shell: pwsh
+        run: |
+          Set-Location dist
+          $lines = Get-ChildItem Higanbana-* -File | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          }
+          [IO.File]::WriteAllText("$PWD\SHA256SUMS", (($lines -join "`n") + "`n"))
+          Get-Content SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: higanbana-${{ steps.version.outputs.version }}-windows
+          path: |
+            dist/Higanbana-*
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+      - name: Publicar a release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = '${{ steps.version.outputs.version }}'
+          $tag = "v$v"
+          gh release create $tag --title "Higanbana $tag" --generate-notes --verify-tag `
+            "dist/Higanbana-Setup-$v.exe" "dist/Higanbana-$v-windows-x64.zip" "dist/SHA256SUMS"

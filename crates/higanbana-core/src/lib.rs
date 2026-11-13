@@ -31,6 +31,8 @@ pub mod reader;
 mod secret;
 pub mod settings;
 pub mod tmdb;
+pub mod update;
+pub mod version;
 
 pub use cloud::Cloud;
 pub use core::Core;

@@ -47,7 +47,7 @@ impl Core {
         let manga_index = AnimeIndex::open(paths.cache.join("manga-index.json"), crate::anime_index::MANGA_ROOT);
         let prefs = Prefs::open(paths.data.join("prefs.json"));
         let settings = Settings::open(paths.data.join("settings.json"));
-        let web = reqwest::Client::builder().user_agent(concat!("higanbana-client/", env!("CARGO_PKG_VERSION"))).build()?;
+        let web = reqwest::Client::builder().user_agent(&format!("higanbana-client/{}", crate::version::current())).build()?;
         #[cfg(feature = "reader")]
         let reader = Reader::new(cloud.clone());
         let player = rt.block_on(Player::start(cloud.clone()))?;
@@ -74,6 +74,11 @@ impl Core {
             #[cfg(feature = "music")]
             music,
         })
+    }
+
+    /// Cliente HTTP genérico (atualizações).
+    pub fn web(&self) -> &reqwest::Client {
+        &self.web
     }
 
     pub fn rt(&self) -> &Handle {
