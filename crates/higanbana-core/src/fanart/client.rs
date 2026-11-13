@@ -35,7 +35,7 @@ impl FanartClient {
         Self::with_key(credentials::api_key())
     }
 
-    fn with_key(api_key: Option<String>) -> Self {
+    pub(crate) fn with_key(api_key: Option<String>) -> Self {
         Self {
             http: Client::builder()
                 .user_agent(concat!("higanbana-client/", env!("CARGO_PKG_VERSION")))

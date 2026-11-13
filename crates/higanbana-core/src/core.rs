@@ -9,7 +9,7 @@ use crate::music::Music;
 #[cfg(feature = "reader")]
 use crate::reader::Reader;
 use crate::{
-    anilist::AniList, tmdb::Tmdb, anime_index::AnimeIndex, auth::AuthManager, catalog::Catalog, cloud::Cloud, events::EventFn, paths::Paths, player::Player, prefs::Prefs, settings::Settings,
+    anilist::AniList, fanart::Fanart, tmdb::Tmdb, anime_index::AnimeIndex, auth::AuthManager, catalog::Catalog, cloud::Cloud, events::EventFn, paths::Paths, player::Player, prefs::Prefs, settings::Settings,
 };
 
 /// Tudo que a interface usa. Os métodos `async` rodam no runtime de [`Core::rt`]
@@ -19,6 +19,7 @@ pub struct Core {
     cloud: Arc<Cloud>,
     anilist: AniList,
     tmdb: Tmdb,
+    fanart: Fanart,
     catalog: Catalog,
     anime_index: AnimeIndex,
     prefs: Prefs,
@@ -37,6 +38,7 @@ impl Core {
         let cloud = Arc::new(Cloud::new(paths.clone(), events.clone())?);
         let anilist = AniList::new(&paths.cache);
         let tmdb = Tmdb::new(&paths.cache);
+        let fanart = Fanart::new(&paths.cache);
         let catalog = Catalog::open(paths.cache.join("catalog.json"));
         let anime_index = AnimeIndex::open(paths.cache.join("anime-index.json"));
         let prefs = Prefs::open(paths.data.join("prefs.json"));
@@ -54,6 +56,7 @@ impl Core {
             cloud,
             anilist,
             tmdb,
+            fanart,
             catalog,
             anime_index,
             prefs,
@@ -98,6 +101,10 @@ impl Core {
 
     pub fn tmdb(&self) -> &Tmdb {
         &self.tmdb
+    }
+
+    pub fn fanart(&self) -> &Fanart {
+        &self.fanart
     }
 
     pub fn anilist(&self) -> &AniList {

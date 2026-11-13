@@ -9,6 +9,9 @@ pub mod mapping;
 pub mod encode;
 pub mod pick;
 pub mod store;
+pub mod service;
+
+pub use service::Fanart;
 
 use thiserror::Error;
 
