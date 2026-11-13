@@ -3,16 +3,21 @@
 //! Cada bloco com dados próprios é uma view separada embutida com `cached`, para
 //! que a chegada de dados de um bloco não redesenhe os outros.
 
+mod hero;
+
 use std::sync::Arc;
 
 use crate::interact::hover_layer;
 use gpui_kit::{
-    Context, ElementId, Entity, FontWeight, IntoElement, ParentElement, Render, Styled, Window, assets::IconName, div,
-    prelude::*, px,
+    Context, ElementId, Entity, FontWeight, IntoElement, ParentElement, Render, StyleRefinement, Styled, Task, Window,
+    assets::IconName, div, prelude::*, px,
 };
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
-use higanbana_core::catalog::ListBudget;
+use higanbana_core::{
+    anilist::{MediaType, Ranking, types::RankedMedia},
+    catalog::ListBudget,
+};
 
 use crate::{
     components::{columns, content_width, section_label, section_meta, section_order},
@@ -26,9 +31,50 @@ const LIST_BUDGET: u32 = 20;
 pub struct HomeView {
     state: Entity<AppState>,
     sections: Option<Result<Vec<String>, String>>,
-    /// Compartilhado pelos blocos que conferem o acervo.
-    #[allow(dead_code)]
+    hero: Entity<hero::Hero>,
+}
+
+/// Cancela a conferência no núcleo quando a view que pediu some.
+struct AbortOnDrop(tokio::task::AbortHandle);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Confere um ranking no acervo e entrega cada obra confirmada à view, na ordem.
+/// Dropar a `Task` cancela a conferência.
+#[allow(clippy::too_many_arguments)] // dados da lista + dois callbacks; um struct só esconderia os nomes
+pub(super) fn discover_task<V: 'static>(
+    state: &Entity<AppState>,
     budget: Arc<ListBudget>,
+    media: MediaType,
+    ranking: Ranking,
+    n: usize,
+    cx: &mut Context<V>,
+    on_item: impl Fn(&mut V, RankedMedia, String, &mut Context<V>) + 'static,
+    on_done: impl FnOnce(&mut V, &mut Context<V>) + 'static,
+) -> Task<()> {
+    let core = state.read(cx).core.clone();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let c = core.clone();
+    let job = core.spawn(async move {
+        c.discover(media, ranking, n, budget, move |m, p| {
+            let _ = tx.send((m, p));
+        })
+        .await
+    });
+    let guard = AbortOnDrop(job.abort_handle());
+    cx.spawn(async move |this, cx| {
+        let _guard = guard;
+        while let Some((m, p)) = rx.recv().await {
+            if this.update(cx, |v, cx| on_item(v, m, p, cx)).is_err() {
+                return;
+            }
+        }
+        let _ = this.update(cx, on_done);
+    })
 }
 
 impl HomeView {
@@ -53,7 +99,9 @@ impl HomeView {
         })
         .detach();
 
-        Self { state, sections: None, budget: ListBudget::new(LIST_BUDGET) }
+        let budget = ListBudget::new(LIST_BUDGET);
+        let hero = cx.new(|cx| hero::Hero::new(budget.clone(), cx));
+        Self { state, sections: None, hero }
     }
 
     /// Seções da raiz da nuvem em cartões baixos: ícone e nome.
@@ -126,6 +174,7 @@ impl Render for HomeView {
                     }))
                     .child(div().text_color(theme.muted_foreground).child("Busque com Ctrl K ou escolha uma seção.")),
             )
+            .child(self.hero.clone().cached(StyleRefinement::default().w_full().h(px(hero::height_rem() * rem))))
             .child(v_flex().gap_4().child(div().text_xl().font_weight(FontWeight::SEMIBOLD).child("Seções")).child(sections))
     }
 }
