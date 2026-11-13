@@ -77,6 +77,52 @@ pub fn season_query() -> String {
     )
 }
 
+/// Lista de ranking da entrada.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Ranking {
+    /// Mais populares.
+    Popular,
+    /// Mais bem avaliados.
+    TopRated,
+    /// Em alta agora (só obras já terminadas).
+    Trending,
+}
+
+/// Ranking com os extras do banner (sinopse, tags, estúdio).
+pub fn ranking_query() -> String {
+    format!(
+        "query ($type: MediaType, $sort: [MediaSort], $year: Int, $from: FuzzyDateInt, $to: FuzzyDateInt, $status: MediaStatus) {{ Page(perPage: 50) {{ media(type: $type, sort: $sort, seasonYear: $year, startDate_greater: $from, startDate_lesser: $to, status: $status, isAdult: false) {{ ...Summary description(asHtml: false) tags {{ name rank isMediaSpoiler }} studios(isMain: true) {{ nodes {{ name }} }} }} }} }} {SUMMARY_FRAGMENT}"
+    )
+}
+
+/// Variáveis de [`ranking_query`]. Nulas são ignoradas pelo AniList.
+/// Anime filtra pelo ano da temporada; mangá pela data de início.
+pub fn ranking_vars(media: MediaType, ranking: Ranking, year: Option<i32>) -> serde_json::Value {
+    let sort = match ranking {
+        Ranking::Popular => "POPULARITY_DESC",
+        Ranking::TopRated => "SCORE_DESC",
+        Ranking::Trending => "TRENDING_DESC",
+    };
+    let status = (ranking == Ranking::Trending).then_some("FINISHED");
+    let (season_year, from, to) = match (media, year) {
+        (MediaType::Anime, Some(y)) => (Some(y), None, None),
+        (MediaType::Manga, Some(y)) => (None, Some(y * 10_000), Some((y + 1) * 10_000)),
+        (_, None) => (None, None, None),
+    };
+    serde_json::json!({ "type": media.as_str(), "sort": sort, "year": season_year, "from": from, "to": to, "status": status })
+}
+
+/// Ano do calendário (UTC) para um instante Unix.
+pub fn year_at(unix_secs: i64) -> i32 {
+    civil_year_month(unix_secs.div_euclid(86_400)).0
+}
+
+/// Ano atual do calendário (UTC).
+pub fn current_year() -> i32 {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+    year_at(now)
+}
+
 /// Temporada de anime (padrão AniList) para um instante Unix.
 /// Dezembro já conta como inverno do ano seguinte.
 pub fn season_at(unix_secs: i64) -> (&'static str, i32) {
@@ -144,6 +190,49 @@ mod tests {
         assert_eq!(season_at(1_709_164_800), ("WINTER", 2024));
         // 2025-06-01
         assert_eq!(season_at(1_748_736_000), ("SUMMER", 2025));
+    }
+
+    #[test]
+    fn calendar_year() {
+        assert_eq!(year_at(1_797_292_800), 2026); // 2026-12-15
+        assert_eq!(year_at(1_798_761_599), 2026); // 2026-12-31 23:59:59
+        assert_eq!(year_at(1_798_761_600), 2027); // 2027-01-01
+    }
+
+    #[test]
+    fn ranking_vars_anime_year() {
+        let v = ranking_vars(MediaType::Anime, Ranking::Popular, Some(2026));
+        assert_eq!(v["type"], "ANIME");
+        assert_eq!(v["sort"], "POPULARITY_DESC");
+        assert_eq!(v["year"], 2026);
+        assert!(v["from"].is_null() && v["to"].is_null() && v["status"].is_null());
+    }
+
+    #[test]
+    fn ranking_vars_manga_year() {
+        let v = ranking_vars(MediaType::Manga, Ranking::TopRated, Some(2026));
+        assert_eq!(v["type"], "MANGA");
+        assert_eq!(v["sort"], "SCORE_DESC");
+        assert_eq!(v["from"], 20260000);
+        assert_eq!(v["to"], 20270000);
+        assert!(v["year"].is_null());
+    }
+
+    #[test]
+    fn ranking_vars_trending_finished() {
+        let v = ranking_vars(MediaType::Anime, Ranking::Trending, None);
+        assert_eq!(v["sort"], "TRENDING_DESC");
+        assert_eq!(v["status"], "FINISHED");
+        assert!(v["year"].is_null() && v["from"].is_null());
+    }
+
+    #[test]
+    fn ranking_query_asks_extras() {
+        let q = ranking_query();
+        assert!(q.contains("description(asHtml: false)"));
+        assert!(q.contains("isMediaSpoiler"));
+        assert!(q.contains("studios(isMain: true)"));
+        assert!(q.contains("fragment Summary on Media"));
     }
 
     #[test]

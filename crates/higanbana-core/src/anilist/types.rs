@@ -250,3 +250,73 @@ pub struct MediaDetail {
     #[serde(default)]
     pub relations: Edges<RelationEdge>,
 }
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MediaTag {
+    pub name: String,
+    pub rank: Option<i64>,
+    pub is_media_spoiler: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct StudioName {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct Studios {
+    pub nodes: Vec<StudioName>,
+}
+
+/// Obra de uma lista de ranking: resumo + sinopse, tags e estúdio.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RankedMedia {
+    #[serde(flatten)]
+    pub summary: MediaSummary,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<MediaTag>,
+    #[serde(default)]
+    pub studios: Option<Studios>,
+}
+
+impl RankedMedia {
+    /// Até `n` tags sem spoiler, as mais relevantes primeiro.
+    pub fn top_tags(&self, n: usize) -> Vec<String> {
+        let mut tags: Vec<&MediaTag> = self.tags.iter().filter(|t| !t.is_media_spoiler).collect();
+        tags.sort_by_key(|t| std::cmp::Reverse(t.rank.unwrap_or(0)));
+        tags.into_iter().take(n).map(|t| t.name.clone()).collect()
+    }
+
+    pub fn main_studio(&self) -> Option<String> {
+        self.studios.as_ref()?.nodes.first().map(|s| s.name.clone())
+    }
+}
+
+#[cfg(test)]
+mod ranked_tests {
+    use super::*;
+
+    #[test]
+    fn top_tags_skip_spoilers() {
+        let r: RankedMedia = serde_json::from_value(serde_json::json!({
+            "id": 1,
+            "tags": [
+                {"name": "a", "rank": 90, "isMediaSpoiler": false},
+                {"name": "b", "rank": 95, "isMediaSpoiler": true},
+                {"name": "c", "rank": 80, "isMediaSpoiler": false},
+                {"name": "d", "rank": 70, "isMediaSpoiler": false},
+                {"name": "e", "rank": 60, "isMediaSpoiler": false}
+            ],
+            "studios": {"nodes": [{"name": "MAPPA"}]}
+        }))
+        .unwrap();
+        assert_eq!(r.top_tags(3), vec!["a", "c", "d"]);
+        assert_eq!(r.main_studio().as_deref(), Some("MAPPA"));
+        assert_eq!(r.summary.id, 1);
+    }
+}
