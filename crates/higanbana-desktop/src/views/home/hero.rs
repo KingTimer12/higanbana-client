@@ -167,6 +167,11 @@ impl Hero {
         self.slots.insert(media, Slot { items: Vec::new(), done: false, _task: task });
     }
 
+    /// O tipo mostrado já terminou de conferir (o orçamento fica livre para os outros blocos).
+    pub fn settled(&self) -> bool {
+        self.slots.get(&self.selected).is_some_and(|s| s.done)
+    }
+
     fn select(&mut self, media: MediaType, cx: &mut Context<Self>) {
         if self.selected == media {
             return;
@@ -379,11 +384,11 @@ impl Render for Hero {
                 .w_full()
                 .rounded(theme.radius_lg)
                 .overflow_hidden()
-                .border_1()
-                .border_color(theme.border)
                 .bg(theme.group_box)
                 .on_hover(cx.listener(|h, hovered: &bool, _, _| h.hovered = *hovered))
                 .child(body)
+                // Borda por cima: a imagem do slide (absoluta) cobriria a borda do cartão.
+                .child(div().absolute().inset_0().rounded(theme.radius_lg).border_1().border_color(theme.border))
                 .children(controls),
         )
     }

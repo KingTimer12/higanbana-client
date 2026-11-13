@@ -65,6 +65,8 @@ pub struct Discover {
     ranking: Ranking,
     slots: HashMap<(MediaType, Ranking), Slot>,
     scroll: ScrollHandle,
+    /// Só confere depois do banner, que tem prioridade no orçamento de listagens.
+    started: bool,
 }
 
 impl Discover {
@@ -72,9 +74,16 @@ impl Discover {
         let state = state(cx);
         // Capas chegam pelo AppState.
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
-        let mut v = Self { state, budget, media: MediaType::Anime, ranking: Ranking::TopRated, slots: HashMap::new(), scroll: ScrollHandle::new() };
-        v.load(cx);
-        v
+        Self { state, budget, media: MediaType::Anime, ranking: Ranking::TopRated, slots: HashMap::new(), scroll: ScrollHandle::new(), started: false }
+    }
+
+    /// Começa a conferir a aba aberta (uma vez).
+    pub fn start(&mut self, cx: &mut Context<Self>) {
+        if !self.started {
+            self.started = true;
+            self.load(cx);
+            cx.notify();
+        }
     }
 
     fn load(&mut self, cx: &mut Context<Self>) {
@@ -112,6 +121,7 @@ impl Discover {
         self.media = media;
         self.ranking = ranking;
         self.scroll.set_offset(point(px(0.), px(0.)));
+        self.started = true;
         self.load(cx);
         cx.notify();
     }

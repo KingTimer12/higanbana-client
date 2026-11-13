@@ -109,6 +109,14 @@ impl HomeView {
         // A altura do Continuar muda com o progresso: a entrada refaz o layout.
         cx.observe(&cont, |_, _, cx| cx.notify()).detach();
         let discover = cx.new(|cx| discover::Discover::new(budget.clone(), cx));
+        // Banner primeiro: com o cache frio, as listagens da visita vão para ele.
+        let d = discover.clone();
+        cx.observe(&hero, move |_, hero, cx| {
+            if hero.read(cx).settled() {
+                d.update(cx, |d, cx| d.start(cx));
+            }
+        })
+        .detach();
         Self { state, sections: None, hero, cont, discover }
     }
 
