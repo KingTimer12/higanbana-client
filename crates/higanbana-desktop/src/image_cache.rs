@@ -39,14 +39,16 @@ impl<V: Clone> ImageCache<V> {
         Some(e.value.clone())
     }
 
-    /// Guarda o valor e devolve os descartados para caber no teto; o recém-inserido nunca sai.
+    /// Guarda o valor e devolve o que saiu: o valor substituído, se a chave já existia, e os
+    /// descartados para caber no teto; o recém-inserido nunca sai.
     pub fn insert(&mut self, key: String, value: V, weight: u64) -> Vec<V> {
         let last = Cell::new(self.tick());
+        let mut out = Vec::new();
         if let Some(old) = self.map.insert(key.clone(), Entry { value, weight, last }) {
             self.total -= old.weight;
+            out.push(old.value);
         }
         self.total += weight;
-        let mut out = Vec::new();
         while self.total > self.budget {
             let victim = self
                 .map
@@ -63,10 +65,16 @@ impl<V: Clone> ImageCache<V> {
         out
     }
 
-    pub fn remove(&mut self, key: &str) {
-        if let Some(e) = self.map.remove(key) {
-            self.total -= e.weight;
-        }
+    /// Guarda sem contar no teto e sem nunca ser descartado (peso 0): só sai por `remove` ou
+    /// substituição. Para o que é caro de buscar de novo (bytes da nuvem).
+    pub fn insert_pinned(&mut self, key: String, value: V) -> Vec<V> {
+        self.insert(key, value, 0)
+    }
+
+    pub fn remove(&mut self, key: &str) -> Option<V> {
+        let e = self.map.remove(key)?;
+        self.total -= e.weight;
+        Some(e.value)
     }
 }
 
@@ -109,6 +117,34 @@ mod tests {
         let mut c = ImageCache::new(10);
         c.insert("x".into(), 1, 50);
         assert_eq!(c.get("x"), Some(1));
+    }
+
+    #[test]
+    fn pinned_never_evicted_nor_counted() {
+        let mut c = ImageCache::new(100);
+        assert!(c.insert_pinned("p".into(), 0).is_empty());
+        assert!(c.insert("a".into(), 1, 100).is_empty());
+        let out = c.insert("b".into(), 2, 100);
+        assert_eq!(out, vec![1]);
+        assert!(c.get("p").is_some());
+    }
+
+    #[test]
+    fn remove_returns_value_and_frees_budget() {
+        let mut c = ImageCache::new(100);
+        c.insert("a".into(), 1, 60);
+        assert_eq!(c.remove("a"), Some(1));
+        assert_eq!(c.remove("a"), None);
+        assert!(c.insert("b".into(), 2, 100).is_empty());
+    }
+
+    #[test]
+    fn overwrite_returns_old_value_and_adjusts_total() {
+        let mut c = ImageCache::new(100);
+        c.insert("a".into(), 1, 90);
+        assert_eq!(c.insert("a".into(), 2, 10), vec![1]);
+        assert!(c.insert("b".into(), 3, 90).is_empty());
+        assert_eq!(c.get("a"), Some(2));
     }
 
     #[test]

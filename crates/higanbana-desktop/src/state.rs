@@ -378,14 +378,12 @@ impl AppState {
 
     /// Guarda bytes já baixados (páginas, capas da nuvem) sob uma chave.
     pub fn put_image(&mut self, key: String, bytes: Vec<u8>, cx: &mut Context<Self>) {
-        let (img, weight) = match sniff(&bytes) {
-            Some(fmt) => {
-                let weight = decoded_weight(&bytes);
-                (Img::Ready(Arc::new(gpui_kit::Image::from_bytes(fmt, bytes))), weight)
-            }
-            None => (Img::Failed, 0),
+        let img = match sniff(&bytes) {
+            Some(fmt) => Img::Ready(Arc::new(gpui_kit::Image::from_bytes(fmt, bytes))),
+            None => Img::Failed,
         };
-        let evicted = self.images.insert(key, img, weight);
+        // Bytes da nuvem: fixos fora do LRU, para não refazer a busca; saem em `forget_image`.
+        let evicted = self.images.insert_pinned(key, img);
         release_images(evicted, cx);
         cx.notify();
     }
@@ -403,8 +401,8 @@ impl AppState {
         cx.notify();
     }
 
-    pub fn forget_image(&mut self, key: &str) {
-        self.images.remove(key);
+    pub fn forget_image(&mut self, key: &str, cx: &mut Context<Self>) {
+        release_images(self.images.remove(key).into_iter().collect(), cx);
     }
 
     // --- AniList em lote ---
