@@ -7,7 +7,6 @@ use gpui_kit::{
     App, Context, Entity, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Task,
     Window, assets::IconName, div, prelude::*,
 };
-use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Icon, IndexPath, Sizable as _, WindowExt as _, h_flex, v_flex,
     avatar::Avatar,
@@ -417,9 +416,4 @@ pub fn sidebar(state: &Entity<AppState>, sections: &[String], cx: &mut App) -> i
             })),
     );
     Sidebar::new("nav").collapsible(false).child(menu).footer(footer)
-}
-
-/// Rodinha de carregando no tamanho do texto.
-pub fn loading(cx: &App) -> impl IntoElement {
-    Spinner::new().small().color(cx.theme().muted_foreground)
 }

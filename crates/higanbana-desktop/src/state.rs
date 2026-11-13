@@ -89,7 +89,6 @@ impl Download {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
-    Info,
     Ok,
     Error,
 }
@@ -129,7 +128,6 @@ pub struct AppState {
     lookup_due: Option<Instant>,
     /// Nomes adiados (`Pending`): tentativas seguidas sem progresso.
     lookup_retries: HashMap<(MediaType, String), u32>,
-    catalog: HashMap<i64, Option<Option<String>>>,
     /// Capa do fanart.tv por id de mídia: `None` = buscando; `Some(None)` = usar a do AniList.
     covers: HashMap<i64, Option<Option<PathBuf>>>,
     /// Ids cuja busca do fanart falhou (rede): não pede de novo até a próxima navegação.
@@ -179,7 +177,6 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             background_cooldown_until: None,
             lookup_due: None,
             lookup_retries: HashMap::new(),
-            catalog: HashMap::new(),
             covers: HashMap::new(),
             covers_failed: HashSet::new(),
             cover_files: HashMap::new(),
@@ -673,39 +670,6 @@ impl AppState {
                             s.lookups.remove(&key);
                         }
                         s.crawl_lookups_done(&failed, true);
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    // --- Acervo da temporada ---
-
-    /// `None` = não conferido; `Some(None)` = não está; `Some(Some(caminho))`.
-    pub fn catalog(&self, id: i64) -> Option<Option<String>> {
-        self.catalog.get(&id).cloned().flatten().or_else(|| self.core.catalog().known(id))
-    }
-
-    pub fn want_catalog(&mut self, m: &MediaSummary, cx: &mut Context<Self>) {
-        if self.catalog.contains_key(&m.id) || self.core.catalog().known(m.id).is_some() {
-            return;
-        }
-        self.catalog.insert(m.id, None);
-        let core = self.core.clone();
-        let media = m.clone();
-        let id = m.id;
-        let task = self.core.spawn(async move { core.check_catalog(&media).await });
-        cx.spawn(async move |this, cx| {
-            let path = task.await.ok();
-            let _ = this.update(cx, |s, cx| {
-                match path {
-                    Some(p) => {
-                        s.catalog.insert(id, Some(p));
-                    }
-                    None => {
-                        s.catalog.remove(&id);
                     }
                 }
                 cx.notify();

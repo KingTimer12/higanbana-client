@@ -761,22 +761,6 @@ pub fn version_card(
         .when(!selected, |d| d.child(hover_layer("ring").border(theme.ring).radius(theme.radius_lg)))
 }
 
-/// Título de seção com algo à direita.
-pub fn section_title(title: impl Into<SharedString>, aside: Option<AnyElement>) -> Div {
-    h_flex()
-        .mb_4()
-        .items_end()
-        .justify_between()
-        .gap_4()
-        .child(
-            div()
-                .text_xl()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(title.into()),
-        )
-        .children(aside)
-}
-
 /// Pôster de um título da nuvem numa grade: busca os metadados quando aparece
 /// na tela e abre `target` ao clicar.
 pub fn title_card(id: ElementId, name: &str, target: String, media: MediaType, width: Pixels, cx: &mut App) -> Div {
