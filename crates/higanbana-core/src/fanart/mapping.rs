@@ -18,8 +18,14 @@ use super::{FanartError, FanartResult};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Target {
     /// `series_poster`: aceita `tvposter` quando não há `seasonposter` (só temporada 1).
-    Season { tvdb: u32, season: u32, series_poster: bool },
-    Movie { tmdb: u32 },
+    Season {
+        tvdb: u32,
+        season: u32,
+        series_poster: bool,
+    },
+    Movie {
+        tmdb: u32,
+    },
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -103,7 +109,12 @@ impl AnimeMap {
 
         // Grupos (tvdb, temporada): só a "primeira parte" recebe o alvo.
         // Menor anilist_id; sem anilist_id, o menor mal_id desempata.
-        let rank = |e: &RawEntry| (e.anilist_id.unwrap_or(i64::MAX), e.mal_id.unwrap_or(i64::MAX));
+        let rank = |e: &RawEntry| {
+            (
+                e.anilist_id.unwrap_or(i64::MAX),
+                e.mal_id.unwrap_or(i64::MAX),
+            )
+        };
         let mut groups: HashMap<(u32, u32), &RawEntry> = HashMap::new();
         for (tvdb, season, e) in tv {
             let season = match season {
@@ -124,7 +135,11 @@ impl AnimeMap {
         for ((tvdb, season), e) in groups {
             map.insert(
                 e,
-                Target::Season { tvdb, season, series_poster: season == 1 },
+                Target::Season {
+                    tvdb,
+                    season,
+                    series_poster: season == 1,
+                },
             );
         }
         Ok(map)
@@ -171,7 +186,11 @@ mod tests {
         let m = map(r#"[{"type":"TV","anilist_id":1,"tvdb_id":5,"season":{"tvdb":1}}]"#);
         assert_eq!(
             m.target(1, None),
-            Some(Target::Season { tvdb: 5, season: 1, series_poster: true })
+            Some(Target::Season {
+                tvdb: 5,
+                season: 1,
+                series_poster: true
+            })
         );
     }
 
@@ -180,7 +199,11 @@ mod tests {
         let m = map(r#"[{"type":"TV","anilist_id":1,"tvdb_id":5,"season":{"tvdb":2}}]"#);
         assert_eq!(
             m.target(1, None),
-            Some(Target::Season { tvdb: 5, season: 2, series_poster: false })
+            Some(Target::Season {
+                tvdb: 5,
+                season: 2,
+                series_poster: false
+            })
         );
     }
 
@@ -204,17 +227,19 @@ mod tests {
 
     #[test]
     fn split_season_without_anilist_uses_smallest_mal() {
-        let m = map(
-            r#"[{"mal_id":20,"tvdb_id":5,"season":{"tvdb":2}},
-                {"mal_id":10,"tvdb_id":5,"season":{"tvdb":2}}]"#,
-        );
+        let m = map(r#"[{"mal_id":20,"tvdb_id":5,"season":{"tvdb":2}},
+                {"mal_id":10,"tvdb_id":5,"season":{"tvdb":2}}]"#);
         assert!(m.target(0, Some(10)).is_some());
         assert_eq!(m.target(0, Some(20)), None);
     }
 
     #[test]
     fn absolute_single_entry_is_season_one() {
-        let t = Some(Target::Season { tvdb: 5, season: 1, series_poster: true });
+        let t = Some(Target::Season {
+            tvdb: 5,
+            season: 1,
+            series_poster: true,
+        });
         let m = map(r#"[{"type":"TV","anilist_id":1,"tvdb_id":5}]"#);
         assert_eq!(m.target(1, None), t);
         let m = map(r#"[{"anilist_id":1,"tvdb_id":5,"season":{"tmdb":1}}]"#);
@@ -223,10 +248,8 @@ mod tests {
 
     #[test]
     fn absolute_with_siblings_is_skipped() {
-        let m = map(
-            r#"[{"anilist_id":1,"tvdb_id":5},
-                {"anilist_id":2,"tvdb_id":5,"season":{"tvdb":2}}]"#,
-        );
+        let m = map(r#"[{"anilist_id":1,"tvdb_id":5},
+                {"anilist_id":2,"tvdb_id":5,"season":{"tvdb":2}}]"#);
         assert_eq!(m.target(1, None), None);
         assert!(m.target(2, None).is_some());
     }

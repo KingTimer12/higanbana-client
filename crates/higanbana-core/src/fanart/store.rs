@@ -34,7 +34,9 @@ impl CoverStore {
     /// Arquivo existente para a URL (`.webp` ou `.jpg`), se houver.
     pub fn path_for(&self, url: &str) -> Option<PathBuf> {
         let stem = Self::stem(url);
-        EXTS.iter().map(|e| self.dir.join(format!("{stem}.{e}"))).find(|p| p.is_file())
+        EXTS.iter()
+            .map(|e| self.dir.join(format!("{stem}.{e}")))
+            .find(|p| p.is_file())
     }
 
     /// Grava via `.tmp` + rename para nunca expor arquivo parcial.
@@ -56,7 +58,9 @@ impl CoverStore {
     }
 
     fn prune(&self, max: u64) {
-        let Ok(rd) = fs::read_dir(&self.dir) else { return };
+        let Ok(rd) = fs::read_dir(&self.dir) else {
+            return;
+        };
         let mut files: Vec<(SystemTime, u64, PathBuf)> = Vec::new();
         for entry in rd.flatten() {
             let path = entry.path();
@@ -99,8 +103,14 @@ mod tests {
     impl Tmp {
         fn new() -> Self {
             let n = SEQ.fetch_add(1, Ordering::Relaxed);
-            let nanos = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
-            Self(std::env::temp_dir().join(format!("higanbana-store-{}-{n}-{nanos}", std::process::id())))
+            let nanos = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            Self(std::env::temp_dir().join(format!(
+                "higanbana-store-{}-{n}-{nanos}",
+                std::process::id()
+            )))
         }
     }
     impl Drop for Tmp {
@@ -144,7 +154,9 @@ mod tests {
         let base = SystemTime::now() - Duration::from_secs(1000);
         let mut ps = vec![];
         for i in 0..3u64 {
-            let p = s.save(&format!("https://x/{i}"), &[0u8; 10], "webp").unwrap();
+            let p = s
+                .save(&format!("https://x/{i}"), &[0u8; 10], "webp")
+                .unwrap();
             let f = std::fs::File::options().write(true).open(&p).unwrap();
             f.set_modified(base + Duration::from_secs(i * 10)).unwrap();
             ps.push(p);

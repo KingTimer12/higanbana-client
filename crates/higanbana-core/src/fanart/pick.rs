@@ -54,7 +54,12 @@ pub fn pick_movie(images: &MovieImages) -> Option<String> {
 fn best(arts: &[&Art]) -> Option<String> {
     arts.iter()
         .filter(|a| !a.url.is_empty())
-        .max_by_key(|a| (lang_rank(&a.lang), a.likes.trim().parse::<u32>().unwrap_or(0)))
+        .max_by_key(|a| {
+            (
+                lang_rank(&a.lang),
+                a.likes.trim().parse::<u32>().unwrap_or(0),
+            )
+        })
         .map(|a| a.url.clone())
 }
 
@@ -72,14 +77,22 @@ mod tests {
     use super::*;
 
     fn art(url: &str, lang: &str, likes: &str, season: Option<&str>) -> Art {
-        Art { url: url.into(), lang: lang.into(), likes: likes.into(), season: season.map(Into::into) }
+        Art {
+            url: url.into(),
+            lang: lang.into(),
+            likes: likes.into(),
+            season: season.map(Into::into),
+        }
     }
 
     #[test]
     fn picks_matching_season() {
         let imgs = TvImages {
             tvposter: vec![],
-            seasonposter: vec![art("s1", "en", "0", Some("1")), art("s2", "en", "0", Some("2"))],
+            seasonposter: vec![
+                art("s1", "en", "0", Some("1")),
+                art("s2", "en", "0", Some("2")),
+            ],
         };
         assert_eq!(pick_tv(&imgs, 2, false).as_deref(), Some("s2"));
     }
@@ -88,27 +101,40 @@ mod tests {
     fn non_numeric_season_never_matches() {
         let imgs = TvImages {
             tvposter: vec![],
-            seasonposter: vec![art("all", "en", "9", Some("all")), art("z", "en", "9", Some("0"))],
+            seasonposter: vec![
+                art("all", "en", "9", Some("all")),
+                art("z", "en", "9", Some("0")),
+            ],
         };
         assert_eq!(pick_tv(&imgs, 1, false), None);
     }
 
     #[test]
     fn no_season_falls_to_none_after_s1() {
-        let imgs = TvImages { tvposter: vec![art("t", "en", "5", None)], seasonposter: vec![] };
+        let imgs = TvImages {
+            tvposter: vec![art("t", "en", "5", None)],
+            seasonposter: vec![],
+        };
         assert_eq!(pick_tv(&imgs, 2, false), None);
     }
 
     #[test]
     fn season_one_uses_tvposter() {
-        let imgs = TvImages { tvposter: vec![art("t", "en", "5", None)], seasonposter: vec![] };
+        let imgs = TvImages {
+            tvposter: vec![art("t", "en", "5", None)],
+            seasonposter: vec![],
+        };
         assert_eq!(pick_tv(&imgs, 1, true).as_deref(), Some("t"));
     }
 
     #[test]
     fn lang_order_en_then_textless_then_ja() {
         let mut imgs = TvImages {
-            tvposter: vec![art("ja", "ja", "9", None), art("none", "00", "1", None), art("en", "en", "0", None)],
+            tvposter: vec![
+                art("ja", "ja", "9", None),
+                art("none", "00", "1", None),
+                art("en", "en", "0", None),
+            ],
             seasonposter: vec![],
         };
         assert_eq!(pick_tv(&imgs, 1, true).as_deref(), Some("en"));
@@ -118,13 +144,18 @@ mod tests {
 
     #[test]
     fn likes_break_ties() {
-        let imgs = TvImages { tvposter: vec![art("a", "en", "3", None), art("b", "en", "7", None)], seasonposter: vec![] };
+        let imgs = TvImages {
+            tvposter: vec![art("a", "en", "3", None), art("b", "en", "7", None)],
+            seasonposter: vec![],
+        };
         assert_eq!(pick_tv(&imgs, 1, true).as_deref(), Some("b"));
     }
 
     #[test]
     fn movie_picks_best_poster() {
-        let imgs = MovieImages { movieposter: vec![art("a", "ja", "9", None), art("b", "en", "1", None)] };
+        let imgs = MovieImages {
+            movieposter: vec![art("a", "ja", "9", None), art("b", "en", "1", None)],
+        };
         assert_eq!(pick_movie(&imgs).as_deref(), Some("b"));
         assert_eq!(pick_movie(&MovieImages::default()), None);
     }

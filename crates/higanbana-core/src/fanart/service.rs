@@ -23,7 +23,8 @@ use super::{
 };
 use crate::anilist::{MediaType, cache::DiskCache, types::MediaSummary};
 
-const FRIBB_URL: &str = "https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-full.json";
+const FRIBB_URL: &str =
+    "https://raw.githubusercontent.com/Fribb/anime-lists/master/anime-list-full.json";
 const MAP_TTL: i64 = 7 * 24 * 3600;
 const HITS_TTL: i64 = 7 * 24 * 3600;
 const MISS_TTL: i64 = 24 * 3600;
@@ -40,13 +41,20 @@ struct MapFile {
 }
 
 fn now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 /// Chave das caches por alvo.
 fn target_key(t: Target) -> String {
     match t {
-        Target::Season { tvdb, season, series_poster } => format!("tv:{tvdb}:{season}:{series_poster}"),
+        Target::Season {
+            tvdb,
+            season,
+            series_poster,
+        } => format!("tv:{tvdb}:{season}:{series_poster}"),
         Target::Movie { tmdb } => format!("movie:{tmdb}"),
     }
 }
@@ -62,6 +70,8 @@ pub struct Fanart {
     map_failed: Arc<Mutex<Option<Instant>>>,
     /// Há uma renovação da lista em segundo plano.
     refreshing: Arc<AtomicBool>,
+    /// O mapa pré-carregado estava vencido e ainda não se pediu a renovação.
+    stale_pending: AtomicBool,
     /// Serializa a gravação das caches (o `.tmp` delas é fixo).
     flush_lock: Mutex<()>,
     /// Alvo → URL do pôster escolhido.
@@ -73,11 +83,37 @@ pub struct Fanart {
 
 impl Fanart {
     pub fn new(cache_dir: &Path) -> Self {
-        Self::with_parts(FanartClient::new(), None, cache_dir, FRIBB_URL.into())
+        let f = Self::with_parts(FanartClient::new(), None, cache_dir, FRIBB_URL.into());
+        f.preload();
+        f
+    }
+
+    /// Instala já o mapa guardado em disco (arquivo local pequeno), de qualquer idade, para
+    /// `cover_cached` acertar logo na partida. Vencido: a renovação sai na primeira `cover()`.
+    fn preload(&self) {
+        if !self.client.configured() {
+            return;
+        }
+        let Some(f) = std::fs::read(&self.map_path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<MapFile>(&b).ok())
+        else {
+            return;
+        };
+        if let Ok(mut slot) = self.map.try_write() {
+            *slot = Some(Arc::new(f.map));
+            self.stale_pending
+                .store(now() - f.at >= MAP_TTL, Ordering::Release);
+        }
     }
 
     /// `map` já carregado dispensa o download da lista (testes).
-    pub(crate) fn with_parts(client: FanartClient, map: Option<AnimeMap>, cache_dir: &Path, list_url: String) -> Self {
+    pub(crate) fn with_parts(
+        client: FanartClient,
+        map: Option<AnimeMap>,
+        cache_dir: &Path,
+        list_url: String,
+    ) -> Self {
         Self {
             client,
             http: reqwest::Client::builder()
@@ -90,6 +126,7 @@ impl Fanart {
             map_path: cache_dir.join("fanart-map.json"),
             map_failed: Arc::new(Mutex::new(None)),
             refreshing: Arc::new(AtomicBool::new(false)),
+            stale_pending: AtomicBool::new(false),
             flush_lock: Mutex::new(()),
             hits: DiskCache::open(cache_dir.join("fanart-hits.json"), HITS_TTL),
             misses: DiskCache::open(cache_dir.join("fanart-miss.json"), MISS_TTL),
@@ -113,7 +150,9 @@ impl Fanart {
             return Ok(None);
         }
         let map = self.load_map().await?;
-        let Some(target) = map.target(m.id, m.id_mal) else { return Ok(None) };
+        let Some(target) = map.target(m.id, m.id_mal) else {
+            return Ok(None);
+        };
         let mut changed = false;
         let result = self.resolve(target, &mut changed).await;
         if changed {
@@ -144,9 +183,11 @@ impl Fanart {
             }
             None => {
                 let picked = match target {
-                    Target::Season { tvdb, season, series_poster } => {
-                        pick_tv(&self.client.tv(tvdb).await?, season, series_poster)
-                    }
+                    Target::Season {
+                        tvdb,
+                        season,
+                        series_poster,
+                    } => pick_tv(&self.client.tv(tvdb).await?, season, series_poster),
                     Target::Movie { tmdb } => pick_movie(&self.client.movie(tmdb).await?),
                 };
                 let Some(url) = picked else {
@@ -157,14 +198,29 @@ impl Fanart {
                 url
             }
         };
-        let bytes = self.client.download(&url).await?;
-        let Ok((small, ext)) = shrink(&bytes) else {
+        let bytes = match self.client.download(&url).await {
+            Ok(bytes) => bytes,
+            Err(FanartError::NotFound) => {
+                // O pôster escolhido sumiu do servidor: um dia como "sem pôster" em vez de insistir.
+                self.misses.insert(key, true);
+                *changed = true;
+                return Ok(None);
+            }
+            Err(e) => return Err(e),
+        };
+        let shrunk = tokio::task::spawn_blocking(move || shrink(&bytes))
+            .await
+            .map_err(|e| FanartError::Image(e.to_string()))?;
+        let Ok((small, ext)) = shrunk else {
             // Imagem ilegível: não adianta baixar de novo por um dia.
             self.misses.insert(key, true);
             *changed = true;
             return Ok(None);
         };
-        let path = self.store.save(&url, &small, ext).map_err(|e| FanartError::Image(e.to_string()))?;
+        let path = self
+            .store
+            .save(&url, &small, ext)
+            .map_err(|e| FanartError::Image(e.to_string()))?;
         self.hits.insert(key, url);
         *changed = true;
         Ok(Some(path))
@@ -174,13 +230,18 @@ impl Fanart {
     /// esperam a primeira em vez de baixar em paralelo.
     async fn load_map(&self) -> FanartResult<Arc<AnimeMap>> {
         if let Some(map) = self.map.read().await.clone() {
+            if self.stale_pending.swap(false, Ordering::AcqRel) {
+                self.refresh_in_background();
+            }
             return Ok(map);
         }
         let mut slot = self.map.write().await;
         if let Some(map) = slot.clone() {
             return Ok(map);
         }
-        let old = std::fs::read(&self.map_path).ok().and_then(|b| serde_json::from_slice::<MapFile>(&b).ok());
+        let old = std::fs::read(&self.map_path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<MapFile>(&b).ok());
         if let Some(f) = old {
             // Lista guardada (mesmo vencida) serve já; vencida renova em segundo plano.
             let stale = now() - f.at >= MAP_TTL;
@@ -191,9 +252,15 @@ impl Fanart {
             }
             return Ok(map);
         }
-        let waiting = self.map_failed.lock().unwrap().is_some_and(|t| t.elapsed() < MAP_RETRY);
+        let waiting = self
+            .map_failed
+            .lock()
+            .unwrap()
+            .is_some_and(|t| t.elapsed() < MAP_RETRY);
         let fetched = if waiting {
-            Err(FanartError::Http("lista de mapeamento indisponível, nova tentativa em breve".into()))
+            Err(FanartError::Http(
+                "lista de mapeamento indisponível, nova tentativa em breve".into(),
+            ))
         } else {
             fetch_map(&self.http, &self.list_url).await
         };
@@ -217,12 +284,24 @@ impl Fanart {
     /// Baixa a lista sem segurar quem pede capa; uma renovação por vez, e depois de
     /// falha só passado `MAP_RETRY`. Falha mantém o mapa antigo.
     fn refresh_in_background(&self) {
-        let throttled = self.map_failed.lock().unwrap().is_some_and(|t| t.elapsed() < MAP_RETRY);
+        let throttled = self
+            .map_failed
+            .lock()
+            .unwrap()
+            .is_some_and(|t| t.elapsed() < MAP_RETRY);
         if throttled || self.refreshing.swap(true, Ordering::AcqRel) {
             return;
         }
-        let (http, url, path) = (self.http.clone(), self.list_url.clone(), self.map_path.clone());
-        let (slot, failed, refreshing) = (self.map.clone(), self.map_failed.clone(), self.refreshing.clone());
+        let (http, url, path) = (
+            self.http.clone(),
+            self.list_url.clone(),
+            self.map_path.clone(),
+        );
+        let (slot, failed, refreshing) = (
+            self.map.clone(),
+            self.map_failed.clone(),
+            self.refreshing.clone(),
+        );
         tokio::spawn(async move {
             match fetch_map(&http, &url).await {
                 Ok(map) => {
@@ -238,11 +317,18 @@ impl Fanart {
 }
 
 async fn fetch_map(http: &reqwest::Client, url: &str) -> FanartResult<AnimeMap> {
-    let resp = http.get(url).send().await.map_err(|e| FanartError::Http(e.to_string()))?;
+    let resp = http
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| FanartError::Http(e.to_string()))?;
     if !resp.status().is_success() {
         return Err(FanartError::Http(format!("HTTP {}", resp.status())));
     }
-    let bytes = resp.bytes().await.map_err(|e| FanartError::Http(e.to_string()))?;
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| FanartError::Http(e.to_string()))?;
     tokio::task::spawn_blocking(move || AnimeMap::from_fribb(&bytes))
         .await
         .map_err(|e| FanartError::Decode(e.to_string()))?
@@ -250,7 +336,9 @@ async fn fetch_map(http: &reqwest::Client, url: &str) -> FanartResult<AnimeMap> 
 
 /// Melhor esforço: sem gravar, só baixa de novo na próxima vez.
 fn save_map(path: &Path, map: &AnimeMap) {
-    let Ok(bytes) = serde_json::to_vec(&serde_json::json!({ "at": now(), "map": map })) else { return };
+    let Ok(bytes) = serde_json::to_vec(&serde_json::json!({ "at": now(), "map": map })) else {
+        return;
+    };
     let tmp = path.with_extension("json.tmp");
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
@@ -273,8 +361,14 @@ mod tests {
     impl Tmp {
         fn new() -> Self {
             let n = SEQ.fetch_add(1, Ordering::Relaxed);
-            let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-            Self(std::env::temp_dir().join(format!("higanbana-fanart-{}-{n}-{nanos}", std::process::id())))
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            Self(std::env::temp_dir().join(format!(
+                "higanbana-fanart-{}-{n}-{nanos}",
+                std::process::id()
+            )))
         }
     }
     impl Drop for Tmp {
@@ -296,7 +390,12 @@ mod tests {
     #[tokio::test]
     async fn manga_returns_none_without_network() {
         let t = Tmp::new();
-        let f = Fanart::with_parts(FanartClient::with_key(Some("k".into())), Some(map()), &t.0, DEAD.into());
+        let f = Fanart::with_parts(
+            FanartClient::with_key(Some("k".into())),
+            Some(map()),
+            &t.0,
+            DEAD.into(),
+        );
         assert!(matches!(f.cover(&media(5, "MANGA")).await, Ok(None)));
     }
 
@@ -305,20 +404,33 @@ mod tests {
         let t = Tmp::new();
         let f = Fanart::with_parts(FanartClient::with_key(None), None, &t.0, DEAD.into());
         assert!(matches!(f.cover(&media(5, "ANIME")).await, Ok(None)));
-        assert!(f.map.read().await.is_none(), "mapa não pode ser baixado sem chave");
+        assert!(
+            f.map.read().await.is_none(),
+            "mapa não pode ser baixado sem chave"
+        );
     }
 
     #[tokio::test]
     async fn unmapped_returns_none() {
         let t = Tmp::new();
-        let f = Fanart::with_parts(FanartClient::with_key(Some("k".into())), Some(map()), &t.0, DEAD.into());
+        let f = Fanart::with_parts(
+            FanartClient::with_key(Some("k".into())),
+            Some(map()),
+            &t.0,
+            DEAD.into(),
+        );
         assert!(matches!(f.cover(&media(999, "ANIME")).await, Ok(None)));
     }
 
     #[tokio::test]
     async fn cached_miss_returns_none_without_network() {
         let t = Tmp::new();
-        let f = Fanart::with_parts(FanartClient::with_key(Some("k".into())), Some(map()), &t.0, DEAD.into());
+        let f = Fanart::with_parts(
+            FanartClient::with_key(Some("k".into())),
+            Some(map()),
+            &t.0,
+            DEAD.into(),
+        );
         f.misses.insert("tv:5:1:true".into(), true);
         assert!(matches!(f.cover(&media(5, "ANIME")).await, Ok(None)));
     }
@@ -337,7 +449,10 @@ mod tests {
     fn cached_hit_without_file_is_none() {
         let t = Tmp::new();
         let f = Fanart::with_parts(FanartClient::with_key(None), Some(map()), &t.0, DEAD.into());
-        f.hits.insert("tv:5:1:true".into(), "https://assets.fanart.tv/a.jpg".into());
+        f.hits.insert(
+            "tv:5:1:true".into(),
+            "https://assets.fanart.tv/a.jpg".into(),
+        );
         assert_eq!(f.cover_cached(&media(5, "ANIME")), None);
     }
 
@@ -351,7 +466,12 @@ mod tests {
     #[tokio::test]
     async fn cached_hit_does_not_rewrite_caches() {
         let t = Tmp::new();
-        let f = Fanart::with_parts(FanartClient::with_key(Some("k".into())), Some(map()), &t.0, DEAD.into());
+        let f = Fanart::with_parts(
+            FanartClient::with_key(Some("k".into())),
+            Some(map()),
+            &t.0,
+            DEAD.into(),
+        );
         let url = "https://assets.fanart.tv/a.jpg";
         f.hits.insert("tv:5:1:true".into(), url.into());
         let path = f.store.save(url, b"x", "webp").unwrap();
@@ -360,23 +480,88 @@ mod tests {
         assert!(!t.0.join("fanart-miss.json").exists());
     }
 
+    /// Grava `fanart-map.json` com a idade dada (segundos).
+    fn write_map(dir: &Path, age: i64) {
+        std::fs::create_dir_all(dir).unwrap();
+        let body = serde_json::json!({ "at": now() - age, "map": map() });
+        std::fs::write(
+            dir.join("fanart-map.json"),
+            serde_json::to_vec(&body).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn preloaded_map_serves_cover_cached_without_cover_call() {
+        let t = Tmp::new();
+        write_map(&t.0, 60);
+        let f = Fanart::with_parts(
+            FanartClient::with_key(Some("k".into())),
+            None,
+            &t.0,
+            DEAD.into(),
+        );
+        f.preload();
+        let url = "https://assets.fanart.tv/a.jpg";
+        f.hits.insert("tv:5:1:true".into(), url.into());
+        let path = f.store.save(url, b"x", "webp").unwrap();
+        assert_eq!(f.cover_cached(&media(5, "ANIME")), Some(path));
+        assert!(!f.stale_pending.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn preloaded_stale_map_still_refreshes_on_first_cover() {
+        let t = Tmp::new();
+        write_map(&t.0, 8 * 24 * 3600);
+        let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let list_url = format!("http://{}/lista.json", server.local_addr().unwrap());
+        let f = Fanart::with_parts(
+            FanartClient::with_key(Some("k".into())),
+            None,
+            &t.0,
+            list_url,
+        );
+        f.preload();
+        assert!(f.stale_pending.load(Ordering::Acquire));
+        let _ = f.cover(&media(999, "ANIME")).await;
+        assert!(
+            f.refreshing.load(Ordering::Acquire),
+            "renovação em segundo plano em andamento"
+        );
+    }
+
     #[tokio::test]
     async fn stale_map_is_used_without_waiting_for_download() {
         let t = Tmp::new();
         std::fs::create_dir_all(&t.0).unwrap();
         let stale = now() - 8 * 24 * 3600;
         let body = serde_json::json!({ "at": stale, "map": map() });
-        std::fs::write(t.0.join("fanart-map.json"), serde_json::to_vec(&body).unwrap()).unwrap();
+        std::fs::write(
+            t.0.join("fanart-map.json"),
+            serde_json::to_vec(&body).unwrap(),
+        )
+        .unwrap();
         // Servidor que aceita a conexão e nunca responde: um download seguraria por 60 s.
         let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let list_url = format!("http://{}/lista.json", server.local_addr().unwrap());
-        let f = Fanart::with_parts(FanartClient::with_key(Some("k".into())), None, &t.0, list_url);
+        let f = Fanart::with_parts(
+            FanartClient::with_key(Some("k".into())),
+            None,
+            &t.0,
+            list_url,
+        );
         let url = "https://assets.fanart.tv/a.jpg";
         f.hits.insert("tv:5:1:true".into(), url.into());
         let path = f.store.save(url, b"x", "webp").unwrap();
         let got = tokio::time::timeout(Duration::from_secs(3), f.cover(&media(5, "ANIME"))).await;
-        assert_eq!(got.expect("não pode esperar o download").unwrap(), Some(path.clone()));
+        assert_eq!(
+            got.expect("não pode esperar o download").unwrap(),
+            Some(path.clone())
+        );
         assert_eq!(f.cover_cached(&media(5, "ANIME")), Some(path));
-        assert!(f.refreshing.load(Ordering::Acquire), "renovação em segundo plano em andamento");
+        assert!(
+            f.refreshing.load(Ordering::Acquire),
+            "renovação em segundo plano em andamento"
+        );
     }
 }

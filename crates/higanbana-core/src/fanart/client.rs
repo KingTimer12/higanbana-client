@@ -65,9 +65,22 @@ impl FanartClient {
         if !url.starts_with("https://") {
             return Err(FanartError::Http("endereço não permitido".into()));
         }
-        let _permit = self.gate.acquire().await.map_err(|e| FanartError::Http(e.to_string()))?;
-        let resp = self.http.get(url).timeout(IMAGE_TIMEOUT).send().await.map_err(http_err)?;
+        let _permit = self
+            .gate
+            .acquire()
+            .await
+            .map_err(|e| FanartError::Http(e.to_string()))?;
+        let resp = self
+            .http
+            .get(url)
+            .timeout(IMAGE_TIMEOUT)
+            .send()
+            .await
+            .map_err(http_err)?;
         let status = resp.status();
+        if status == StatusCode::NOT_FOUND {
+            return Err(FanartError::NotFound);
+        }
         if !status.is_success() {
             return Err(FanartError::Http(format!("HTTP {status}")));
         }
@@ -76,7 +89,11 @@ impl FanartClient {
 
     async fn json<T: DeserializeOwned + Default>(&self, path: &str) -> FanartResult<T> {
         let key = self.api_key.as_deref().ok_or(FanartError::NotConfigured)?;
-        let _permit = self.gate.acquire().await.map_err(|e| FanartError::Http(e.to_string()))?;
+        let _permit = self
+            .gate
+            .acquire()
+            .await
+            .map_err(|e| FanartError::Http(e.to_string()))?;
         let resp = self
             .http
             .get(format!("{BASE}{path}"))
@@ -110,14 +127,23 @@ mod tests {
     async fn unconfigured_never_hits_network() {
         let client = FanartClient::with_key(None);
         assert!(!client.configured());
-        assert!(matches!(client.tv(1).await, Err(FanartError::NotConfigured)));
-        assert!(matches!(client.movie(1).await, Err(FanartError::NotConfigured)));
+        assert!(matches!(
+            client.tv(1).await,
+            Err(FanartError::NotConfigured)
+        ));
+        assert!(matches!(
+            client.movie(1).await,
+            Err(FanartError::NotConfigured)
+        ));
     }
 
     #[tokio::test]
     async fn download_rejects_non_https() {
         let client = FanartClient::with_key(None);
-        assert!(matches!(client.download("http://assets.fanart.tv/x.jpg").await, Err(FanartError::Http(_))));
+        assert!(matches!(
+            client.download("http://assets.fanart.tv/x.jpg").await,
+            Err(FanartError::Http(_))
+        ));
     }
 
     #[test]

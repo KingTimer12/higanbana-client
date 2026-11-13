@@ -23,7 +23,8 @@ pub fn shrink(bytes: &[u8]) -> FanartResult<(Vec<u8>, &'static str)> {
 #[cfg(feature = "webp-lossy")]
 fn encode(img: image::DynamicImage) -> FanartResult<(Vec<u8>, &'static str)> {
     let rgba = image::DynamicImage::ImageRgba8(img.to_rgba8());
-    let encoder = webp::Encoder::from_image(&rgba).map_err(|e| FanartError::Image(e.to_string()))?;
+    let encoder =
+        webp::Encoder::from_image(&rgba).map_err(|e| FanartError::Image(e.to_string()))?;
     Ok((encoder.encode(COVER_QUALITY).to_vec(), "webp"))
 }
 
@@ -42,7 +43,9 @@ mod tests {
     use super::*;
 
     fn png(w: u32, h: u32) -> Vec<u8> {
-        let img = image::RgbImage::from_fn(w, h, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, 90]));
+        let img = image::RgbImage::from_fn(w, h, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, 90])
+        });
         let mut out = Vec::new();
         image::DynamicImage::ImageRgb8(img)
             .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)

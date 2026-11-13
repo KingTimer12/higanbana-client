@@ -90,10 +90,10 @@ function work(path: string): Work {
   return { path, title, seasons: [], versions: [], defaultVersion: null, episodes: episodesOf(path) };
 }
 
-/** Um backend com dados fixos. `signedIn: false` começa na tela de login. */
 /** Ids de mídia para os quais a tela pediu a capa do fanart (os testes conferem). */
 export const coverRequests = new Set<number>();
 
+/** Um backend com dados fixos. `signedIn: false` começa na tela de login. */
 export function fakeBackend(options: { signedIn: boolean }): Backend {
   let user: User | null = options.signedIn ? USER : null;
   const saved: Record<string, { position: number; duration: number }> = {};

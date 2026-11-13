@@ -330,7 +330,7 @@ impl AppState {
         self.stack.push(path);
         self.index += 1;
         self.covers_failed.clear();
-        cx.emit(AppEvent::Navigated);
+            cx.emit(AppEvent::Navigated);
         cx.notify();
     }
 
@@ -346,7 +346,7 @@ impl AppState {
         if self.can_back() {
             self.index -= 1;
             self.covers_failed.clear();
-        cx.emit(AppEvent::Navigated);
+            cx.emit(AppEvent::Navigated);
             cx.notify();
         }
     }
@@ -355,7 +355,7 @@ impl AppState {
         if self.can_forward() {
             self.index += 1;
             self.covers_failed.clear();
-        cx.emit(AppEvent::Navigated);
+            cx.emit(AppEvent::Navigated);
             cx.notify();
         }
     }

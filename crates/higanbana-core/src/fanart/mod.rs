@@ -3,13 +3,13 @@
 //! Opcional: sem `FANART_TV` no build o cliente responde `NotConfigured` e as
 //! capas continuam vindo do AniList.
 
-pub mod credentials;
 pub mod client;
-pub mod mapping;
+pub mod credentials;
 pub mod encode;
+pub mod mapping;
 pub mod pick;
-pub mod store;
 pub mod service;
+pub mod store;
 
 pub use service::Fanart;
 

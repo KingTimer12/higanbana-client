@@ -176,10 +176,11 @@ impl Catalog {
     pub async fn cover(media: JsonValue) -> Result<Option<String>, String> {
         let media: MediaSummary = serde_json::from_value(media).map_err(|e| e.to_string())?;
         on_core(|c| async move {
-            // Sem rede ou sem chave o fanart falha: a tela segue com a capa do AniList.
+            // `Ok(None)` (sem chave, sem pôster) = usar o AniList; erro de rede volta como erro
+            // para a tela liberar o id e tentar de novo depois.
             let path = match c.fanart().cover_cached(&media) {
                 Some(path) => Some(path),
-                None => c.fanart().cover(&media).await.ok().flatten(),
+                None => c.fanart().cover(&media).await.map_err(|e| e.to_string())?,
             };
             Ok(path.map(|p| file_uri(&p)))
         })
