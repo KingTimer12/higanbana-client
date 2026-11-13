@@ -8,6 +8,7 @@ pub mod client;
 pub mod mapping;
 pub mod encode;
 pub mod pick;
+pub mod store;
 
 use thiserror::Error;
 
