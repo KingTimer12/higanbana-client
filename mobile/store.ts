@@ -4,6 +4,7 @@ import { openUrl, signal } from "nsh";
 import { createNavStack } from "nsh/base";
 import { backend, type Media, type User } from "./lib/backend";
 import { errorMessage, mediaCover } from "./lib/format";
+import { KeyedSignals } from "./lib/keyed";
 
 export type Route =
   | { name: "home" }
@@ -132,7 +133,7 @@ export async function openMedia(media: Media, title: string) {
   opening.set(media.id);
   try {
     const path = await backend().find(media);
-    cloudPaths.update((all) => ({ ...all, [media.id]: path }));
+    cloudPaths.set(media.id, path);
     if (path) nav.push({ name: "title", path, media });
     else notify(`“${title}” ainda não está na nuvem.`);
   } catch (error) {
@@ -149,7 +150,7 @@ export async function openMedia(media: Media, title: string) {
 // fica aqui, pela chave do item, nunca no card: a lista recicla os cards.
 
 /** Metadados por nome de pasta: `null` = sem correspondência no AniList; ausente = ainda não se sabe. */
-const lookups = signal<Record<string, Media | null>>({});
+const lookups = new KeyedSignals<string, Media | null>();
 const lookupQueue: string[] = [];
 const lookupAsked = new Set<string>();
 let lookupRunning = false;
@@ -157,7 +158,7 @@ let lookupRunning = false;
 const LOOKUP_BATCH = 24;
 
 /** A mídia de uma pasta de obra: `undefined` enquanto não se sabe, `null` sem correspondência. */
-export const lookupOf = (name: string): Media | null | undefined => lookups()[name];
+export const lookupOf = (name: string): Media | null | undefined => lookups.get(name);
 
 /** Pede os metadados de uma pasta (uma vez por nome). */
 export function wantLookup(name: string) {
@@ -176,18 +177,10 @@ async function runLookups() {
     const batch = lookupQueue.splice(0, LOOKUP_BATCH);
     try {
       const found = await backend().lookup(batch);
-      lookups.update((all) => {
-        const next = { ...all };
-        batch.forEach((name, i) => (next[name] = found[i] ?? null));
-        return next;
-      });
+      lookups.setMany(batch.map((name, i): [string, Media | null] => [name, found[i] ?? null]));
     } catch {
       // Sem rede: o card fica com a capa tipográfica e tenta de novo ao reaparecer.
-      lookups.update((all) => {
-        const next = { ...all };
-        for (const name of batch) next[name] = null;
-        return next;
-      });
+      lookups.setMany(batch.map((name): [string, Media | null] => [name, null]));
       for (const name of batch) lookupAsked.delete(name);
     }
   }
@@ -195,13 +188,13 @@ async function runLookups() {
 }
 
 /** Capas do fanart.tv por id do AniList: `null` = sem capa de lá; ausente = ainda não se sabe. */
-const covers = signal<Record<number, string | null>>({});
+const covers = new KeyedSignals<number, string | null>();
 const coverQueue: Media[] = [];
 const coverAsked = new Set<number>();
 let coverRunning = false;
 
 /** A capa para mostrar: a do fanart se já chegou, senão a do AniList. */
-export const coverOf = (media: Media | null | undefined): string | null => (media && covers()[media.id]) || mediaCover(media);
+export const coverOf = (media: Media | null | undefined): string | null => (media && covers.get(media.id)) || mediaCover(media);
 
 /** Pede a capa do fanart de uma mídia (uma vez por id; um pedido de cada vez, como a nuvem). */
 export function wantCover(media: Media) {
@@ -219,7 +212,7 @@ async function runCovers() {
     const media = coverQueue.shift()!;
     try {
       const uri = await backend().cover(media);
-      covers.update((all) => ({ ...all, [media.id]: uri }));
+      covers.set(media.id, uri);
     } catch {
       // Fica com a capa do AniList; o pedido é liberado e pode ser refeito se o card pedir de novo.
       coverAsked.delete(media.id);
@@ -229,13 +222,13 @@ async function runCovers() {
 }
 
 /** Caminho na nuvem por id do AniList: `null` = fora do acervo; ausente = ainda não se sabe. */
-const cloudPaths = signal<Record<number, string | null>>({});
+const cloudPaths = new KeyedSignals<number, string | null>();
 const cloudQueue: Media[] = [];
 const cloudAsked = new Set<number>();
 let cloudRunning = false;
 
 /** Onde está a obra de uma mídia: `undefined` enquanto não se sabe, `null` fora do acervo. */
-export const cloudPathOf = (id: number): string | null | undefined => cloudPaths()[id];
+export const cloudPathOf = (id: number): string | null | undefined => cloudPaths.get(id);
 
 /** Pede onde está a obra de uma mídia da temporada (um de cada vez: a nuvem limita buscas seguidas). */
 export function wantCloudPath(media: Media) {
@@ -253,7 +246,7 @@ async function runCloudPaths() {
     const media = cloudQueue.shift()!;
     try {
       const path = await backend().find(media);
-      cloudPaths.update((all) => ({ ...all, [media.id]: path }));
+      cloudPaths.set(media.id, path);
     } catch {
       // Fica sem marca; tenta de novo quando o card reaparecer.
       cloudAsked.delete(media.id);
@@ -270,12 +263,12 @@ export interface Watched {
   watched: boolean;
 }
 
-const progress = signal<Record<string, Watched>>({});
+const progress = new KeyedSignals<string, Watched>();
 
 /** O progresso mais recente de um arquivo, se ele tocou desde que o app abriu. */
-export const watchedOf = (path: string): Watched | undefined => progress()[path];
+export const watchedOf = (path: string): Watched | undefined => progress.get(path);
 
 /** O player avisa onde parou, para as listas de episódios mostrarem sem recarregar. */
 export function recordWatched(path: string, watched: Watched) {
-  progress.update((all) => ({ ...all, [path]: watched }));
+  progress.set(path, watched);
 }

@@ -6,14 +6,14 @@
 #   scripts/mobile.sh test             testes das telas, headless, sobre o acervo de mentira
 #   scripts/mobile.sh verify           check + build + test, nessa ordem
 #   scripts/mobile.sh run [--fake]     o app no desktop (com --fake: acervo de mentira)
-#   scripts/mobile.sh apk [--fake]     APK de release em mobile/.nsh/out/
+#   scripts/mobile.sh apk [--fake]     APK de release em mobile/android/app/build/outputs/apk/
 #   scripts/mobile.sh install [--fake] monta, instala e abre no aparelho
-#   scripts/mobile.sh dev              hot reload no aparelho: servidor do nsh + APK --dev
+#   scripts/mobile.sh dev              hot reload no aparelho: servidor do nsh + APK devServer
 #   scripts/mobile.sh open [--sw]      abre o app no aparelho (--sw: decodificação por software)
 #   scripts/mobile.sh log              logcat só do app
 #   scripts/mobile.sh devices          aparelhos que o adb vê
 #
-# Variáveis repassadas ao android/build.sh: ABIS, KEYSTORE, ANDROID_HOME, ANDROID_NDK_HOME.
+# O APK sai do Gradle em mobile/android (opções -P em mobile/android/gradle.properties).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,6 +38,7 @@ for arg in "${@:2}"; do
   esac
 done
 entry() { if [ "$FAKE" = 1 ]; then echo Fixture.tsx; else echo App.tsx; fi; }
+gradle() { (cd "$MOBILE/android" && ./gradlew "$@"); }
 
 cd "$MOBILE"
 case "${1:-}" in
@@ -46,15 +47,16 @@ case "${1:-}" in
   test) nsh test ${ARGS[@]+"${ARGS[@]}"} ;;
   verify) nsh check && nsh build && nsh test ;;
   run) nsh run "$(entry)" ${ARGS[@]+"${ARGS[@]}"} ;;
-  apk) ENTRY="$(entry)" android/build.sh ;;
-  install) ENTRY="$(entry)" android/build.sh --install ;;
+  apk) gradle :app:assembleBundledRelease -Phiganbana.entry="$(entry)" ;;
+  install) gradle :app:runBundledRelease -Phiganbana.entry="$(entry)" ;;
   dev)
     need_adb
-    # O servidor serve as telas; o APK --dev as carrega por `adb reverse`.
+    # O servidor serve as telas; o APK devServer as carrega por `adb reverse`.
     nsh dev --server-only &
     SERVER=$!
     trap 'kill "$SERVER" 2>/dev/null || true' EXIT INT TERM
-    android/build.sh --dev --install
+    # Release: o build debug do Gradle é "debuggable", e o ART roda a interface bem mais devagar.
+    gradle :app:runDevServerRelease
     echo "→ hot reload ativo; Ctrl-C encerra o servidor"
     wait "$SERVER"
     ;;

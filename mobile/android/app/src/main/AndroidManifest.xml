@@ -1,18 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- O host Android do app: o runtime do NSH (NshView) mais o player libmpv,
-     que o `nsh package` sozinho não sabe empacotar. Montado por build.sh. -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.kingtimer12.higanbana">
+<!-- O host Android do app: o runtime do NSH (NshView) mais o player libmpv, que o
+     `nsh package` sozinho não sabe empacotar. Montado pelo Gradle (app/build.gradle.kts).
+     As bibliotecas nativas são extraídas na instalação: packaging.jniLibs.useLegacyPackaging. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!-- usesCleartextTraffic: o vídeo vem do proxy local do núcleo (http://127.0.0.1) e,
          em desenvolvimento, o bundle vem do `nsh dev`. -->
-    <application android:label="Higanbana"
-        android:extractNativeLibs="true"
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:enableOnBackInvokedCallback="true"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
-        android:theme="@android:style/Theme.Material.NoActionBar">
-        <activity android:name=".MainActivity" android:exported="true"
+        android:theme="@style/Theme.Higanbana"
+        tools:targetApi="33">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection">
@@ -22,4 +34,5 @@
             </intent-filter>
         </activity>
     </application>
+
 </manifest>

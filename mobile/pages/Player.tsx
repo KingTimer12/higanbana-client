@@ -136,14 +136,33 @@ export function Player(props: { dir: string; file: string; title: string; malId:
 
   // --- Controles ---
 
+  /**
+   * O dedo está na barra de posição. O `onChange` do slider só vem quando o dedo anda,
+   * e os controles não podem sumir antes disso: o slider sairia da tela no meio do
+   * arrasto, sem `onChangeEnd` (sem seek, e `scrub` preso no valor arrastado).
+   */
+  let onSeekBar = false;
+  const grabSeekBar = () => {
+    onSeekBar = true;
+    keepControls();
+  };
+  // Solto depois do toque terminar de ser entregue: o toque que vaza para o fundo
+  // (que alterna os controles) ainda vê o dedo na barra e é ignorado.
+  const releaseSeekBar = () =>
+    setTimeout(() => {
+      onSeekBar = false;
+      keepControls();
+    }, 0);
+
   const keepControls = () => {
     clearTimeout(hideTimer);
     controls.set(true);
     hideTimer = setTimeout(() => {
-      if (!untracked(paused) && !untracked(tracksOpen) && untracked(scrub) === null) controls.set(false);
+      if (!untracked(paused) && !untracked(tracksOpen) && untracked(scrub) === null && !onSeekBar) controls.set(false);
     }, CONTROLS_TIMEOUT_MS);
   };
   const toggleControls = () => {
+    if (onSeekBar) return;
     if (controls()) {
       clearTimeout(hideTimer);
       controls.set(false);
@@ -164,6 +183,50 @@ export function Player(props: { dir: string; file: string; title: string; malId:
     paused.update((p) => !p);
     if (paused()) save();
     keepControls();
+  };
+
+  /**
+   * A barra de posição. Some com os controles; se sumir no meio de um arrasto (sem
+   * `onChangeEnd`), o arrasto vale até onde chegou, e `scrub` não fica preso.
+   */
+  const SeekBar = () => {
+    cleanup(() => {
+      onSeekBar = false;
+      const at = untracked(scrub);
+      if (at === null) return;
+      scrub.set(null);
+      seekTo(at);
+    });
+    return (
+      <View
+        class="flex-1"
+        onTouchStartCapture={grabSeekBar}
+        onTouchEndCapture={releaseSeekBar}
+        onTouchCancelCapture={releaseSeekBar}
+      >
+        <Slider
+          value={shown()}
+          min={0}
+          max={Math.max(duration(), 1)}
+          step={1}
+          disabled={duration() <= 0}
+          accessibilityLabel="Posição do vídeo"
+          trackClass="h-11 justify-center"
+          indicatorClass="h-1 rounded-full bg-on-video/30"
+          rangeClass="h-1 rounded-full bg-primary"
+          thumbClass="size-4 rounded-full bg-on-video"
+          onChange={({ value }) => {
+            scrub.set(value as number);
+            keepControls();
+          }}
+          onChangeEnd={({ value }) => {
+            seekTo(value as number);
+            scrub.set(null);
+            keepControls();
+          }}
+        />
+      </View>
+    );
   };
 
   /** Um toque mostra ou esconde os controles; dois do mesmo lado pulam 10 s. */
@@ -266,7 +329,7 @@ export function Player(props: { dir: string; file: string; title: string; malId:
           <VideoSurface
             src={current() ? core.streamUrl(current()!.path, current()!.size) : ""}
             paused={paused()}
-            startAt={current() ? resumeAt(current()!) : 0}
+            startAt={current() ? untracked(() => resumeAt(current()!)) : 0}
             sub={sub()}
             audio={audio()}
             class="absolute inset-0"
@@ -359,28 +422,7 @@ export function Player(props: { dir: string; file: string; title: string; malId:
             <View class="gap-1 px-4 pb-3">
               <View class="flex-row items-center gap-3">
                 <Text class="min-w-12 text-sm tabular-nums text-on-video">{formatTime(shown())}</Text>
-                <Slider
-                  value={shown()}
-                  min={0}
-                  max={Math.max(duration(), 1)}
-                  step={1}
-                  disabled={duration() <= 0}
-                  accessibilityLabel="Posição do vídeo"
-                  class="flex-1"
-                  trackClass="h-11 justify-center"
-                  indicatorClass="h-1 rounded-full bg-on-video/30"
-                  rangeClass="h-1 rounded-full bg-primary"
-                  thumbClass="size-4 rounded-full bg-on-video"
-                  onChange={({ value }) => {
-                    scrub.set(value as number);
-                    keepControls();
-                  }}
-                  onChangeEnd={({ value }) => {
-                    seekTo(value as number);
-                    scrub.set(null);
-                    keepControls();
-                  }}
-                />
+                <SeekBar />
                 <Text class="min-w-12 text-right text-sm tabular-nums text-on-video-muted">{formatTime(duration())}</Text>
                 <If when={next()}>
                   {(following) => (

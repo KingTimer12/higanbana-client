@@ -14,7 +14,7 @@ components/        controles do app (ui.tsx), pôster e card de episódio do des
 lib/               contrato com o núcleo (backend.ts), formatação
 src/               crate Rust: `higanbana/native` (Account, Catalog, Library, Player)
 theme.json         tokens de cor e raios (os do tema escuro do desktop)
-android/           host Android com libmpv e o script que monta o APK
+android/           projeto Gradle do host Android: Java (NSH + libmpv), C++ (NDK) e o libnsh.so do Rust
 ```
 
 ## Dia a dia
@@ -46,22 +46,43 @@ No desktop o vídeo usa o `Video` do NSH (o que o sistema toca, sem faixas); ser
 ## Android
 
 O player é o libmpv, um componente nativo (`higanbana.mpv`) que só um host Android próprio consegue
-registrar; o `nsh package --target android` não leva Java nem bibliotecas extras. Por isso o APK é
-montado por `android/build.sh`, com as ferramentas do SDK (sem Gradle):
+registrar; o `nsh package --target android` não leva Java nem bibliotecas extras. Por isso o APK sai
+de um projeto Gradle em `android/`, que junta três linguagens:
+
+- **Rust**: `libnsh.so`, o runtime do NSH ligado ao crate do app (`.nsh/rust`), compilado pelo cargo
+  com o clang do NDK (tarefa `cargoBuild<Flavor>`).
+- **C++** (`app/src/main/cpp`, CMake): sonda os decodificadores do aparelho (NDK MediaCodec) e escolhe
+  o `hwdec` do mpv: hardware (`mediacodec-copy`) quando há, software (`no`) no emulador.
+- **Java** (`app/src/main/java`): a atividade, a `NshView` e o componente do player sobre o libmpv
+  (`dev.jdtech.mpv:libmpv`, do Maven Central).
+
+Dois flavors: `bundled` leva as telas no APK (`nsh build`); `devServer` as busca no
+`nsh dev --server-only` (hot reload, via `adb reverse`).
 
 ```sh
-android/build.sh --install            # release: .nsh/out/higanbana.apk, instala e abre
-android/build.sh --dev --install      # telas vindas de `nsh dev --server-only` (hot reload)
-ENTRY=Fixture.tsx android/build.sh    # APK com o acervo de mentira
+cd android
+./gradlew :app:runBundledRelease                              # monta, instala e abre
+./gradlew :app:runDevServerRelease                            # telas do `nsh dev --server-only`
+./gradlew :app:runBundledRelease -Phiganbana.entry=Fixture.tsx   # acervo de mentira
+./gradlew :app:assembleBundledRelease -Phiganbana.abis=arm64-v8a,x86_64
 ```
 
-Requisitos: SDK do Android (build-tools, uma plataforma, NDK), JDK e
-`rustup target add aarch64-linux-android`. O libmpv e o runtime do Kotlin vêm do Maven Central na
-primeira vez.
+Para medir desempenho, use sempre um `*Release`: os `*Debug` são `debuggable`, e o ART roda a
+interface (as views do NSH são Java) bem mais devagar. No Android Studio, troque a *Build Variant*
+para `bundledRelease`. Tocando um vídeo, o logcat (`scripts/mobile.sh log`) mostra a cada 10 s o
+decodificador em uso e os quadros perdidos (`higanbana.mpv`).
 
-Em emulador cujo decodificador de hardware não responde, abra com decodificação por software:
+O APK fica em `android/app/build/outputs/apk/<flavor>/<tipo>/`. Opções em `android/gradle.properties`
+(`higanbana.*`): entrada TSX, ABIs, porta do `nsh dev`, caminhos do `nsh`/`cargo` e a chave de
+assinatura do release (sem ela, a de debug).
+
+Requisitos: SDK do Android com o NDK 28.2 e o CMake 3.22.1, JDK, `nsh`, e
+`rustup target add aarch64-linux-android` (mais um alvo por ABI extra). O Android Studio abre `android/`.
+
+Para forçar o decodificador (ex.: software num aparelho cujo hardware falha):
 
 ```sh
+./gradlew :app:runBundledRelease -Phiganbana.hwdec=no
 adb shell am start -n dev.kingtimer12.higanbana/.MainActivity --es hwdec no
 ```
 

@@ -1,0 +1,4 @@
+<resources>
+    <!-- Sem action bar: a NshView ocupa a janela inteira e desenha atrás das barras. -->
+    <style name="Theme.Higanbana" parent="@android:style/Theme.Material.NoActionBar" />
+</resources>
