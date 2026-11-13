@@ -6,6 +6,7 @@
 pub mod credentials;
 pub mod client;
 pub mod mapping;
+pub mod encode;
 pub mod pick;
 
 use thiserror::Error;
