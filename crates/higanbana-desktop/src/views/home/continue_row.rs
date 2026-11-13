@@ -6,7 +6,14 @@ use gpui_kit::{
     AnimationExt as _, AnyElement, App, Context, ElementId, Entity, FontWeight, IntoElement, ParentElement, Render, Styled,
     Window, assets::IconName, div, prelude::*, px,
 };
-use gpui_kit::component::{ActiveTheme as _, Icon, button::ButtonVariants as _, h_flex, progress::Progress, v_flex};
+use gpui_kit::component::{
+    ActiveTheme as _, Icon, Sizable as _,
+    button::ButtonVariants as _,
+    carousel::{Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, CarouselState},
+    h_flex,
+    progress::Progress,
+    v_flex,
+};
 use gpui_kit::{SpringAnimation, SpringConfig};
 use higanbana_core::{
     anilist::{MediaType, types::MediaSummary},
@@ -32,6 +39,8 @@ const GAP_REM: f32 = 1.;
 const FEATURED_REM: f32 = 9.;
 const ROW_REM: f32 = 7.75;
 const CARD_REM: f32 = 5.;
+/// Espaço lateral para as setas do Carousel.
+const ARROWS_REM: f32 = 3.;
 
 /// Texto de progresso de um item: episódio e quanto falta, ou quanto já leu.
 pub fn item_label(file_name: &str, item: &ContinueItem, reading: bool) -> String {
@@ -90,6 +99,9 @@ fn shape_of(s: &AppState) -> Shape {
 pub struct ContinueRow {
     state: Entity<AppState>,
     shape: Shape,
+    /// Fileiras "Assistindo" e "Lendo" no Carousel do kit (arrastar, roda, setas).
+    watch_carousel: Entity<CarouselState>,
+    read_carousel: Entity<CarouselState>,
 }
 
 impl ContinueRow {
@@ -97,12 +109,25 @@ impl ContinueRow {
         let state = state(cx);
         // Progresso e capas chegam pelo AppState.
         cx.observe(&state, |v, state, cx| {
-            v.shape = shape_of(state.read(cx));
+            let shape = shape_of(state.read(cx));
+            v.sync_carousels(&shape, cx);
+            v.shape = shape;
             cx.notify();
         })
         .detach();
         let shape = shape_of(state.read(cx));
-        Self { state, shape }
+        let watch_carousel = cx.new(|_| CarouselState::new(shape.watching.len()));
+        let read_carousel = cx.new(|_| CarouselState::new(shape.reading.len()));
+        Self { state, shape, watch_carousel, read_carousel }
+    }
+
+    /// Mantém o total de itens de cada Carousel igual ao da fileira.
+    fn sync_carousels(&self, shape: &Shape, cx: &mut Context<Self>) {
+        for (carousel, len) in [(&self.watch_carousel, shape.watching.len()), (&self.read_carousel, shape.reading.len())] {
+            if carousel.read(cx).item_count() != len {
+                carousel.update(cx, |c, cx| c.set_item_count(len, cx));
+            }
+        }
     }
 
     /// Altura do bloco em rem (0 = nada para continuar).
@@ -222,17 +247,31 @@ impl ContinueRow {
 
     fn row(&self, label: &'static str, items: &[ContinueItem], is_reading: bool, rem: f32, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
+        let carousel = if is_reading { self.read_carousel.clone() } else { self.watch_carousel.clone() };
+        let slides: Vec<_> = items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                CarouselItem::new(ElementId::Name(format!("continue-slide:{}", item.work_path).into()), i, &carousel)
+                    .accessibility_label(self.title(item, cx))
+                    .w_auto()
+                    .child(self.card(item, is_reading, i, rem, cx))
+            })
+            .collect();
         v_flex()
             .h(px(ROW_REM * rem))
             .gap_2()
             .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(theme.muted_foreground).child(label))
             .child(
-                h_flex()
-                    .id(ElementId::Name(format!("continue-row:{label}").into()))
-                    .gap_3()
-                    .pb_2()
-                    .overflow_x_scroll()
-                    .children(items.iter().enumerate().map(|(i, item)| self.card(item, is_reading, i, rem, cx))),
+                // Espaço dos lados para as setas do kit, que ficam fora da área dos cartões.
+                div().px(px(ARROWS_REM * rem)).child(
+                    Carousel::new(ElementId::Name(format!("continue-row:{label}").into()), &carousel)
+                        .accessibility_label(label)
+                        .w_full()
+                        .child(CarouselContent::new(&carousel).h(px(CARD_REM * rem)).children(slides))
+                        .child(CarouselPrevious::new(&carousel).small())
+                        .child(CarouselNext::new(&carousel).small()),
+                ),
             )
             .into_any_element()
     }

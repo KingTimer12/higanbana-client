@@ -1,7 +1,7 @@
 //! Banner de destaques do ano na entrada, sobre o `Carousel` do kit: um slide
 //! largo por vez (arrastar, teclado e laço vêm do kit), miniaturas das capas como
 //! paginação, texto que entra em cascata a cada troca e o fundo tingido com a cor
-//! da capa. Alterna Anime/Mangá; cada tipo só confere quando é escolhido.
+//! da capa. Só anime: o ranking de mangás do ano quase não tem nada no acervo.
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -11,11 +11,9 @@ use gpui_kit::{
 };
 use gpui_kit::component::{
     ActiveTheme as _, Icon, Sizable as _,
-    button::ButtonVariants as _,
-    carousel::{Carousel, CarouselContent, CarouselEvent, CarouselItem, CarouselPagination, CarouselPaginationItem, CarouselState},
+    carousel::{Carousel, CarouselContent, CarouselEvent, CarouselItem, CarouselState},
     h_flex,
     skeleton::Skeleton,
-    tab::{Tab, TabBar},
     tag::Tag,
     v_flex,
 };
@@ -24,10 +22,10 @@ use higanbana_core::{
     catalog::ListBudget,
 };
 
-use super::{Slot, discover_task, eyebrow, leave};
+use super::{Slot, discover_task, eyebrow};
 use crate::{
     components::{cover, hex_color, remote_image, rounded_image},
-    interact::Button,
+    interact::{Button, hover_anim},
     motion::{self, RISE_DISTANCE},
     state::{AppState, state},
     ui::empty_state,
@@ -141,22 +139,6 @@ impl Hero {
             },
         );
         self.slots.insert(media, Slot::new(task));
-    }
-
-    fn select(&mut self, media: MediaType, cx: &mut Context<Self>) {
-        if self.selected == media {
-            return;
-        }
-        leave(&mut self.slots, &self.selected);
-        self.selected = media;
-        self.load(media, cx);
-        let len = self.slots.get(&media).map_or(0, |s| s.items.len());
-        self.carousel.update(cx, |c, cx| {
-            c.set_item_count(len, cx);
-            c.set_selected_index(0, cx);
-        });
-        self.reveal += 1;
-        cx.notify();
     }
 
     fn slide(&self, m: &RankedMedia, path: &str, active: bool, rem: f32, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
@@ -291,36 +273,43 @@ impl Hero {
             .into_any_element()
     }
 
-    /// Paginação com miniaturas das capas: a selecionada acende e cresce.
-    fn pagination(&self, items: &[(RankedMedia, String)], active: usize, rem: f32, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        let theme = cx.theme().clone();
+    /// Navegação pelas capas: cada miniatura leva ao seu slide; a atual fica
+    /// acesa e acima das outras, e o hover levanta a que está sob o ponteiro.
+    fn thumbs(&self, items: &[(RankedMedia, String)], active: usize, rem: f32) -> gpui_kit::AnyElement {
         let media = self.selected.as_str();
-        CarouselPagination::new()
-            .accessibility_label("Destaques")
-            .gap_1p5()
+        h_flex()
+            .gap_2()
+            .items_end()
             .children(items.iter().enumerate().map(|(i, (m, _))| {
                 let on = i == active;
                 let url = m.summary.cover_small().map(str::to_owned);
-                CarouselPaginationItem::new(ElementId::Name(format!("hero-thumb:{media}:{}", m.summary.id).into()), i, &self.carousel)
-                    .accessibility_label(m.summary.title())
-                    .p_0()
-                    .h_auto()
-                    .child(
-                        div()
-                            .w(px(2.4 * rem))
-                            .h(px(3.4 * rem))
-                            .rounded(theme.radius)
-                            .overflow_hidden()
-                            .border_2()
-                            .border_color(if on { theme.foreground } else { theme.foreground.opacity(0.) })
-                            .opacity(if on { 1. } else { 0.55 })
-                            .child(rounded_image(url.as_deref(), Some(theme.radius), cx))
-                            .with_animation(
-                                ElementId::Name(format!("hero-thumb-pop:{media}:{}:{on}", m.summary.id).into()),
-                                motion::enter(motion::QUICK),
-                                move |d, t| if on { d.relative().top(px(-3. * t)) } else { d },
-                            ),
-                    )
+                let carousel = self.carousel.clone();
+                let id = format!("hero-thumb:{media}:{}", m.summary.id);
+                let thumb = hover_anim(ElementId::Name(format!("{id}:hover").into()), motion::QUICK, move |t, _, cx| {
+                    let theme = cx.theme().clone();
+                    let lift = if on { 1. } else { motion::ease_out_cubic(t) };
+                    div()
+                        .relative()
+                        .top(px(-4. * lift))
+                        .w(px(2.75 * rem))
+                        .h(px(3.9 * rem))
+                        .rounded(theme.radius)
+                        .overflow_hidden()
+                        .border_2()
+                        .border_color(if on { theme.foreground } else { theme.foreground.opacity(0.2 * t) })
+                        .opacity(if on { 1. } else { 0.5 + 0.4 * t })
+                        .when(on, |d| d.shadow_lg())
+                        .child(rounded_image(url.as_deref(), Some(theme.radius), cx))
+                });
+                div()
+                    .id(ElementId::Name(id.into()))
+                    .cursor_pointer()
+                    .child(thumb)
+                    .on_click(move |_, _, cx| {
+                        carousel.update(cx, |c, cx| {
+                            c.select_index(i, cx);
+                        });
+                    })
             }))
             .into_any_element()
     }
@@ -335,20 +324,7 @@ impl Render for Hero {
         let glow = glow_of(items.get(active).map(|(m, _)| m), theme.primary);
 
         let selected = self.selected;
-        let header = h_flex()
-            .h(px(HEADER_REM * rem))
-            .justify_between()
-            .gap_4()
-            .child(eyebrow(IconName::Sparkles, format!("Destaques de {}", current_year()), cx))
-            .child(
-                TabBar::new("hero-media")
-                    .segmented()
-                    .small()
-                    .selected_index(if selected == MediaType::Anime { 0 } else { 1 })
-                    .on_click(cx.listener(|h, ix: &usize, _, cx| h.select(if *ix == 0 { MediaType::Anime } else { MediaType::Manga }, cx)))
-                    .child(Tab::new().label("Anime"))
-                    .child(Tab::new().label("Mangá")),
-            );
+        let header = h_flex().h(px(HEADER_REM * rem)).child(eyebrow(IconName::Sparkles, format!("Destaques de {}", current_year()), cx));
 
         let body: gpui_kit::AnyElement = if items.is_empty() {
             if done {
@@ -386,28 +362,7 @@ impl Render for Hero {
                 .into_any_element()
         };
 
-        let controls = (items.len() > 1).then(|| {
-            h_flex()
-                .absolute()
-                .right_6()
-                .bottom_5()
-                .gap_3()
-                .child(self.pagination(&items, active, rem, cx))
-                .child(
-                    v_flex()
-                        .gap_1()
-                        .child(Button::new("hero-prev").ghost().small().icon(IconName::ChevronLeft).tooltip("Anterior").on_click(cx.listener(|h, _, _, cx| {
-                            h.carousel.update(cx, |c, cx| {
-                                c.select_previous(cx);
-                            })
-                        })))
-                        .child(Button::new("hero-next").ghost().small().icon(IconName::ChevronRight).tooltip("Próximo").on_click(cx.listener(|h, _, _, cx| {
-                            h.carousel.update(cx, |c, cx| {
-                                c.select_next(cx);
-                            })
-                        }))),
-                )
-        });
+        let controls = (items.len() > 1).then(|| div().absolute().right_6().bottom_5().child(self.thumbs(&items, active, rem)));
 
         // Moldura de 1px por fora: o Carousel pinta por cima do que fica dentro dele.
         v_flex().size_full().gap(px(GAP_REM * rem)).child(header).child(

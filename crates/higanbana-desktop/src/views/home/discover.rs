@@ -1,13 +1,13 @@
 //! Carrossel "Descobrir" da entrada, sobre o `Carousel` do kit: mais bem
-//! avaliados do ano, mais populares e em alta, só com obras do acervo. Cada
-//! pôster vem com a posição no ranking em número grande e sobe no hover. Cada
-//! aba (e tipo) confere na primeira vez que é aberta.
+//! avaliados do ano, mais populares e em alta, só com obras do acervo (só anime:
+//! os rankings de mangá quase não têm nada no acervo). O pôster sobe no hover.
+//! Cada aba confere na primeira vez que é aberta.
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use gpui_kit::{
-    AnimationExt as _, Context, ElementId, Entity, FontWeight, IntoElement, ParentElement, Render, Styled, Window,
-    assets::IconName, div, prelude::*, px, relative,
+    AnimationExt as _, Context, ElementId, Entity, IntoElement, ParentElement, Render, Styled, Window,
+    assets::IconName, div, prelude::*, px,
 };
 use gpui_kit::component::{
     ActiveTheme as _, Sizable as _,
@@ -39,10 +39,8 @@ const HEADER_REM: f32 = 2.5;
 const TABS_REM: f32 = 2.5;
 const GAP_REM: f32 = 1.;
 const POSTER_REM: f32 = 9.;
-/// Largura reservada ao número do ranking, que fica meio por baixo da capa.
-const RANK_REM: f32 = 2.75;
 /// Capa 2:3 + título em duas linhas + linha de formato + folga para subir no hover.
-const ROW_REM: f32 = POSTER_REM * 1.5 + 4.5;
+const ROW_REM: f32 = POSTER_REM * 1.5 + 6.;
 /// Espaço lateral para as setas do kit, que ficam fora da área dos pôsteres.
 const ARROWS_REM: f32 = 3.;
 const HOVER: Duration = Duration::from_millis(220);
@@ -146,16 +144,7 @@ impl Render for Discover {
             .h(px(HEADER_REM * rem))
             .justify_between()
             .gap_4()
-            .child(eyebrow(IconName::Compass, "Descobrir", cx))
-            .child(
-                TabBar::new("discover-media")
-                    .segmented()
-                    .small()
-                    .selected_index(if media == MediaType::Anime { 0 } else { 1 })
-                    .on_click(cx.listener(|v, ix: &usize, _, cx| v.pick(if *ix == 0 { MediaType::Anime } else { MediaType::Manga }, v.ranking, cx)))
-                    .child(Tab::new().label("Anime"))
-                    .child(Tab::new().label("Mangá")),
-            );
+            .child(eyebrow(IconName::Compass, "Descobrir", cx));
 
         let tabs = h_flex().h(px(TABS_REM * rem)).child(
             TabBar::new("discover-tabs")
@@ -184,7 +173,7 @@ impl Render for Discover {
                 .px(px(ARROWS_REM * rem))
                 .gap_4()
                 .overflow_hidden()
-                .children((0..8).map(|_| div().flex_none().pl(px(RANK_REM * rem)).child(Skeleton::new().w(width).h(width * 1.5).rounded(theme.radius_lg))))
+                .children((0..8).map(|_| div().flex_none().child(Skeleton::new().w(width).h(width * 1.5).rounded(theme.radius_lg))))
                 .into_any_element()
         } else {
             let slides: Vec<_> = items
@@ -193,7 +182,6 @@ impl Render for Discover {
                 .map(|(i, (m, path))| {
                     let id = m.summary.id;
                     let st = self.state.clone();
-                    let rank_color = theme.foreground;
                     let card_id = format!("discover:{media_key}:{ranking_key}:{id}");
                     let name = m.summary.title();
                     let summary = m.summary.clone();
@@ -202,25 +190,11 @@ impl Render for Discover {
                         let e = ease_out_cubic(t);
                         let st = st.clone();
                         let path = path.clone();
-                        h_flex()
-                            .items_end()
-                            .child(
-                                div()
-                                    .w(px(RANK_REM * rem))
-                                    .mb(px(3.5 * rem))
-                                    .mr(px(-0.9 * rem))
-                                    .text_size(px(4.75 * rem))
-                                    .line_height(relative(1.))
-                                    .font_weight(FontWeight::BLACK)
-                                    .text_color(rank_color.opacity(0.28 + 0.45 * e))
-                                    .child((i + 1).to_string()),
-                            )
+                        div()
                             .child(
                                 div()
                                     .relative()
                                     .top(px(-6. * e))
-                                    .when(e > 0.01, |d| d.shadow_xl())
-                                    .rounded(cx.theme().radius_lg)
                                     .child(
                                         poster(
                                             PosterProps {
