@@ -52,12 +52,16 @@ impl FanartClient {
         self.api_key.is_some()
     }
 
+    /// Imagens da série; resposta de outra série vira "sem imagens".
     pub async fn tv(&self, tvdb: u32) -> FanartResult<TvImages> {
-        self.json(&format!("/v3/tv/{tvdb}")).await
+        let images: TvImages = self.json(&format!("/v3/tv/{tvdb}")).await?;
+        Ok(if images.is_for(tvdb) { images } else { TvImages::default() })
     }
 
+    /// Imagens do filme; resposta de outro filme vira "sem imagens".
     pub async fn movie(&self, tmdb: u32) -> FanartResult<MovieImages> {
-        self.json(&format!("/v3/movies/{tmdb}")).await
+        let images: MovieImages = self.json(&format!("/v3/movies/{tmdb}")).await?;
+        Ok(if images.is_for(tmdb) { images } else { MovieImages::default() })
     }
 
     /// Baixa uma imagem; só `https`.

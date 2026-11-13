@@ -16,16 +16,40 @@ pub struct Art {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct TvImages {
+    /// Série a que a resposta pertence. O fanart.tv às vezes responde um TVDB id
+    /// com outra série (Ox Tales, 82737 → Ulysses, 351049).
+    #[serde(default)]
+    pub thetvdb_id: Option<String>,
     #[serde(default)]
     pub tvposter: Vec<Art>,
     #[serde(default)]
     pub seasonposter: Vec<Art>,
 }
 
+impl TvImages {
+    /// A resposta é da série pedida? Sem id na resposta, aceita.
+    pub fn is_for(&self, tvdb: u32) -> bool {
+        same_id(self.thetvdb_id.as_deref(), tvdb)
+    }
+}
+
 #[derive(Debug, Deserialize, Default)]
 pub struct MovieImages {
     #[serde(default)]
+    pub tmdb_id: Option<String>,
+    #[serde(default)]
     pub movieposter: Vec<Art>,
+}
+
+impl MovieImages {
+    /// A resposta é do filme pedido? Sem id na resposta, aceita.
+    pub fn is_for(&self, tmdb: u32) -> bool {
+        same_id(self.tmdb_id.as_deref(), tmdb)
+    }
+}
+
+fn same_id(got: Option<&str>, wanted: u32) -> bool {
+    got.is_none_or(|g| g.trim() == wanted.to_string())
 }
 
 /// Pôster da temporada; sem ele, o da série só se `series_poster` (temporada 1).
@@ -85,6 +109,7 @@ mod tests {
     #[test]
     fn picks_matching_season() {
         let imgs = TvImages {
+            thetvdb_id: None,
             tvposter: vec![],
             seasonposter: vec![
                 art("s1", "en", "0", Some("1")),
@@ -97,6 +122,7 @@ mod tests {
     #[test]
     fn non_numeric_season_never_matches() {
         let imgs = TvImages {
+            thetvdb_id: None,
             tvposter: vec![],
             seasonposter: vec![
                 art("all", "en", "9", Some("all")),
@@ -109,6 +135,7 @@ mod tests {
     #[test]
     fn no_season_falls_to_none_after_s1() {
         let imgs = TvImages {
+            thetvdb_id: None,
             tvposter: vec![art("t", "en", "5", None)],
             seasonposter: vec![],
         };
@@ -118,6 +145,7 @@ mod tests {
     #[test]
     fn season_one_uses_tvposter() {
         let imgs = TvImages {
+            thetvdb_id: None,
             tvposter: vec![art("t", "en", "5", None)],
             seasonposter: vec![],
         };
@@ -127,6 +155,7 @@ mod tests {
     #[test]
     fn lang_order_en_then_textless_then_ja() {
         let mut imgs = TvImages {
+            thetvdb_id: None,
             tvposter: vec![
                 art("ja", "ja", "9", None),
                 art("none", "00", "1", None),
@@ -140,20 +169,36 @@ mod tests {
     }
 
     #[test]
+    fn response_for_another_show_is_rejected() {
+        // Ox Tales (TVDB 82737): o fanart.tv respondeu com o Ulysses (351049).
+        let body = r#"{"name":"Ulysses","thetvdb_id":"351049","tvposter":[{"url":"https://a/u.jpg","lang":"en","likes":"0"}]}"#;
+        let t: TvImages = serde_json::from_str(body).unwrap();
+        assert!(!t.is_for(82737));
+        assert!(t.is_for(351049));
+        assert!(TvImages::default().is_for(82737), "sem id na resposta: aceita");
+
+        let m: MovieImages = serde_json::from_str(r#"{"tmdb_id":"10","movieposter":[]}"#).unwrap();
+        assert!(!m.is_for(11));
+        assert!(m.is_for(10));
+    }
+
+    #[test]
     fn other_languages_are_never_picked() {
         // Kusuriya no Hitorigoto: a 2ª temporada só tinha pôster em francês.
         let imgs = TvImages {
+            thetvdb_id: None,
             tvposter: vec![art("t-en", "en", "5", None)],
             seasonposter: vec![art("s2-fr", "fr", "9", Some("2"))],
         };
         assert_eq!(pick_tv(&imgs, 2, false), None);
-        let movie = MovieImages { movieposter: vec![art("fr", "fr", "9", None)] };
+        let movie = MovieImages { tmdb_id: None, movieposter: vec![art("fr", "fr", "9", None)] };
         assert_eq!(pick_movie(&movie), None);
     }
 
     #[test]
     fn season_one_in_other_language_falls_to_series_poster() {
         let imgs = TvImages {
+            thetvdb_id: None,
             tvposter: vec![art("t-en", "en", "5", None)],
             seasonposter: vec![art("s1-fr", "fr", "9", Some("1"))],
         };
@@ -163,6 +208,7 @@ mod tests {
     #[test]
     fn likes_break_ties() {
         let imgs = TvImages {
+            thetvdb_id: None,
             tvposter: vec![art("a", "en", "3", None), art("b", "en", "7", None)],
             seasonposter: vec![],
         };
@@ -172,6 +218,7 @@ mod tests {
     #[test]
     fn movie_picks_best_poster() {
         let imgs = MovieImages {
+            tmdb_id: None,
             movieposter: vec![art("a", "ja", "9", None), art("b", "en", "1", None)],
         };
         assert_eq!(pick_movie(&imgs).as_deref(), Some("b"));
