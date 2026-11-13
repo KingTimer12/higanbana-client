@@ -25,7 +25,7 @@ use higanbana_core::{
     catalog::ListBudget,
 };
 
-use super::discover_task;
+use super::{Slot, discover_task, leave};
 use crate::{
     components::{cover, hex_color, remote_image},
     interact::Button,
@@ -83,13 +83,6 @@ impl SlideIndex {
             self.i = i.min(self.len - 1);
         }
     }
-}
-
-/// Obras confirmadas de um tipo e a conferência em andamento.
-struct Slot {
-    items: Vec<(RankedMedia, String)>,
-    done: bool,
-    _task: Task<()>,
 }
 
 pub struct Hero {
@@ -164,7 +157,7 @@ impl Hero {
                 }
             },
         );
-        self.slots.insert(media, Slot { items: Vec::new(), done: false, _task: task });
+        self.slots.insert(media, Slot::new(task));
     }
 
     /// O tipo mostrado já terminou de conferir (o orçamento fica livre para os outros blocos).
@@ -176,6 +169,7 @@ impl Hero {
         if self.selected == media {
             return;
         }
+        leave(&mut self.slots, &self.selected);
         self.selected = media;
         self.load(media, cx);
         self.index = SlideIndex::default();

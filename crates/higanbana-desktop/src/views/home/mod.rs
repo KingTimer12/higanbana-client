@@ -38,6 +38,27 @@ pub struct HomeView {
     discover: Entity<discover::Discover>,
 }
 
+/// Obras confirmadas de uma lista (tipo + ranking) e a conferência em andamento.
+pub(super) struct Slot {
+    pub items: Vec<(RankedMedia, String)>,
+    pub done: bool,
+    _task: Task<()>,
+}
+
+impl Slot {
+    pub fn new(task: Task<()>) -> Self {
+        Self { items: Vec::new(), done: false, _task: task }
+    }
+}
+
+/// Ao sair de uma lista que não terminou, cancela a conferência (dropa a `Task`):
+/// lista escondida não gasta orçamento. Ao voltar ela recomeça, rápida pelo cache.
+pub(super) fn leave<K: Eq + std::hash::Hash>(slots: &mut std::collections::HashMap<K, Slot>, key: &K) {
+    if slots.get(key).is_some_and(|s| !s.done) {
+        slots.remove(key);
+    }
+}
+
 /// Cancela a conferência no núcleo quando a view que pediu some.
 struct AbortOnDrop(tokio::task::AbortHandle);
 
@@ -197,5 +218,23 @@ impl Render for HomeView {
             })
             .child(v_flex().gap_4().child(div().text_xl().font_weight(FontWeight::SEMIBOLD).child("Seções")).child(sections))
             .child(self.discover.clone().cached(StyleRefinement::default().w_full().h(px(discover::height_rem() * rem))))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn leaving_unfinished_list_cancels_it() {
+        let mut slots = std::collections::HashMap::new();
+        slots.insert("a", Slot::new(Task::ready(())));
+        let mut done = Slot::new(Task::ready(()));
+        done.done = true;
+        slots.insert("b", done);
+        leave(&mut slots, &"a");
+        leave(&mut slots, &"b");
+        assert!(!slots.contains_key("a"));
+        assert!(slots.contains_key("b"));
     }
 }

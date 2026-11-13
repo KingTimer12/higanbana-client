@@ -6,7 +6,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use gpui_kit::{
     AnimationExt as _, Context, ElementId, Entity, FontWeight, IntoElement, ParentElement, Render, ScrollHandle, Styled,
-    Task, Window, assets::IconName, div, point, prelude::*, px,
+    Window, assets::IconName, div, point, prelude::*, px,
 };
 use gpui_kit::component::{
     ActiveTheme as _, Selectable as _, Sizable as _,
@@ -17,11 +17,11 @@ use gpui_kit::component::{
     v_flex,
 };
 use higanbana_core::{
-    anilist::{MediaType, Ranking, types::RankedMedia},
+    anilist::{MediaType, Ranking},
     catalog::ListBudget,
 };
 
-use super::discover_task;
+use super::{Slot, discover_task, leave};
 use crate::{
     components::{PosterProps, poster},
     interact::Button,
@@ -50,12 +50,6 @@ pub fn height_rem() -> f32 {
 /// deslocamento como negativo (0 = início, `-max` = fim).
 pub fn page_offset(current: f32, width: f32, max: f32, forward: bool) -> f32 {
     if forward { (current - width).max(-max) } else { (current + width).min(0.) }
-}
-
-struct Slot {
-    items: Vec<(RankedMedia, String)>,
-    done: bool,
-    _task: Task<()>,
 }
 
 pub struct Discover {
@@ -111,13 +105,14 @@ impl Discover {
                 }
             },
         );
-        self.slots.insert(key, Slot { items: Vec::new(), done: false, _task: task });
+        self.slots.insert(key, Slot::new(task));
     }
 
     fn pick(&mut self, media: MediaType, ranking: Ranking, cx: &mut Context<Self>) {
         if (media, ranking) == (self.media, self.ranking) {
             return;
         }
+        leave(&mut self.slots, &(self.media, self.ranking));
         self.media = media;
         self.ranking = ranking;
         self.scroll.set_offset(point(px(0.), px(0.)));
