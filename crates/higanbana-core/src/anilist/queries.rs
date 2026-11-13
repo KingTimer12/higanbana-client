@@ -95,7 +95,7 @@ pub fn ranking_query() -> String {
     )
 }
 
-/// Variáveis de [`ranking_query`]. Nulas são ignoradas pelo AniList.
+/// Variáveis de [`ranking_query`]; as que não se aplicam ficam de fora.
 /// Anime filtra pelo ano da temporada; mangá pela data de início.
 pub fn ranking_vars(media: MediaType, ranking: Ranking, year: Option<i32>) -> serde_json::Value {
     let sort = match ranking {
@@ -109,7 +109,20 @@ pub fn ranking_vars(media: MediaType, ranking: Ranking, year: Option<i32>) -> se
         (MediaType::Manga, Some(y)) => (None, Some(y * 10_000), Some((y + 1) * 10_000)),
         (_, None) => (None, None, None),
     };
-    serde_json::json!({ "type": media.as_str(), "sort": sort, "year": season_year, "from": from, "to": to, "status": status })
+    // Filtro ausente vai omitido: `null` explícito em `startDate_greater` e afins o AniList recusa (400).
+    let mut vars = serde_json::json!({ "type": media.as_str(), "sort": sort });
+    let obj = vars.as_object_mut().expect("objeto");
+    if let Some(y) = season_year {
+        obj.insert("year".into(), y.into());
+    }
+    if let (Some(f), Some(t)) = (from, to) {
+        obj.insert("from".into(), f.into());
+        obj.insert("to".into(), t.into());
+    }
+    if let Some(st) = status {
+        obj.insert("status".into(), st.into());
+    }
+    vars
 }
 
 /// Ano do calendário (UTC) para um instante Unix.
@@ -205,7 +218,7 @@ mod tests {
         assert_eq!(v["type"], "ANIME");
         assert_eq!(v["sort"], "POPULARITY_DESC");
         assert_eq!(v["year"], 2026);
-        assert!(v["from"].is_null() && v["to"].is_null() && v["status"].is_null());
+        assert!(v.get("from").is_none() && v.get("to").is_none() && v.get("status").is_none());
     }
 
     #[test]
@@ -215,7 +228,7 @@ mod tests {
         assert_eq!(v["sort"], "SCORE_DESC");
         assert_eq!(v["from"], 20260000);
         assert_eq!(v["to"], 20270000);
-        assert!(v["year"].is_null());
+        assert!(v.get("year").is_none());
     }
 
     #[test]
@@ -223,7 +236,7 @@ mod tests {
         let v = ranking_vars(MediaType::Anime, Ranking::Trending, None);
         assert_eq!(v["sort"], "TRENDING_DESC");
         assert_eq!(v["status"], "FINISHED");
-        assert!(v["year"].is_null() && v["from"].is_null());
+        assert!(v.get("year").is_none() && v.get("from").is_none());
     }
 
     #[test]

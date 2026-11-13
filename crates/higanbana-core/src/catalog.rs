@@ -248,6 +248,7 @@ mod tests {
         let file = dir.join("catalog.json");
         std::fs::write(&file, format!(r#"{{"at": {}, "paths": {{"5": "Animes/Letra A/X"}}}}"#, now())).unwrap();
         assert_eq!(Catalog::open(file, dir.join("folders.json")).known(5), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -256,6 +257,7 @@ mod tests {
         let file = dir.join("catalog.json");
         std::fs::write(&file, format!(r#"{{"v": {CATALOG_VERSION}, "at": {}, "paths": {{"5": "Animes/Letra A/X"}}}}"#, now())).unwrap();
         assert_eq!(Catalog::open(file, dir.join("folders.json")).known(5), Some(Some("Animes/Letra A/X".into())));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
