@@ -3,6 +3,7 @@
 //! Cada bloco com dados próprios é uma view separada embutida com `cached`, para
 //! que a chegada de dados de um bloco não redesenhe os outros.
 
+mod continue_row;
 mod hero;
 
 use std::sync::Arc;
@@ -32,6 +33,7 @@ pub struct HomeView {
     state: Entity<AppState>,
     sections: Option<Result<Vec<String>, String>>,
     hero: Entity<hero::Hero>,
+    cont: Entity<continue_row::ContinueRow>,
 }
 
 /// Cancela a conferência no núcleo quando a view que pediu some.
@@ -101,7 +103,10 @@ impl HomeView {
 
         let budget = ListBudget::new(LIST_BUDGET);
         let hero = cx.new(|cx| hero::Hero::new(budget.clone(), cx));
-        Self { state, sections: None, hero }
+        let cont = cx.new(continue_row::ContinueRow::new);
+        // A altura do Continuar muda com o progresso: a entrada refaz o layout.
+        cx.observe(&cont, |_, _, cx| cx.notify()).detach();
+        Self { state, sections: None, hero, cont }
     }
 
     /// Seções da raiz da nuvem em cartões baixos: ícone e nome.
@@ -175,6 +180,10 @@ impl Render for HomeView {
                     .child(div().text_color(theme.muted_foreground).child("Busque com Ctrl K ou escolha uma seção.")),
             )
             .child(self.hero.clone().cached(StyleRefinement::default().w_full().h(px(hero::height_rem() * rem))))
+            .map(|d| {
+                let h = self.cont.read(cx).height_rem();
+                if h > 0. { d.child(self.cont.clone().cached(StyleRefinement::default().w_full().h(px(h * rem)))) } else { d }
+            })
             .child(v_flex().gap_4().child(div().text_xl().font_weight(FontWeight::SEMIBOLD).child("Seções")).child(sections))
     }
 }
