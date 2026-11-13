@@ -40,7 +40,7 @@ impl Core {
         let anilist = AniList::new(&paths.cache);
         let tmdb = Tmdb::new(&paths.cache);
         let fanart = Fanart::new(&paths.cache);
-        let catalog = Catalog::open(paths.cache.join("catalog.json"));
+        let catalog = Catalog::open(paths.cache.join("catalog.json"), paths.cache.join("catalog-folders.json"));
         let anime_index = AnimeIndex::open(paths.cache.join("anime-index.json"), crate::anime_index::ANIME_ROOT);
         let manga_index = AnimeIndex::open(paths.cache.join("manga-index.json"), crate::anime_index::MANGA_ROOT);
         let prefs = Prefs::open(paths.data.join("prefs.json"));
@@ -162,7 +162,16 @@ impl Core {
 
     /// Confere se o anime está no acervo (ver [`Catalog`]).
     pub async fn check_catalog(&self, m: &crate::anilist::types::MediaSummary) -> Option<String> {
-        self.catalog.check(&self.anime_index, &self.cloud, &self.anilist, m).await
+        self.catalog.check(self.index(Self::media_of(m)), &self.cloud, &self.anilist, m, None).await
+    }
+
+    /// Como [`Core::check_catalog`], gastando do orçamento de listagens da tela.
+    pub async fn check_catalog_budgeted(&self, m: &crate::anilist::types::MediaSummary, budget: &crate::catalog::ListBudget) -> Option<String> {
+        self.catalog.check(self.index(Self::media_of(m)), &self.cloud, &self.anilist, m, Some(budget)).await
+    }
+
+    fn media_of(m: &crate::anilist::types::MediaSummary) -> crate::anilist::MediaType {
+        m.media_type.unwrap_or(crate::anilist::MediaType::Anime)
     }
 
     #[cfg(feature = "reader")]
