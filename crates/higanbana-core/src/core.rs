@@ -135,7 +135,7 @@ impl Core {
     }
 
     /// Índice de letras da seção do tipo de mídia.
-    pub fn index(&self, media: crate::anilist::MediaType) -> &AnimeIndex {
+    pub fn section_index(&self, media: crate::anilist::MediaType) -> &AnimeIndex {
         match media {
             crate::anilist::MediaType::Anime => &self.anime_index,
             crate::anilist::MediaType::Manga => &self.manga_index,
@@ -162,12 +162,12 @@ impl Core {
 
     /// Confere se o anime está no acervo (ver [`Catalog`]).
     pub async fn check_catalog(&self, m: &crate::anilist::types::MediaSummary) -> Option<String> {
-        self.catalog.check(self.index(Self::media_of(m)), &self.cloud, &self.anilist, m, None).await
+        self.catalog.check(self.section_index(Self::media_of(m)), &self.cloud, &self.anilist, m, None).await
     }
 
     /// Como [`Core::check_catalog`], gastando do orçamento de listagens da tela.
     pub async fn check_catalog_budgeted(&self, m: &crate::anilist::types::MediaSummary, budget: &crate::catalog::ListBudget) -> Option<String> {
-        self.catalog.check(self.index(Self::media_of(m)), &self.cloud, &self.anilist, m, Some(budget)).await
+        self.catalog.check(self.section_index(Self::media_of(m)), &self.cloud, &self.anilist, m, Some(budget)).await
     }
 
     /// Vitrine da entrada: ranking do AniList filtrado pelo acervo, até `n` obras.
@@ -186,7 +186,7 @@ impl Core {
             crate::anilist::Ranking::Trending => vec![None],
             _ => vec![Some(year), Some(year - 1)],
         };
-        let index = self.index(media);
+        let index = self.section_index(media);
         crate::discover::fill(
             n,
             &years,

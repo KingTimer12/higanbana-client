@@ -177,10 +177,10 @@ impl Catalog {
         }
         // Nome parecido: a própria pasta base pode ser a obra (confirma pelo AniList).
         let names: Vec<String> = near.iter().map(|(n, _)| n.clone()).collect();
-        if !names.is_empty() {
-            if let Some(i) = Self::confirms(anilist, &names, media, m.id).await {
-                return Ok(Some(near[i].1.clone()));
-            }
+        if !names.is_empty()
+            && let Some(i) = Self::confirms(anilist, &names, media, m.id).await
+        {
+            return Ok(Some(near[i].1.clone()));
         }
         // Senão, procura a obra dentro da pasta base, pelas regras de formato.
         for (_, base) in &near {

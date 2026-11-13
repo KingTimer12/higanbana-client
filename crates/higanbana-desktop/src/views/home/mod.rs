@@ -4,6 +4,7 @@
 //! que a chegada de dados de um bloco não redesenhe os outros.
 
 mod continue_row;
+mod discover;
 mod hero;
 
 use std::sync::Arc;
@@ -34,6 +35,7 @@ pub struct HomeView {
     sections: Option<Result<Vec<String>, String>>,
     hero: Entity<hero::Hero>,
     cont: Entity<continue_row::ContinueRow>,
+    discover: Entity<discover::Discover>,
 }
 
 /// Cancela a conferência no núcleo quando a view que pediu some.
@@ -106,7 +108,8 @@ impl HomeView {
         let cont = cx.new(continue_row::ContinueRow::new);
         // A altura do Continuar muda com o progresso: a entrada refaz o layout.
         cx.observe(&cont, |_, _, cx| cx.notify()).detach();
-        Self { state, sections: None, hero, cont }
+        let discover = cx.new(|cx| discover::Discover::new(budget.clone(), cx));
+        Self { state, sections: None, hero, cont, discover }
     }
 
     /// Seções da raiz da nuvem em cartões baixos: ícone e nome.
@@ -185,5 +188,6 @@ impl Render for HomeView {
                 if h > 0. { d.child(self.cont.clone().cached(StyleRefinement::default().w_full().h(px(h * rem)))) } else { d }
             })
             .child(v_flex().gap_4().child(div().text_xl().font_weight(FontWeight::SEMIBOLD).child("Seções")).child(sections))
+            .child(self.discover.clone().cached(StyleRefinement::default().w_full().h(px(discover::height_rem() * rem))))
     }
 }
