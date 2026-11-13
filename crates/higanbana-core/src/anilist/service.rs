@@ -27,6 +27,7 @@ const BATCH_SIZE: usize = MAX_COMPLEXITY / ALIAS_COMPLEXITY;
 const CANDIDATES_PER_SEARCH: u32 = 6;
 const MATCH_TTL: i64 = 7 * 24 * 3600;
 const DETAIL_TTL: i64 = 24 * 3600;
+const RANKING_TTL: i64 = 12 * 3600;
 /// Buscas na MAL por chamada de `lookup` (a busca do site vai a ~1 req/s; o resto fica `Pending`).
 const MAL_PER_CALL: usize = 4;
 
@@ -84,6 +85,8 @@ pub struct AniList {
     matches: DiskCache<Option<Value>>,
     /// id → detalhe.
     details: DiskCache<Value>,
+    /// Listas de ranking (12 h).
+    rankings: DiskCache<Value>,
     /// Chaves sem match no AniList cujo fallback MAL ainda não foi decidido.
     anilist_missed: Mutex<HashSet<String>>,
 }
@@ -96,6 +99,7 @@ impl AniList {
             mal_site: MalSiteClient::new(),
             matches: DiskCache::open(dir.join(MATCHES_FILE), MATCH_TTL),
             details: DiskCache::open(dir.join("anilist-details.json"), DETAIL_TTL),
+            rankings: DiskCache::open(dir.join("anilist-rankings.json"), RANKING_TTL),
             anilist_missed: Mutex::new(HashSet::new()),
         }
     }
@@ -301,6 +305,22 @@ impl AniList {
         self.details.insert(key, list.clone());
         self.details.flush();
         Ok(list)
+    }
+
+    /// Lista de ranking (50 obras). `year: None` = sem filtro de ano.
+    pub async fn ranking(&self, media: MediaType, ranking: queries::Ranking, year: Option<i32>) -> AniListResult<Vec<super::types::RankedMedia>> {
+        let key = format!("ranking:{}:{ranking:?}:{}", media.as_str(), year.map_or("all".into(), |y| y.to_string()));
+        let list = match self.rankings.get(&key) {
+            Some(v) => v,
+            None => {
+                let data = self.client.query(&queries::ranking_query(), queries::ranking_vars(media, ranking, year)).await?;
+                let list = data.pointer("/Page/media").cloned().ok_or_else(|| AniListError::Decode("Page.media ausente".into()))?;
+                self.rankings.insert(key, list.clone());
+                self.rankings.flush();
+                list
+            }
+        };
+        serde_json::from_value(list).map_err(|e| AniListError::Decode(e.to_string()))
     }
 
     /// Detalhe completo (descrição, staff, elenco...). Id negativo é obra só-MAL (`-mal_id`).

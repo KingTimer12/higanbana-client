@@ -25,7 +25,9 @@ use crate::{
     nuvem::Listing,
 };
 
-const ROOT: &str = "Animes";
+/// Raízes das seções com letras.
+pub const ANIME_ROOT: &str = "Animes";
+pub const MANGA_ROOT: &str = "Mangás/Séries Mangás";
 const TTL_SECS: u64 = 12 * 3600;
 
 pub const LETTERS: [&str; 27] = [
@@ -60,6 +62,8 @@ struct State {
 
 pub struct AnimeIndex {
     file: PathBuf,
+    /// Seção indexada (`Animes` ou `Mangás/Séries Mangás`).
+    root: &'static str,
     state: Mutex<State>,
     /// Uma listagem do índice por vez (evita listar a mesma letra duas vezes).
     net: tokio::sync::Mutex<()>,
@@ -68,7 +72,7 @@ pub struct AnimeIndex {
 }
 
 impl AnimeIndex {
-    pub fn open(file: PathBuf) -> Self {
+    pub fn open(file: PathBuf, root: &'static str) -> Self {
         let stored: Stored = std::fs::read(&file)
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
@@ -79,7 +83,12 @@ impl AnimeIndex {
             letters: stored.letters.into_iter().map(|(k, v)| (k, Arc::new(v))).collect(),
             collections: Vec::new(),
         };
-        Self { file, state: Mutex::new(state), net: Default::default(), paused: AtomicBool::new(false), resume: Notify::new() }
+        Self { file, root, state: Mutex::new(state), net: Default::default(), paused: AtomicBool::new(false), resume: Notify::new() }
+    }
+
+    /// Pasta de uma letra nesta seção.
+    pub fn letter_dir(&self, letter: &str) -> String {
+        join_path(self.root, letter)
     }
 
     /// Letra já indexada (memória ou disco), sem rede.
@@ -154,7 +163,7 @@ impl AnimeIndex {
         if let Some(hit) = self.loaded(letter) {
             return Ok(hit);
         }
-        let dir = join_path(ROOT, letter);
+        let dir = self.letter_dir(letter);
         let names = self.list_dirs(cloud, &dir).await?;
         let entries = names
             .into_iter()
@@ -170,12 +179,12 @@ impl AnimeIndex {
         if !self.state.lock().unwrap().collections.is_empty() {
             return Ok(());
         }
-        let names = self.list_dirs(cloud, ROOT).await?;
+        let names = self.list_dirs(cloud, self.root).await?;
         self.state.lock().unwrap().collections = names.into_iter().filter(|n| !LETTERS.contains(&n.as_str())).collect();
         Ok(())
     }
 
-    async fn wait_unpaused(&self) {
+    pub(crate) async fn wait_unpaused(&self) {
         loop {
             let notified = self.resume.notified();
             tokio::pin!(notified);
@@ -209,7 +218,7 @@ mod tests {
 
     #[tokio::test]
     async fn pause_blocks_until_resumed() {
-        let idx = Arc::new(AnimeIndex::open(std::env::temp_dir().join(format!("idx-pause-{}.json", std::process::id()))));
+        let idx = Arc::new(AnimeIndex::open(std::env::temp_dir().join(format!("idx-pause-{}.json", std::process::id())), ANIME_ROOT));
         idx.set_paused(true);
         let task = tokio::spawn({
             let idx = idx.clone();
@@ -219,6 +228,15 @@ mod tests {
         assert!(!task.is_finished());
         idx.set_paused(false);
         tokio::time::timeout(Duration::from_secs(2), task).await.unwrap().unwrap();
+    }
+
+    #[test]
+    fn letter_dir_uses_root() {
+        let dir = std::env::temp_dir().join(format!("idx-root-{}", std::process::id()));
+        let a = AnimeIndex::open(dir.join("a.json"), ANIME_ROOT);
+        let m = AnimeIndex::open(dir.join("m.json"), MANGA_ROOT);
+        assert_eq!(a.letter_dir("Letra B"), "Animes/Letra B");
+        assert_eq!(m.letter_dir("0-9"), "Mangás/Séries Mangás/0-9");
     }
 
     #[test]
@@ -233,11 +251,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("idx-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("anime-index.json");
-        let idx = AnimeIndex::open(file.clone());
+        let idx = AnimeIndex::open(file.clone(), ANIME_ROOT);
         idx.store("Letra P", vec![IndexEntry { letter: "Letra P".into(), name: "Precure".into(), path: "Animes/Letra P/Precure".into() }]);
-        assert_eq!(AnimeIndex::open(file.clone()).loaded("Letra P").unwrap()[0].name, "Precure");
+        assert_eq!(AnimeIndex::open(file.clone(), ANIME_ROOT).loaded("Letra P").unwrap()[0].name, "Precure");
         AnimeIndex::write_at(&file, 0); // força `at` antigo
-        assert!(AnimeIndex::open(file).loaded("Letra P").is_none());
+        assert!(AnimeIndex::open(file, ANIME_ROOT).loaded("Letra P").is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

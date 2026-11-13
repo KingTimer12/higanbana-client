@@ -59,7 +59,6 @@ impl AppView {
                 AppEvent::Read(t) => this.read(t.clone(), window, cx),
                 AppEvent::Notify(tone, message) => {
                     let kind = match tone {
-                        Tone::Info => NotificationType::Info,
                         Tone::Ok => NotificationType::Success,
                         Tone::Error => NotificationType::Error,
                     };

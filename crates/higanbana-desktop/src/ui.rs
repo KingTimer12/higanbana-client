@@ -11,7 +11,7 @@ use gpui_kit::{
 icon_assets!(
     ProductIcons,
     [
-        ArrowDown, ArrowLeft, ArrowRight, AudioLines, BookOpen, Captions, Check, ChevronLeft, ChevronRight,
+        ArrowDown, ArrowLeft, ArrowRight, AudioLines, BookOpen, Captions, Check, ChevronLeft, ChevronRight, Compass, Flame, Sparkles, Trophy,
         ChevronsRight, CircleAlert, Clapperboard, Columns2, Copy, Disc3, Download, ExternalLink, FilePlay, Folder,
         FolderCheck, FolderOpen, House, Images, Inbox, Info, ListVideo, LoaderCircle, LogIn, LogOut, Maximize,
         Minimize, Music, Palette, Pause, Play, RectangleVertical, RefreshCw, Repeat, Repeat1, ScrollText, Search,

@@ -17,5 +17,5 @@ pub mod types;
 
 pub use client::Priority;
 pub use error::{AniListError, AniListResult};
-pub use queries::{MediaType, idmal_batch_query, season_at};
+pub use queries::{MediaType, Ranking, current_year, idmal_batch_query, season_at};
 pub use service::{AniList, Lookup, LookupRequest};
