@@ -7,6 +7,7 @@ use gpui_kit::{
     Window, assets::IconName, div, prelude::*, px,
 };
 use gpui_kit::component::{ActiveTheme as _, Icon, button::ButtonVariants as _, h_flex, progress::Progress, v_flex};
+use gpui_kit::{SpringAnimation, SpringConfig};
 use higanbana_core::{
     anilist::{MediaType, types::MediaSummary},
     continue_list::{ContinueItem, reading, watching},
@@ -15,7 +16,7 @@ use higanbana_core::{
 };
 
 use crate::{
-    components::{cover, is_comic, stop_click, want_lookup, when_visible},
+    components::{cover, hex_color, is_comic, stop_click, want_lookup, when_visible},
     interact::{Button, hover_layer},
     motion,
     reader::{ReadTarget, progress_map},
@@ -46,6 +47,15 @@ pub fn item_label(file_name: &str, item: &ContinueItem, reading: bool) -> String
         Some(s) => format!("{name} · faltam {} min", (s as f64 / 60.).round()),
         None => name,
     }
+}
+
+/// Barra de progresso que enche com mola ao aparecer (e ao mudar de valor).
+fn filling_progress(id: String, fraction: f32) -> impl IntoElement {
+    Progress::new(ElementId::Name(id.clone().into())).with_spring(
+        ElementId::Name(format!("{id}:fill").into()),
+        SpringAnimation::new(SpringConfig::new(120., 20., 1.)).to(fraction.clamp(0., 1.)).from(0.),
+        |p, v| p.value(v * 100.),
+    )
 }
 
 /// Seção do acervo de um caminho (para a busca de metadados).
@@ -169,6 +179,7 @@ impl ContinueRow {
             (false, false) => ("Continuar", IconName::Play),
             (false, true) => ("Ver episódios", IconName::ChevronRight),
         };
+        let glow = hex_color(media.as_ref().and_then(|m| m.cover_image.as_ref()).and_then(|c| c.color.as_deref())).unwrap_or(theme.primary);
         let open_item = item.clone();
         let this = cx.entity().downgrade();
         h_flex()
@@ -181,7 +192,14 @@ impl ContinueRow {
             .border_1()
             .border_color(theme.border)
             .bg(theme.group_box)
-            .child(div().flex_none().rounded(theme.radius).overflow_hidden().child(cover(media.as_ref(), &title, Some(px(4.75 * rem)), cx)))
+            .overflow_hidden()
+            // Luz na cor da capa vinda da esquerda: o cartão ganha o tom da obra.
+            .child(div().absolute().inset_0().bg(gpui_kit::linear_gradient(
+                90.,
+                gpui_kit::linear_color_stop(glow.opacity(0.3), 0.),
+                gpui_kit::linear_color_stop(glow.opacity(0.), 0.65),
+            )))
+            .child(div().flex_none().rounded(theme.radius).overflow_hidden().shadow_lg().child(cover(media.as_ref(), &title, Some(px(4.75 * rem)), cx)))
             .child(
                 v_flex()
                     .flex_1()
@@ -190,7 +208,7 @@ impl ContinueRow {
                     .child(div().text_xs().text_color(theme.muted_foreground).child(if is_reading { "Último capítulo aberto" } else { "Último episódio" }))
                     .child(div().text_xl().font_weight(FontWeight::SEMIBOLD).line_clamp(1).child(title))
                     .child(div().text_sm().text_color(theme.muted_foreground).line_clamp(1).child(label))
-                    .child(div().pt_1().max_w(px(24. * rem)).child(Progress::new(ElementId::Name(format!("continue-progress:{}", item.file_path).into())).value(item.fraction * 100.))),
+                    .child(div().pt_1().max_w(px(24. * rem)).child(filling_progress(format!("continue-progress:{}", item.file_path), item.fraction))),
             )
             .child(stop_click(
                 "continue-open",
@@ -249,7 +267,7 @@ impl ContinueRow {
                     .gap_1()
                     .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).line_clamp(1).child(title))
                     .child(div().text_xs().text_color(theme.muted_foreground).line_clamp(1).child(label))
-                    .child(div().pt_1().child(Progress::new(ElementId::Name(format!("continue-card-progress:{}", item.file_path).into())).value(item.fraction * 100.))),
+                    .child(div().pt_1().child(filling_progress(format!("continue-card-progress:{}", item.file_path), item.fraction))),
             )
             .child(hover_layer("ring").border(theme.ring).radius(theme.radius_lg))
             .on_click(move |_, _, cx| {
@@ -271,7 +289,7 @@ impl Render for ContinueRow {
         v_flex()
             .size_full()
             .gap(px(GAP_REM * rem))
-            .child(h_flex().h(px(HEADER_REM * rem)).child(div().text_xl().font_weight(FontWeight::SEMIBOLD).child("Continuar")))
+            .child(h_flex().h(px(HEADER_REM * rem)).child(super::eyebrow(IconName::Play, "Continuar", cx)))
             .child(self.featured(&featured, is_reading, rem, cx))
             .when(!shape.watching.is_empty(), |d| d.child(self.row("Assistindo", &shape.watching, false, rem, cx)))
             .when(!shape.reading.is_empty(), |d| d.child(self.row("Lendo", &shape.reading, true, rem, cx)))

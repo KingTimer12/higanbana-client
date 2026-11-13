@@ -7,10 +7,12 @@ mod continue_row;
 mod discover;
 mod hero;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
-use crate::interact::hover_layer;
+use crate::interact::hover_anim;
+use crate::motion::{self, ease_out_cubic};
 use gpui_kit::{
+    AnimationExt as _,
     Context, ElementId, Entity, FontWeight, IntoElement, ParentElement, Render, StyleRefinement, Styled, Task, Window,
     assets::IconName, div, prelude::*, px,
 };
@@ -33,6 +35,37 @@ pub struct HomeView {
     hero: Entity<hero::Hero>,
     cont: Entity<continue_row::ContinueRow>,
     discover: Entity<discover::Discover>,
+}
+
+/// Cor de cada seção da nuvem (tokens do tema): dá identidade aos atalhos.
+fn section_hue(name: &str, theme: &gpui_kit::component::Theme) -> gpui_kit::Hsla {
+    match name {
+        "Animes" => theme.primary,
+        "Mangás" => theme.blue,
+        "Doramas" => theme.magenta,
+        "Desenhos" => theme.yellow,
+        "OSTs" => theme.green,
+        _ => theme.cyan,
+    }
+}
+
+/// Título de bloco da entrada: ícone num selo da cor primária + nome.
+pub(super) fn eyebrow(icon: IconName, title: impl Into<gpui_kit::SharedString>, cx: &gpui_kit::App) -> gpui_kit::Div {
+    let theme = cx.theme();
+    h_flex()
+        .gap_2p5()
+        .child(
+            div()
+                .size_8()
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .bg(theme.primary.opacity(0.14))
+                .child(Icon::new(icon).small().text_color(theme.primary)),
+        )
+        .child(div().text_xl().font_weight(FontWeight::SEMIBOLD).child(title.into()))
 }
 
 /// Obras confirmadas de uma lista (tipo + ranking) e a conferência em andamento.
@@ -141,7 +174,9 @@ impl HomeView {
     /// Seções da raiz da nuvem em cartões baixos: ícone e nome.
     fn sections(&self, width: f32, rem: f32, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let theme = cx.theme().clone();
-        let cols = columns(width, 11. * rem, 0.75 * rem) as u16;
+        // Todas as seções numa linha quando cabem (atalhos baixos, sem sobra solitária).
+        let count = self.sections.as_ref().and_then(|r| r.as_ref().ok()).map_or(6, |l| l.len().max(1));
+        let cols = columns(width, 9. * rem, 0.75 * rem).min(count) as u16;
         match &self.sections {
             None => div().grid().grid_cols(cols).gap_3().children((0..6).map(|_| Skeleton::new().h_16().rounded(theme.radius_lg))).into_any_element(),
             Some(Err(_)) => {
@@ -151,35 +186,52 @@ impl HomeView {
                 .grid()
                 .grid_cols(cols)
                 .gap_3()
-                .children(list.iter().map(|s| {
+                .children(list.iter().enumerate().map(|(i, s)| {
                     let (icon_name, _) = section_meta(s);
                     let target = s.clone();
                     let state = self.state.clone();
-                    h_flex()
-                        .id(ElementId::Name(format!("section:{s}").into()))
-                        .gap_3()
-                        .h_16()
-                        .px_3()
-                        .rounded(theme.radius_lg)
-                        .border_1()
-                        .border_color(theme.border)
-                        .bg(theme.group_box)
-                        .relative()
+                    let hue = section_hue(s, &theme);
+                    let label = section_label(s);
+                    let id = format!("section:{s}");
+                    // Selo na cor da seção; no hover o cartão sobe e a borda pega a cor.
+                    let card = hover_anim(ElementId::Name(format!("{id}:hover").into()), Duration::from_millis(200), move |t, _, cx| {
+                        let e = ease_out_cubic(t);
+                        let theme = cx.theme();
+                        h_flex()
+                            .gap_3()
+                            .h_16()
+                            .px_3()
+                            .relative()
+                            .top(px(-3. * e))
+                            .rounded(theme.radius_lg)
+                            .border_1()
+                            .border_color(theme.border)
+                            .bg(theme.group_box)
+                            .when(e > 0.01, |d| d.shadow_md())
+                            .child(
+                                div()
+                                    .size_9()
+                                    .flex_none()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(theme.radius)
+                                    .bg(hue.opacity(0.14 + 0.12 * e))
+                                    .child(Icon::new(icon_name).small().text_color(hue)),
+                            )
+                            .child(div().flex_1().min_w_0().line_clamp(1).font_weight(FontWeight::MEDIUM).child(label.clone()))
+                            // Por cima do texto, sem ocupar espaço: só aparece no hover.
+                            .child(div().absolute().right_2().top_0().bottom_0().flex().items_center().child(Icon::new(IconName::ChevronRight).small().text_color(theme.muted_foreground.opacity(e))))
+                            .child(div().absolute().inset_0().rounded(theme.radius_lg).border_1().border_color(hue.opacity(0.6 * e)))
+                    });
+                    div()
+                        .id(ElementId::Name(id.clone().into()))
                         .cursor_pointer()
-                        .child(
-                            div()
-                                .size_8()
-                                .flex_none()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(theme.radius)
-                                .bg(theme.muted)
-                                .child(Icon::new(icon_name).small().text_color(theme.foreground)),
-                        )
-                        .child(div().flex_1().min_w_0().line_clamp(1).font_weight(FontWeight::MEDIUM).child(section_label(s)))
-                        .child(hover_layer("ring").border(theme.ring).radius(theme.radius_lg))
+                        .child(card)
                         .on_click(move |_, _, cx| state.update(cx, |s, cx| s.go(target.clone(), cx)))
+                        .with_animation(ElementId::Name(format!("{id}:in").into()), motion::staggered(i), |d, t| {
+                            d.opacity(t).relative().top(px(motion::RISE_DISTANCE * (1. - t)))
+                        })
                 }))
                 .into_any_element(),
         }
@@ -206,14 +258,15 @@ impl Render for HomeView {
                         Some(n) => format!("Olá, {n}"),
                         None => "Bem-vindo de volta".into(),
                     }))
-                    .child(div().text_color(theme.muted_foreground).child("Busque com Ctrl K ou escolha uma seção.")),
+                    .child(div().text_color(theme.muted_foreground).child("Busque com Ctrl K ou escolha uma seção."))
+                    .with_animation("home-greeting", motion::enter(motion::BASE), |d, t| d.opacity(t).relative().top(px(8. * (1. - t)))),
             )
             .child(self.hero.clone().cached(StyleRefinement::default().w_full().h(px(hero::height_rem() * rem))))
             .map(|d| {
                 let h = self.cont.read(cx).height_rem();
                 if h > 0. { d.child(self.cont.clone().cached(StyleRefinement::default().w_full().h(px(h * rem)))) } else { d }
             })
-            .child(v_flex().gap_4().child(div().text_xl().font_weight(FontWeight::SEMIBOLD).child("Seções")).child(sections))
+            .child(v_flex().gap_4().child(eyebrow(IconName::FolderOpen, "Seções", cx)).child(sections))
             .child(self.discover.clone().cached(StyleRefinement::default().w_full().h(px(discover::height_rem() * rem))))
     }
 }
