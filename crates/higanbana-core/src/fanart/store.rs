@@ -27,8 +27,13 @@ impl CoverStore {
     }
 
     fn stem(url: &str) -> String {
+        use std::fmt::Write;
         let digest = Sha256::digest(url.as_bytes());
-        digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
+        let mut s = String::with_capacity(16);
+        for b in &digest[..8] {
+            let _ = write!(s, "{b:02x}");
+        }
+        s
     }
 
     /// Arquivo existente para a URL (`.webp` ou `.jpg`), se houver.

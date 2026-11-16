@@ -34,6 +34,12 @@ abstract class CargoNdkBuild @Inject constructor(private val exec: ExecOperation
     @get:Input abstract val abis: ListProperty<String>
     @get:Input abstract val features: ListProperty<String>
     @get:Input abstract val minSdk: Property<Int>
+    /**
+     * LTO "fat" e uma unidade de código: binário mais rápido e menor, ao custo de
+     * religar tudo a cada mudança no Rust. O workspace gerado pelo nsh não tem
+     * perfil de release, então vai por variável de ambiente.
+     */
+    @get:Input abstract val optimize: Property<Boolean>
     @get:Internal abstract val ndkDirectory: DirectoryProperty
     @get:OutputDirectory abstract val outputDir: DirectoryProperty
 
@@ -61,6 +67,10 @@ abstract class CargoNdkBuild @Inject constructor(private val exec: ExecOperation
                 // O bindgen (QuickJS) precisa dos cabeçalhos do NDK, não dos do sistema.
                 environment("CLANG_PATH", clang.path)
                 environment("BINDGEN_EXTRA_CLANG_ARGS_${abi.envSuffix}", "--sysroot=${sysroot.path}")
+                if (optimize.get()) {
+                    environment("CARGO_PROFILE_RELEASE_LTO", "fat")
+                    environment("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "1")
+                }
                 val args = mutableListOf(
                     cargo.get(), "build",
                     "--manifest-path", manifest.path,

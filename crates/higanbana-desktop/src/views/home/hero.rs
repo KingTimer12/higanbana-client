@@ -157,7 +157,7 @@ impl Hero {
         .into_iter()
         .flatten()
         .collect();
-        let chips: Vec<String> = s.genres.iter().take(4).map(|g| text::genre(g)).chain(m.top_tags(3)).collect();
+        let chips = s.genres.iter().take(4).map(|g| text::genre(g)).chain(m.top_tags(3));
         let synopsis = text::clean_description(m.description.as_deref()).0.join(" ");
         let target = path.to_owned();
         let st = self.state.clone();
@@ -213,7 +213,7 @@ impl Hero {
             }))
             .when(!meta.is_empty(), |d| d.child(meta.join(" · ")))
             .into_any_element();
-        let chips_el = h_flex().flex_wrap().gap_1p5().children(chips.into_iter().map(|c| Tag::secondary().small().child(c))).into_any_element();
+        let chips_el = h_flex().flex_wrap().gap_1p5().children(chips.map(|c| Tag::secondary().small().child(c))).into_any_element();
         let synopsis_el =
             div().text_sm().line_height(relative(1.55)).text_color(theme.foreground.opacity(0.85)).line_clamp(3).child(synopsis.clone()).into_any_element();
         let open_el = h_flex()

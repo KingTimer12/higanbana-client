@@ -5,6 +5,7 @@ use crate::interact::{hover_layer, radios};
 use crate::interact::Button;
 use std::{
     collections::{HashMap, HashSet},
+    rc::Rc,
     sync::Arc,
     time::Duration,
 };
@@ -90,6 +91,8 @@ pub struct ReaderView {
     focus: FocusHandle,
     /// Arquivos com vários capítulos dentro viram várias unidades quando abertos.
     expanded: HashMap<String, Vec<Unit>>,
+    /// Capítulos em ordem, refeitos só quando `expanded` muda (o quadro pergunta várias vezes).
+    chapter_list: Rc<[Unit]>,
     opened: HashMap<String, Opened>,
     loading: HashSet<String>,
     cur_key: String,
@@ -142,6 +145,7 @@ impl ReaderView {
             state,
             focus,
             expanded: HashMap::new(),
+            chapter_list: Rc::from([]),
             opened: HashMap::new(),
             loading: HashSet::new(),
             cur_key: start.clone(),
@@ -162,6 +166,7 @@ impl ReaderView {
             _subs: subs,
             target,
         };
+        this.refresh_chapters();
         let i = this.index_of(&start).unwrap_or(0);
         let resume = this.resume_at(this.chapters().get(i));
         this.go_chapter(i, resume, cx);
@@ -170,14 +175,18 @@ impl ReaderView {
 
     // --- Capítulos ---
 
-    fn chapters(&self) -> Vec<Unit> {
-        comic_files(&self.target.files)
+    fn refresh_chapters(&mut self) {
+        self.chapter_list = comic_files(&self.target.files)
             .into_iter()
             .flat_map(|f| {
                 let path = join_path(&self.target.dir, &f.name);
                 self.expanded.get(&path).cloned().unwrap_or_else(|| vec![base_unit(&path, &f)])
             })
-            .collect()
+            .collect();
+    }
+
+    fn chapters(&self) -> Rc<[Unit]> {
+        self.chapter_list.clone()
     }
 
     fn index_of(&self, key: &str) -> Option<usize> {
@@ -210,7 +219,14 @@ impl ReaderView {
     }
 
     fn total(&self) -> usize {
-        self.list().len()
+        // Só a contagem: sem ordenar a lista de páginas.
+        let chapters = self.chapters();
+        let Some(u) = chapters.get(self.chapter()) else { return 0 };
+        let Some(Opened::Ok(r)) = self.opened.get(&open_key(u)) else { return 0 };
+        if u.inner.is_none() && u.group.is_none() && self.expanded.contains_key(&u.path) {
+            return 0;
+        }
+        if u.group.is_none() { r.pages.len() } else { pages_of_group(&r.pages, u.group.as_deref()).len() }
     }
 
     fn page(&self) -> usize {
@@ -246,6 +262,7 @@ impl ReaderView {
                             && let Some(parts) = expand_units(&u.path, &u.file, &result)
                         {
                             v.expanded.insert(u.path.clone(), parts);
+                            v.refresh_chapters();
                             v.split_current(&u.path, cx);
                         }
                         v.opened.insert(key, Opened::Ok(result));
@@ -267,7 +284,7 @@ impl ReaderView {
         // Na faixa, o arquivo emendado entra pelo primeiro capítulo.
         for k in self.strip.iter_mut() {
             if k == path {
-                *k = parts[0].key.clone();
+                k.clone_from(&parts[0].key);
             }
         }
         if self.cur_key != path {
@@ -287,10 +304,10 @@ impl ReaderView {
         };
         for k in self.strip.iter_mut() {
             if *k == parts[0].key || k == path {
-                *k = pick.key.clone();
+                k.clone_from(&pick.key);
             }
         }
-        self.cur_key = pick.key.clone();
+        self.cur_key.clone_from(&pick.key);
         self.page = pg;
         if self.is_strip() {
             self.pending_scroll = Some((pick.key.clone(), pg.unwrap_or(0)));
@@ -300,7 +317,7 @@ impl ReaderView {
 
     fn go_chapter(&mut self, i: usize, pg: Option<usize>, cx: &mut Context<Self>) {
         let Some(u) = self.chapters().get(i).cloned() else { return };
-        self.cur_key = u.key.clone();
+        self.cur_key.clone_from(&u.key);
         self.page = pg;
         self.end = false;
         self.panel = None;
@@ -706,7 +723,7 @@ impl ReaderView {
         let strip = self.strip.clone();
 
         enum Item {
-            Page(Box<Unit>, usize, usize),
+            Page(Rc<Unit>, usize, usize),
             Loading,
             End(usize),
             Seam(usize),
@@ -714,10 +731,10 @@ impl ReaderView {
         let mut items: Vec<((String, usize), Item)> = Vec::new();
         for key in &strip {
             let Some(ch) = chapters.iter().position(|u| &u.key == key) else { continue };
-            let u = chapters[ch].clone();
+            let u = Rc::new(chapters[ch].clone());
             let list = self.list_of(&u).unwrap_or_default();
             for (pg, info) in list.iter().enumerate() {
-                items.push(((u.key.clone(), pg), Item::Page(Box::new(u.clone()), pg, info.index)));
+                items.push(((u.key.clone(), pg), Item::Page(u.clone(), pg, info.index)));
             }
             if list.is_empty() {
                 items.push(((u.key.clone(), 0), Item::Loading));
@@ -862,8 +879,8 @@ impl ReaderView {
             Some("Cap.") => if n == 1 { "capítulo" } else { "capítulos" },
             _ => if n == 1 { "arquivo" } else { "arquivos" },
         };
-        let items: Vec<(usize, Unit)> = chapters
-            .into_iter()
+        let items: Vec<(usize, &Unit)> = chapters
+            .iter()
             .enumerate()
             .filter(|(_, u)| q.is_empty() || u.name.to_lowercase().contains(&q) || label_text(&chapter_label(&u.name)).to_lowercase().contains(&q))
             .collect();
@@ -1042,7 +1059,11 @@ impl Render for ReaderView {
         let label = self.label(chapter);
         let total = self.total();
         let unit = self.unit();
-        let current = unit.as_ref().and_then(|u| self.opened.get(&open_key(u)).cloned());
+        // Só o erro interessa aqui: a listagem aberta (páginas) não é copiada.
+        let open_error = unit.as_ref().and_then(|u| match self.opened.get(&open_key(u)) {
+            Some(Opened::Error(msg)) => Some(msg.clone()),
+            _ => None,
+        });
         let rtl = self.prefs.direction == Direction::Rtl;
         let page_text = if total == 0 {
             "—".to_owned()
@@ -1055,9 +1076,8 @@ impl Render for ReaderView {
         let fullscreen = window.is_fullscreen();
         let num = label.number.clone().unwrap_or_else(|| (chapter + 1).to_string());
 
-        let body: AnyElement = match (&current, total) {
-            (Some(Opened::Error(msg)), _) => {
-                let msg = msg.clone();
+        let body: AnyElement = match (open_error, total) {
+            (Some(msg), _) => {
                 let download = match unit.as_ref().and_then(|u| self.state.read(cx).download(&u.path)).map(|d| d.status) {
                     Some(DlStatus::Done) => "Baixado",
                     Some(DlStatus::Running | DlStatus::Queued) => "Baixando…",
@@ -1098,7 +1118,7 @@ impl Render for ReaderView {
             (_, 0) => div().size_full().flex().items_center().justify_center().child(Skeleton::new().w(rems(23.75)).h(relative(0.78))).into_any_element(),
             _ if self.is_strip() => self.strip_view(cx),
             _ => {
-                let u = unit.clone().unwrap();
+                let u = unit.unwrap();
                 let pages: Vec<usize> = if self.prefs.mode == ReadMode::Double { self.spread() } else { vec![self.page()] };
                 let mut row = div().size_full().flex().items_center().justify_center().px_4().pt_4().pb_11();
                 if rtl && pages.len() > 1 {
@@ -1117,7 +1137,6 @@ impl Render for ReaderView {
             }
         };
 
-        let spine_title: Vec<char> = self.target.title.chars().take(28).collect();
         let kind = if label.kind.is_empty() { "ARQ." } else { label.kind };
         v_flex()
             .id("reader")
@@ -1156,7 +1175,7 @@ impl Render for ReaderView {
                                     .text_lg()
                                     .font_weight(FontWeight::BOLD)
                                     .line_height(relative(1.15))
-                                    .children(spine_title.into_iter().map(|c| div().child(c.to_string()))),
+                                    .children(self.target.title.chars().take(28).map(|c| div().child(c.to_string()))),
                             )
                             .child(
                                 v_flex()

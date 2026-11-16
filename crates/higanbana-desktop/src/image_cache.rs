@@ -3,7 +3,9 @@
 //! O peso de cada entrada é o tamanho decodificado (largura × altura × 4),
 //! que é o que realmente ocupa memória depois que o gpui decodifica a imagem.
 
-use std::{cell::Cell, collections::HashMap, io::Cursor};
+use std::{cell::Cell, io::Cursor};
+
+use rustc_hash::FxHashMap;
 
 /// Teto do cache de imagens decodificadas.
 pub const IMAGE_BUDGET: u64 = 384 * 1024 * 1024;
@@ -15,7 +17,7 @@ struct Entry<V> {
 }
 
 pub struct ImageCache<V: Clone> {
-    map: HashMap<String, Entry<V>>,
+    map: FxHashMap<String, Entry<V>>,
     clock: Cell<u64>,
     total: u64,
     budget: u64,
@@ -23,7 +25,7 @@ pub struct ImageCache<V: Clone> {
 
 impl<V: Clone> ImageCache<V> {
     pub fn new(budget: u64) -> Self {
-        Self { map: HashMap::new(), clock: Cell::new(0), total: 0, budget }
+        Self { map: FxHashMap::default(), clock: Cell::new(0), total: 0, budget }
     }
 
     fn tick(&self) -> u64 {
@@ -42,9 +44,10 @@ impl<V: Clone> ImageCache<V> {
     /// Guarda o valor e devolve o que saiu: o valor substituído, se a chave já existia, e os
     /// descartados para caber no teto; o recém-inserido nunca sai.
     pub fn insert(&mut self, key: String, value: V, weight: u64) -> Vec<V> {
-        let last = Cell::new(self.tick());
+        // O relógio só cresce: o tique identifica a entrada nova sem guardar uma cópia da chave.
+        let now = self.tick();
         let mut out = Vec::new();
-        if let Some(old) = self.map.insert(key.clone(), Entry { value, weight, last }) {
+        if let Some(old) = self.map.insert(key, Entry { value, weight, last: Cell::new(now) }) {
             self.total -= old.weight;
             out.push(old.value);
         }
@@ -53,7 +56,7 @@ impl<V: Clone> ImageCache<V> {
             let victim = self
                 .map
                 .iter()
-                .filter(|(k, e)| **k != key && e.weight > 0)
+                .filter(|(_, e)| e.last.get() != now && e.weight > 0)
                 .min_by_key(|(_, e)| e.last.get())
                 .map(|(k, _)| k.clone());
             let Some(victim) = victim else { break };

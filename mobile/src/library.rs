@@ -153,13 +153,18 @@ fn default_version(versions: &[&FileEntry], remembered: Option<&str>, work_title
 }
 
 fn episodes_of(core: &Core, dir: &str, files: &[FileEntry]) -> Vec<JsonValue> {
-    let progress = core.player().data().progress;
-    video_files(files)
+    let videos = video_files(files);
+    let paths: Vec<String> = videos.iter().map(|f| join_path(dir, &f.name)).collect();
+    // Só o progresso destes arquivos, sem clonar o mapa inteiro.
+    let seen: Vec<_> = core.player().with_data(|d| {
+        paths.iter().map(|path| d.progress.get(path).map(|p| (p.position, p.duration, p.watched))).collect()
+    });
+    videos
         .iter()
-        .map(|f| {
-            let path = join_path(dir, &f.name);
+        .zip(paths)
+        .zip(seen)
+        .map(|((f, path), seen)| {
             let name = parse_episode(&f.name);
-            let seen = progress.get(&path);
             json!({
                 "name": f.name,
                 "path": path,
@@ -167,9 +172,9 @@ fn episodes_of(core: &Core, dir: &str, files: &[FileEntry]) -> Vec<JsonValue> {
                 "number": episode_number(&f.name),
                 "label": name.label,
                 "quality": name.quality,
-                "position": seen.map_or(0.0, |p| p.position),
-                "duration": seen.map_or(0.0, |p| p.duration),
-                "watched": seen.is_some_and(|p| p.watched),
+                "position": seen.map_or(0.0, |p| p.0),
+                "duration": seen.map_or(0.0, |p| p.1),
+                "watched": seen.is_some_and(|p| p.2),
             })
         })
         .collect()

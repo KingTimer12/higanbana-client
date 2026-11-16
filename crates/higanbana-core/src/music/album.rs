@@ -281,7 +281,8 @@ pub fn format_label(codec: &str, bits: Option<u32>, sample_rate: u32, lossless: 
     }
     let mut s = parts.join(" · ");
     if let Some(r) = resampled_to {
-        s.push_str(&format!(" → {}", khz(r)));
+        s.push_str(" → ");
+        s.push_str(&khz(r));
     }
     s
 }

@@ -114,7 +114,7 @@ fn decode_rar4_unicode(ascii: &[u8], enc: &[u8]) -> Option<String> {
 
 fn file_entry(name: String, stored: bool, packed: u64, size: u64, data_offset: u64) -> Entry {
     Entry {
-        name: name.replace('\\', "/"),
+        name: if name.contains('\\') { name.replace('\\', "/") } else { name },
         method: if stored { 0 } else { METHOD_PACKED },
         compressed_size: packed,
         size,

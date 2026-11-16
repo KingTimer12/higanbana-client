@@ -48,7 +48,10 @@ export function nativeBackend(): Backend {
 
     streamUrl: (path, size) => Player.streamUrl(path, size),
     settings: () => Player.settings() as PlayerSettings,
-    saveProgress: (path, position, duration, endingStart) => Player.saveProgress(path, position, duration, endingStart),
+    saveProgress: (path, position, duration, endingStart, later) =>
+      later
+        ? Player.saveProgressLater(path, position, duration, endingStart)
+        : Player.saveProgress(path, position, duration, endingStart),
     pickTracks: (tracks: Track[], dir) => Player.pickTracks(tracks, dir) as TrackPick,
     rememberTracks: (tracks, dir, sub, audio) => Player.rememberTracks(tracks, dir, sub, audio),
     skipTimes: (chapters: Chapter[], duration, malId, episode) =>

@@ -7,7 +7,7 @@
 
 use crate::interact::hover_layer;
 use crate::interact::Button;
-use std::{collections::HashSet, rc::Rc, sync::Arc};
+use std::{borrow::Cow, collections::HashSet, rc::Rc, sync::Arc};
 
 use gpui_kit::{
     AnyElement, Context, ElementId, Entity, FontWeight, IntoElement, ParentElement, Render, Styled, Subscription,
@@ -76,7 +76,8 @@ pub struct TitleView {
     /// Caminho cuja listagem está em `files_listing` (ou sendo buscada).
     files_for: Option<String>,
     season_for: Option<String>,
-    detail: Option<Option<MediaDetail>>,
+    /// Em `Arc`: o quadro pega o detalhe (elenco, equipe, relações) sem copiá-lo.
+    detail: Option<Option<Arc<MediaDetail>>>,
     detail_for: Option<i64>,
     /// Chave (`tmdb::work_key`) dos episódios pedidos para a obra aberta.
     episodes_key: Option<String>,
@@ -310,7 +311,7 @@ impl TitleView {
     }
 
     fn full(&self) -> Option<&MediaDetail> {
-        self.detail.as_ref().and_then(|d| d.as_ref())
+        self.detail.as_ref().and_then(|d| d.as_deref())
     }
 
     /// Busca o que falta conforme as listagens e o AniList respondem.
@@ -373,7 +374,7 @@ impl TitleView {
                     if v.detail_for != Some(id) {
                         return;
                     }
-                    v.detail = Some(d);
+                    v.detail = Some(d.map(Arc::new));
                     v.want_episodes(cx);
                     cx.notify();
                 });
@@ -422,10 +423,11 @@ impl TitleView {
     /// Arquivos que a tela mostra. Na raiz da obra (versão de arquivos soltos,
     /// ou obra só com extras) as subpastas ficam de fora: versões viram cartões
     /// e extras têm seção própria.
-    fn shown_files(&self) -> Option<Vec<FileEntry>> {
-        let list = files_of(&self.files_listing)?.clone();
+    fn shown_files(&self) -> Option<Cow<'_, [FileEntry]>> {
+        let list = files_of(&self.files_listing)?;
         let at_root = self.files_for.as_deref() == Some(self.season_path().as_str());
-        Some(if at_root { list.into_iter().filter(|f| !f.is_directory).collect() } else { list })
+        // Fora da raiz o quadro usa a listagem como está, sem cópia.
+        Some(if at_root { Cow::Owned(list.iter().filter(|f| !f.is_directory).cloned().collect()) } else { Cow::Borrowed(list) })
     }
 
     /// Pasta de músicas vira encarte (se não for álbum, ele avisa e volta à lista).
@@ -454,7 +456,7 @@ impl TitleView {
         let t = PlayTarget {
             dir,
             file,
-            files,
+            files: files.into_owned(),
             mal_id: self.full().and_then(|d| d.summary.id_mal).and_then(|v| u32::try_from(v).ok()),
             is_anime: self.media_type == MediaType::Anime,
             anime_title: self.heading(cx),
@@ -464,7 +466,7 @@ impl TitleView {
 
     fn read(&self, file: FileEntry, cx: &mut gpui_kit::App) {
         let (Some(dir), Some(files)) = (self.files_for.clone(), self.shown_files()) else { return };
-        let t = ReadTarget { dir, file, files, title_path: self.title_path.clone(), title: self.heading(cx) };
+        let t = ReadTarget { dir, file, files: files.into_owned(), title_path: self.title_path.clone(), title: self.heading(cx) };
         self.state.update(cx, |s, cx| s.read(t, cx));
     }
 }
@@ -478,13 +480,13 @@ impl Render for TitleView {
         let rem = f32::from(window.rem_size());
         let width = content_width(window, 72. * rem);
         let media = self.media(cx);
-        let full = self.full().cloned();
+        let full = self.detail.clone().flatten();
         let heading = self.heading(cx);
         let release_name = self.release_name(cx);
         let files = self.shown_files();
         let files_path = self.files_for.clone().unwrap_or_default();
         let st = self.state.read(cx);
-        let progress = st.player_data.progress.clone();
+        let progress = &st.player_data.progress;
         let reading = progress_map(st);
 
         // --- Assistir / continuar ---
@@ -588,13 +590,13 @@ impl Render for TitleView {
         // --- Ações: uma principal (continuar de onde parou), o resto secundário ---
         let mut actions = h_flex().flex_wrap().gap_2();
         let mut has_primary = false;
-        if let Some((f, at)) = resume.clone() {
+        if let Some((f, at)) = resume {
             has_primary = true;
             actions = actions.child(
                 Button::new("play-resume").primary().icon(IconName::Play).label(resume_label(&f, at)).on_click(cx.listener(move |v, _, _, cx| v.play(f.clone(), cx))),
             );
         }
-        if let Some((f, page, res, unit)) = resume_read.clone() {
+        if let Some((f, page, res, unit)) = resume_read {
             let label = read_label(&f, page, res, &unit);
             let button = Button::new("read-resume").icon(IconName::BookOpen).label(label).on_click(cx.listener(move |v, _, _, cx| v.read(f.clone(), cx)));
             actions = actions.child(if has_primary { button } else { button.primary() });
@@ -642,7 +644,7 @@ impl Render for TitleView {
                         .text_color(theme.foreground.opacity(0.85))
                         .line_height(relative(1.6))
                         .when(long && !expanded, |d| d.line_clamp(3))
-                        .children(if long && !expanded { vec![paras.join(" ")] } else { paras.clone() }),
+                        .children(if long && !expanded { vec![paras.join(" ")] } else { paras }),
                 )
                 .when(long || source.is_some(), |d| {
                     d.child(
@@ -666,7 +668,7 @@ impl Render for TitleView {
             let season_name = self.season_name();
             let work_path = self.season_path();
             let work_title = self.work_title();
-            let selected = release_name.clone().filter(|_| self.extra_name().is_none());
+            let selected = release_name.filter(|_| self.extra_name().is_none());
             let single_tags = if releases.len() == 1 { release_tags(&releases[0].name) } else { Vec::new() };
             let mut options = v_flex().gap_3();
             // Franquias trocam de obra pela página da franquia (link de volta acima do título).
@@ -711,7 +713,7 @@ impl Render for TitleView {
                         .on_click(move |_, _, cx| st.update(cx, |s, cx| s.go(target.clone(), cx)))
                 })))
             });
-            let body = match (&self.files_listing, files.clone()) {
+            let body = match (&self.files_listing, files.as_ref()) {
                 (Some(Err(e)), _) => empty_state(IconName::WifiOff, "Não foi possível abrir os arquivos", Some(e.clone().into()), cx).into_any_element(),
                 (_, None) => Skeleton::new().h_72().rounded(theme.radius_lg).into_any_element(),
                 (_, Some(_)) if self.album.is_some() && !self.not_album => self.album.clone().unwrap().into_any_element(),
@@ -730,9 +732,9 @@ impl Render for TitleView {
                         let layout = self.state.read(cx).episode_layout();
                         let cols = columns(width, 15.5 * rem, rem);
                         let eps = episodes_state.as_ref().map(|e| e.as_deref());
-                        episode_list(&files_path, &list, eps, layout, cols, on_play, Some(on_read), cx).into_any_element()
+                        episode_list(&files_path, list, eps, layout, cols, on_play, Some(on_read), cx).into_any_element()
                     } else {
-                        file_list(&files_path, &list, Some(on_play), Some(on_read), cx).into_any_element()
+                        file_list(&files_path, list, Some(on_play), Some(on_read), cx).into_any_element()
                     }
                 }
             };
@@ -813,7 +815,7 @@ impl Render for TitleView {
                                         v_flex()
                                             .gap_1()
                                             .children(native.map(|n| div().text_sm().text_color(theme.muted_foreground).child(n)))
-                                            .child(div().text_3xl().line_height(relative(1.1)).font_weight(FontWeight::BOLD).child(heading.clone()))
+                                            .child(div().text_3xl().line_height(relative(1.1)).font_weight(FontWeight::BOLD).child(heading))
                                             .children(english.map(|n| div().text_color(theme.muted_foreground).child(n))),
                                     )
                                     .when(!meta.is_empty() || genres.is_some(), |d| {

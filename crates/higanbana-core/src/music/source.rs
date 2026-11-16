@@ -52,14 +52,14 @@ impl Buf {
     fn add(&mut self, s: u64, e: u64) {
         self.have.push((s, e));
         self.have.sort_unstable();
-        let mut merged: Vec<(u64, u64)> = Vec::with_capacity(self.have.len());
-        for (s, e) in self.have.drain(..) {
-            match merged.last_mut() {
-                Some(last) if s <= last.1 => last.1 = last.1.max(e),
-                _ => merged.push((s, e)),
+        // Junta no lugar (sem alocar): roda a cada pedaço que chega da rede.
+        self.have.dedup_by(|next, last| {
+            let overlaps = next.0 <= last.1;
+            if overlaps {
+                last.1 = last.1.max(next.1);
             }
-        }
-        self.have = merged;
+            overlaps
+        });
     }
 }
 

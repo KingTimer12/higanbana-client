@@ -137,7 +137,7 @@ pub fn pick_best(candidates: &[Value], wanted: &ParsedName) -> Option<usize> {
     let mut best: Option<(usize, f64)> = None;
 
     for (rank, raw) in candidates.iter().enumerate() {
-        let Ok(c) = serde_json::from_value::<Candidate>(raw.clone()) else {
+        let Ok(c) = Candidate::deserialize(raw) else {
             continue;
         };
         let sim = [&c.title.romaji, &c.title.english, &c.title.native]

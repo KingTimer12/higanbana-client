@@ -73,8 +73,6 @@ pub struct Fanart {
     refreshing: Arc<AtomicBool>,
     /// O mapa pré-carregado estava vencido e ainda não se pediu a renovação.
     stale_pending: AtomicBool,
-    /// Serializa a gravação das caches (o `.tmp` delas é fixo).
-    flush_lock: Mutex<()>,
     /// Alvo → URL do pôster escolhido.
     hits: DiskCache<String>,
     /// Alvos sem pôster no fanart.tv.
@@ -128,7 +126,6 @@ impl Fanart {
             map_failed: Arc::new(Mutex::new(None)),
             refreshing: Arc::new(AtomicBool::new(false)),
             stale_pending: AtomicBool::new(false),
-            flush_lock: Mutex::new(()),
             hits: DiskCache::open(cache_dir.join("fanart-hits.json"), HITS_TTL),
             misses: DiskCache::open(cache_dir.join("fanart-miss.json"), MISS_TTL),
             store: CoverStore::open(cache_dir.join("covers")),
@@ -157,7 +154,7 @@ impl Fanart {
         let mut changed = false;
         let result = self.resolve(target, &mut changed).await;
         if changed {
-            let _guard = self.flush_lock.lock().unwrap();
+            // O `DiskCache` junta as gravações e as tira do runtime.
             self.hits.flush();
             self.misses.flush();
         }

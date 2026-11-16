@@ -109,12 +109,13 @@ export function Player(props: { dir: string; file: string; title: string; malId:
 
   // --- Progresso ---
 
-  const save = () => {
+  /** `later`: grava sem esperar o disco (o salvamento periódico, com o vídeo tocando). */
+  const save = (later = false) => {
     const episode = untracked(current);
     const [at, length] = [untracked(position), untracked(duration)];
     if (!episode || length <= 0) return;
     savedAt = Date.now();
-    const watched = core.saveProgress(episode.path, at, length, untracked(skip).ed?.start ?? null);
+    const watched = core.saveProgress(episode.path, at, length, untracked(skip).ed?.start ?? null, later);
     recordWatched(episode.path, { position: at, duration: length, watched });
   };
 
@@ -282,7 +283,7 @@ export function Player(props: { dir: string; file: string; title: string; malId:
   const onProgress = (e: { position: number; duration: number }) => {
     if (scrub() === null) position.set(e.position);
     if (e.duration > 0) duration.set(e.duration);
-    if (Date.now() - savedAt >= SAVE_EVERY_MS) save();
+    if (Date.now() - savedAt >= SAVE_EVERY_MS) save(true);
   };
 
   const onEnd = () => {
@@ -310,16 +311,19 @@ export function Player(props: { dir: string; file: string; title: string; malId:
 
   // --- O que aparece sobre o vídeo ---
 
+  // A posição muda a cada 250 ms: o que depende dela é derivado em `computed`, que só
+  // avisa quem lê quando o resultado muda (o texto a cada segundo, os avisos ao entrar ou sair).
   const shown = () => scrub() ?? position();
-  const inOpening = () => {
+  const shownLabel = computed(() => formatTime(shown()));
+  const inOpening = computed(() => {
     const op = skip().op;
     return settings.showSkipIntro && op !== null && position() >= op.start && position() < op.end - 1;
-  };
-  const nextOffered = () => {
+  });
+  const nextOffered = computed(() => {
     const length = duration();
     if (!next() || nextDismissed() || length <= 0) return false;
     return position() >= (skip().ed?.start ?? length - settings.countdownSec);
-  };
+  });
   const close = () => nav.pop();
 
   return (
@@ -421,7 +425,7 @@ export function Player(props: { dir: string; file: string; title: string; malId:
 
             <View class="gap-1 px-4 pb-3">
               <View class="flex-row items-center gap-3">
-                <Text class="min-w-12 text-sm tabular-nums text-on-video">{formatTime(shown())}</Text>
+                <Text class="min-w-12 text-sm tabular-nums text-on-video">{shownLabel()}</Text>
                 <SeekBar />
                 <Text class="min-w-12 text-right text-sm tabular-nums text-on-video-muted">{formatTime(duration())}</Text>
                 <If when={next()}>

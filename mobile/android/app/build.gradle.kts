@@ -179,6 +179,7 @@ val cargoBuilds = mapOf("bundled" to false, "devServer" to true).mapValues { (fl
         abis.set(targetAbis.map { it.id })
         features.set(if (dev) listOf("dev") else emptyList())
         minSdk.set(minSdkVersion)
+        optimize.set(!dev)
         ndkDirectory.set(androidComponents.sdkComponents.ndkDirectory)
         outputDir.set(layout.buildDirectory.dir("generated/rust/$flavor/jniLibs"))
     }

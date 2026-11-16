@@ -20,6 +20,8 @@ use higanbana_core::{
     tmdb::{WorkEpisodes, matching::WorkQuery},
 };
 
+use rustc_hash::FxHashMap;
+
 use crate::{
     image_cache::{decoded_weight, ImageCache, IMAGE_BUDGET},
     video::PlayTarget,
@@ -79,6 +81,8 @@ pub struct Download {
     pub status: DlStatus,
     pub dest: Option<std::path::PathBuf>,
     pub error: Option<String>,
+    /// Para cancelar a tarefa no núcleo enquanto roda.
+    abort: Option<tokio::task::AbortHandle>,
 }
 
 impl Download {
@@ -102,6 +106,49 @@ pub enum AppEvent {
     Notify(Tone, String),
 }
 
+/// `None` = ainda buscando; `Some(None)` = sem correspondência.
+type Answer = Option<Option<MediaSummary>>;
+
+/// Respostas do AniList, um mapa por tipo de mídia: a consulta por `&str` não
+/// precisa montar uma chave `(MediaType, String)` a cada card desenhado.
+#[derive(Default)]
+struct Lookups {
+    anime: FxHashMap<String, Answer>,
+    manga: FxHashMap<String, Answer>,
+}
+
+impl Lookups {
+    fn of(&self, media: MediaType) -> &FxHashMap<String, Answer> {
+        match media {
+            MediaType::Anime => &self.anime,
+            MediaType::Manga => &self.manga,
+        }
+    }
+
+    fn of_mut(&mut self, media: MediaType) -> &mut FxHashMap<String, Answer> {
+        match media {
+            MediaType::Anime => &mut self.anime,
+            MediaType::Manga => &mut self.manga,
+        }
+    }
+
+    fn get(&self, media: MediaType, name: &str) -> Option<&Answer> {
+        self.of(media).get(name)
+    }
+
+    fn contains(&self, media: MediaType, name: &str) -> bool {
+        self.of(media).contains_key(name)
+    }
+
+    fn insert(&mut self, (media, name): (MediaType, String), answer: Answer) {
+        self.of_mut(media).insert(name, answer);
+    }
+
+    fn remove(&mut self, (media, name): &(MediaType, String)) {
+        self.of_mut(*media).remove(name);
+    }
+}
+
 pub struct AppState {
     pub core: Arc<Core>,
     /// `None` antes de ler a sessão salva.
@@ -110,7 +157,7 @@ pub struct AppState {
     stack: Vec<String>,
     index: usize,
     images: ImageCache<Img>,
-    lookups: HashMap<(MediaType, String), Option<Option<MediaSummary>>>,
+    lookups: Lookups,
     /// Muda a cada lote de respostas do AniList (nomes resolvidos).
     lookups_gen: u64,
     /// Fila do que a pessoa está vendo (cards, título, franquia, busca).
@@ -142,8 +189,8 @@ pub struct AppState {
     pub downloads: Vec<Download>,
     next_download: u64,
     pub player_data: PlayerData,
-    pub music: Option<higanbana_core::music::engine::PlayerState>,
-    pub music_session: crate::music::session::MusicSession,
+    /// Player de músicas em entidade própria: os tiques de posição não redesenham o app.
+    pub music: Entity<crate::music::session::MusicSession>,
     pub(crate) cat: crate::catalog_state::CatalogState,
     pub(crate) update: crate::updater::UpdateState,
 }
@@ -161,6 +208,7 @@ pub fn state(cx: &App) -> Entity<AppState> {
 pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
     let player_data = core.player().data();
     let s = cx.new(|cx| {
+        let music = cx.new(|_| crate::music::session::MusicSession::new(core.clone()));
         let mut s = AppState {
             core,
             session_ready: false,
@@ -168,7 +216,7 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             stack: vec![String::new()],
             index: 0,
             images: ImageCache::new(IMAGE_BUDGET),
-            lookups: HashMap::new(),
+            lookups: Lookups::default(),
             lookups_gen: 0,
             lookup_queue: Vec::new(),
             lookup_background: Vec::new(),
@@ -186,8 +234,7 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             downloads: Vec::new(),
             next_download: 1,
             player_data,
-            music: None,
-            music_session: Default::default(),
+            music,
             cat: Default::default(),
             update: Default::default(),
         };
@@ -461,7 +508,10 @@ impl AppState {
             _ => None,
         };
         if let Some(key) = local {
-            self.cover_files.insert(key.clone(), m.id);
+            // Chamado a cada quadro por card: só aloca a cópia da chave na primeira vez.
+            if self.cover_files.get(&key) != Some(&m.id) {
+                self.cover_files.insert(key.clone(), m.id);
+            }
             return Some(key);
         }
         anilist.map(str::to_owned)
@@ -500,7 +550,7 @@ impl AppState {
 
     /// `None` = ainda buscando; `Some(None)` = sem correspondência.
     pub fn lookup(&self, name: &str, media: MediaType) -> Option<Option<MediaSummary>> {
-        self.lookups.get(&(media, name.to_owned())).cloned().flatten()
+        self.lookups.get(media, name).cloned().flatten()
     }
 
     /// Muda sempre que algum nome passa a ter resposta.
@@ -510,7 +560,7 @@ impl AppState {
 
     /// Como `lookup`, sem copiar (para varrer o índice inteiro).
     pub fn lookup_ref(&self, name: &str, media: MediaType) -> Option<Option<&MediaSummary>> {
-        self.lookups.get(&(media, name.to_owned())).and_then(Option::as_ref).map(Option::as_ref)
+        self.lookups.get(media, name).and_then(Option::as_ref).map(Option::as_ref)
     }
 
     /// Até quando a faixa espera (falha de lote ou 429 pedido ao cliente).
@@ -542,11 +592,10 @@ impl AppState {
 
     /// Como `want_lookup`, na faixa da prioridade dada (`Background` = rastreio).
     pub(crate) fn want_lookup_with(&mut self, name: &str, media: MediaType, priority: Priority, cx: &mut Context<Self>) -> bool {
-        let key = (media, name.to_owned());
-        if self.lookups.contains_key(&key) {
+        if self.lookups.contains(media, name) {
             // Esperava na fila do rastreio e agora a pessoa está vendo: passa para a frente.
             if priority == Priority::Interactive
-                && let Some(pos) = self.lookup_background.iter().position(|k| *k == key)
+                && let Some(pos) = self.lookup_background.iter().position(|k| k.0 == media && k.1 == name)
             {
                 let key = self.lookup_background.remove(pos);
                 self.lookup_queue.push(key);
@@ -554,6 +603,7 @@ impl AppState {
             }
             return false;
         }
+        let key = (media, name.to_owned());
         self.lookups.insert(key.clone(), None);
         self.lane(priority).push(key);
         self.schedule_flush(LOOKUP_DELAY, cx);
@@ -759,9 +809,13 @@ impl AppState {
 
     /// Progresso agregado dos downloads ativos (0–1).
     pub fn overall_progress(&self) -> f32 {
-        let active: Vec<&Download> = self.downloads.iter().filter(|d| d.status == DlStatus::Running && d.total.is_some()).collect();
-        let total: u64 = active.iter().filter_map(|d| d.total).sum();
-        if total == 0 { 0. } else { active.iter().map(|d| d.downloaded).sum::<u64>() as f32 / total as f32 }
+        let (done, total) = self
+            .downloads
+            .iter()
+            .filter(|d| d.status == DlStatus::Running)
+            .filter_map(|d| Some((d.downloaded, d.total?)))
+            .fold((0u64, 0u64), |(a, b), (d, t)| (a + d, b + t));
+        if total == 0 { 0. } else { done as f32 / total as f32 }
     }
 
     fn enqueue(&mut self, path: &str) {
@@ -777,7 +831,7 @@ impl AppState {
         let name = path.rsplit('/').next().unwrap_or(path).to_owned();
         let id = format!("dl-{}-{}", std::process::id(), self.next_download);
         self.next_download += 1;
-        self.downloads.insert(0, Download { id, path: path.to_owned(), name, downloaded: 0, total: None, status: DlStatus::Queued, dest: None, error: None });
+        self.downloads.insert(0, Download { id, path: path.to_owned(), name, downloaded: 0, total: None, status: DlStatus::Queued, dest: None, error: None, abort: None });
     }
 
     pub fn start_downloads(&mut self, paths: &[String], cx: &mut Context<Self>) {
@@ -807,10 +861,19 @@ impl AppState {
             let core = self.core.clone();
             let (i, p) = (id.clone(), path.clone());
             let task = self.core.spawn(async move { core.cloud().download(&i, &p, None).await });
+            if let Some(d) = self.downloads.iter_mut().find(|d| d.id == id) {
+                d.abort = Some(task.abort_handle());
+            }
             cx.spawn(async move |this, cx| {
                 let result = task.await.map_err(|e| e.to_string()).and_then(|r| r.map_err(|e| e.to_string()));
                 let _ = this.update(cx, |s, cx| {
-                    let name = s.downloads.iter().find(|d| d.id == id).map(|d| d.name.clone()).unwrap_or_default();
+                    // Cancelado: a linha já saiu da lista e não há o que avisar.
+                    let Some(name) = s.downloads.iter().find(|d| d.id == id).map(|d| d.name.clone()) else {
+                        return;
+                    };
+                    if let Some(d) = s.downloads.iter_mut().find(|d| d.id == id) {
+                        d.abort = None;
+                    }
                     match result {
                         Ok(dest) => {
                             if let Some(d) = s.downloads.iter_mut().find(|d| d.id == id) {
@@ -841,6 +904,20 @@ impl AppState {
             d.total = p.total;
             cx.notify();
         }
+    }
+
+    /// Tira o download da fila ou interrompe o que está baixando (o núcleo
+    /// apaga o `.part`), e começa o próximo da fila.
+    pub fn cancel_download(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(i) = self.downloads.iter().position(|d| d.id == id) else { return };
+        if !matches!(self.downloads[i].status, DlStatus::Running | DlStatus::Queued) {
+            return;
+        }
+        if let Some(abort) = self.downloads.remove(i).abort {
+            abort.abort();
+        }
+        self.pump(cx);
+        cx.notify();
     }
 
     pub fn clear_finished(&mut self, cx: &mut Context<Self>) {

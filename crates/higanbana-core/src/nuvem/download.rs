@@ -39,6 +39,18 @@ pub fn sanitize_file_name(name: &str) -> String {
     if trimmed.is_empty() { "download".into() } else { trimmed.into() }
 }
 
+/// Apaga o `.part` se o download não chegar ao fim: erro, ou a tarefa
+/// cancelada (abortada no meio de um `await`).
+struct PartFile(Option<PathBuf>);
+
+impl Drop for PartFile {
+    fn drop(&mut self) {
+        if let Some(part) = self.0.take() {
+            let _ = std::fs::remove_file(part);
+        }
+    }
+}
+
 /// Baixa `remote_path` em stream para `dest` (via `<dest>.part`), emitindo progresso.
 pub async fn download(
     events: &EventFn,
@@ -57,6 +69,7 @@ pub async fn download(
         tokio::fs::create_dir_all(parent).await?;
     }
     let part = PathBuf::from(format!("{}.part", dest.display()));
+    let mut guard = PartFile(Some(part.clone()));
 
     let result: HttpResult<u64> = async {
         let mut file = File::create(&part).await?;
@@ -81,15 +94,9 @@ pub async fn download(
     }
     .await;
 
-    let downloaded = match result {
-        Ok(n) => n,
-        Err(e) => {
-            let _ = tokio::fs::remove_file(&part).await;
-            return Err(e);
-        }
-    };
-
+    let downloaded = result?;
     tokio::fs::rename(&part, dest).await?;
+    guard.0 = None;
     events(Event::DownloadProgress(DownloadProgress {
         id: id.to_owned(),
         path: remote_path.to_owned(),
@@ -112,5 +119,21 @@ mod tests {
         );
         assert_eq!(sanitize_file_name("a/b\\c:d?.mkv"), "a_b_c_d_.mkv");
         assert_eq!(sanitize_file_name(".."), "download");
+    }
+
+    #[test]
+    fn part_some_quando_o_download_nao_termina() {
+        let dir = std::env::temp_dir().join(format!("higanbana-part-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (aborted, finished) = (dir.join("a.mkv.part"), dir.join("b.mkv.part"));
+        std::fs::write(&aborted, b"x").unwrap();
+        std::fs::write(&finished, b"x").unwrap();
+        drop(PartFile(Some(aborted.clone())));
+        let mut done = PartFile(Some(finished.clone()));
+        done.0 = None;
+        drop(done);
+        assert!(!aborted.exists());
+        assert!(finished.exists());
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

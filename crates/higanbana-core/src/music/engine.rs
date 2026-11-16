@@ -267,6 +267,44 @@ struct Core {
     last_emit: Instant,
 }
 
+/// Igual a `==`, ignorando posição e quanto já baixou (sem clonar os estados).
+fn same_but_position(a: &PlayerState, b: &PlayerState) -> bool {
+    let PlayerState {
+        album,
+        index,
+        path,
+        playing,
+        position: _,
+        duration,
+        buffered: _,
+        format,
+        volume,
+        shuffle,
+        repeat,
+        normalize,
+        error,
+        loading,
+        ended,
+        title,
+        artist,
+    } = a;
+    *album == b.album
+        && *index == b.index
+        && *path == b.path
+        && *playing == b.playing
+        && *duration == b.duration
+        && *format == b.format
+        && *volume == b.volume
+        && *shuffle == b.shuffle
+        && *repeat == b.repeat
+        && *normalize == b.normalize
+        && *error == b.error
+        && *loading == b.loading
+        && *ended == b.ended
+        && *title == b.title
+        && *artist == b.artist
+}
+
 fn seed() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64)
 }
@@ -431,12 +469,19 @@ impl Core {
         });
     }
 
-    fn push(&mut self, samples: Vec<f32>, from_ch: usize) {
+    fn push(&mut self, samples: &[f32], from_ch: usize) {
         let Some(sink) = &self.sink else { return };
         let to = sink.channels() as usize;
-        let s = remap_channels(&samples, from_ch, to);
+        // Mesma disposição de canais: manda direto, sem cópia.
+        let remapped;
+        let s = if from_ch == to || from_ch == 0 {
+            samples
+        } else {
+            remapped = remap_channels(samples, from_ch, to);
+            &remapped[..]
+        };
         self.pushed += (s.len() / to.max(1)) as u64;
-        sink.push(&s);
+        sink.push(s);
     }
 
     /// Decodifica um bloco se a saída precisa. Devolve se fez algo.
@@ -460,7 +505,7 @@ impl Core {
                     if g != 1.0 {
                         s.iter_mut().for_each(|x| *x *= g);
                     }
-                    self.push(s, ch);
+                    self.push(&s, ch);
                     return true;
                 }
                 Ok(Out::End(g)) if g == d.worker.generation => break true,
@@ -476,7 +521,7 @@ impl Core {
                 let g = d.gain;
                 let mut s = r.flush();
                 s.iter_mut().for_each(|x| *x *= g);
-                self.push(s, ch);
+                self.push(&s, ch);
             }
             self.save_measure();
             self.decoding = None;
@@ -747,8 +792,7 @@ impl Core {
     /// Emite o estado: na hora se algo além da posição mudou, senão a cada 250 ms.
     fn emit(&mut self, force: bool) {
         let s = self.state();
-        let strip = |s: &PlayerState| PlayerState { position: 0.0, buffered: 0.0, ..s.clone() };
-        let changed = self.last_state.as_ref().is_none_or(|l| strip(l) != strip(&s));
+        let changed = self.last_state.as_ref().is_none_or(|l| !same_but_position(l, &s));
         let moving = self.last_state.as_ref() != Some(&s);
         if force || changed || (moving && self.last_emit.elapsed() >= STATE_EVERY) {
             self.last_emit = Instant::now();

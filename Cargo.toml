@@ -48,3 +48,40 @@ lto = "fat"
 opt-level = "s"
 panic = "abort"
 strip = true
+
+# O binário fica em "s" pelo tamanho, mas decodificar áudio e imagem,
+# reamostrar e medir loudness é laço de CPU: esses crates vão em -O3.
+[profile.release.package.symphonia-core]
+opt-level = 3
+[profile.release.package.symphonia-bundle-flac]
+opt-level = 3
+[profile.release.package.symphonia-bundle-mp3]
+opt-level = 3
+[profile.release.package.symphonia-codec-aac]
+opt-level = 3
+[profile.release.package.symphonia-codec-alac]
+opt-level = 3
+[profile.release.package.symphonia-codec-pcm]
+opt-level = 3
+[profile.release.package.symphonia-codec-vorbis]
+opt-level = 3
+[profile.release.package.rubato]
+opt-level = 3
+[profile.release.package.realfft]
+opt-level = 3
+[profile.release.package.rustfft]
+opt-level = 3
+[profile.release.package.ebur128]
+opt-level = 3
+[profile.release.package.image]
+opt-level = 3
+[profile.release.package.zune-jpeg]
+opt-level = 3
+[profile.release.package.png]
+opt-level = 3
+[profile.release.package.fdeflate]
+opt-level = 3
+[profile.release.package.miniz_oxide]
+opt-level = 3
+[profile.release.package.libwebp-sys]
+opt-level = 3

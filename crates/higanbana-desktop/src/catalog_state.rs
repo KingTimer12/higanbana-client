@@ -267,13 +267,15 @@ impl AppState {
 
     /// Nomes resolvidos / total de nomes no índice. Recontado só quando chega letra ou resposta.
     pub fn metadata_progress(&self) -> (usize, usize) {
-        let letters: Vec<Arc<Vec<IndexEntry>>> = LETTERS.iter().filter_map(|l| self.anime_letter(l)).collect();
-        let key = (letters.len(), self.lookups_gen());
+        // Chamado a cada quadro: no acerto do cache só conta as letras, sem montar lista.
+        let loaded = LETTERS.iter().filter(|l| self.anime_letter(l).is_some()).count();
+        let key = (loaded, self.lookups_gen());
         if let Some((k, progress)) = self.cat.meta_progress.get()
             && k == key
         {
             return progress;
         }
+        let letters: Vec<Arc<Vec<IndexEntry>>> = LETTERS.iter().filter_map(|l| self.anime_letter(l)).collect();
         let entries = letters.iter().flat_map(|l| l.iter());
         let total = letters.iter().map(|l| l.len()).sum();
         let resolved = entries.filter(|e| self.lookup_ref(&e.name, MediaType::Anime).is_some()).count();
@@ -308,7 +310,7 @@ impl AppState {
     }
 
     pub fn save_catalog_query(&mut self, query: &str) {
-        self.cat.view.filters.query = query.to_owned();
+        query.clone_into(&mut self.cat.view.filters.query);
     }
 
     pub fn save_catalog_place(&mut self, place: CatalogPlace) {

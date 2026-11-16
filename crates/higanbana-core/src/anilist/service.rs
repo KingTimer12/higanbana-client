@@ -275,9 +275,8 @@ impl AniList {
                     .get(format!("m{i}"))
                     .and_then(|p| p.get("media"))
                     .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default();
-                let best = matcher::pick_best(&candidates, parsed).map(|idx| candidates[idx].clone());
+                    .map_or(&[][..], Vec::as_slice);
+                let best = matcher::pick_best(candidates, parsed).map(|idx| candidates[idx].clone());
                 (key.clone(), best)
             })
             .collect())
@@ -294,13 +293,13 @@ impl AniList {
         if let Some(v) = self.details.get(&key) {
             return Ok(v);
         }
-        let data = self
+        let mut data = self
             .client
             .query(&queries::season_query(), json!({ "season": season, "year": year }))
             .await?;
         let list = data
-            .pointer("/Page/media")
-            .cloned()
+            .pointer_mut("/Page/media")
+            .map(Value::take)
             .ok_or_else(|| AniListError::Decode("Page.media ausente".into()))?;
         self.details.insert(key, list.clone());
         self.details.flush();
@@ -313,8 +312,8 @@ impl AniList {
         let list = match self.rankings.get(&key) {
             Some(v) => v,
             None => {
-                let data = self.client.query(&queries::ranking_query(), queries::ranking_vars(media, ranking, year)).await?;
-                let list = data.pointer("/Page/media").cloned().ok_or_else(|| AniListError::Decode("Page.media ausente".into()))?;
+                let mut data = self.client.query(&queries::ranking_query(), queries::ranking_vars(media, ranking, year)).await?;
+                let list = data.pointer_mut("/Page/media").map(Value::take).ok_or_else(|| AniListError::Decode("Page.media ausente".into()))?;
                 self.rankings.insert(key, list.clone());
                 self.rankings.flush();
                 list
@@ -346,8 +345,8 @@ impl AniList {
                     .ok_or(e),
             };
         }
-        let data = self.client.query(queries::DETAIL_QUERY, json!({ "id": id })).await?;
-        let media = data.get("Media").cloned().filter(|m| !m.is_null()).ok_or(AniListError::NotFound)?;
+        let mut data = self.client.query(queries::DETAIL_QUERY, json!({ "id": id })).await?;
+        let media = data.get_mut("Media").map(Value::take).filter(|m| !m.is_null()).ok_or(AniListError::NotFound)?;
         self.details.insert(key, media.clone());
         self.details.flush();
         Ok(media)

@@ -87,7 +87,8 @@ pub async fn fetch_range(cloud: &Cloud, path: &str, start: u64, end: u64) -> Res
         let e = (end as usize + 1).min(body.len());
         return Ok(body[s..e].to_vec());
     }
-    Ok(body.to_vec())
+    // Sem cópia quando o `Bytes` é o único dono do buffer (o caso de `resp.bytes()`).
+    Ok(Vec::from(body))
 }
 
 fn cache_key(path: &str, inner: Option<&str>) -> String {
@@ -245,6 +246,17 @@ pub async fn page(&self, page: &PageRef) -> Result<(Vec<u8>, String), String> {
     let (start, end) = entry.fetch_range();
     let mut local = fetch_range(cloud, &page.path, arc.base + start, arc.base + end.min(arc.len - 1)).await?;
     loop {
+        // Deflate é trabalho de CPU: sai das threads do runtime quando os dados já chegaram todos.
+        let complete = entry.method == 8
+            && zip::local_data_offset(&local).is_ok_and(|o| o + entry.compressed_size <= local.len() as u64);
+        if complete {
+            let e = entry.clone();
+            let r = tokio::task::spawn_blocking(move || zip::extract(&e, &local)).await.map_err(|e| e.to_string())?;
+            return match r.map_err(|e| e.to_string())? {
+                Ok(data) => Ok((data, entry.name.clone())),
+                Err(_) => Err(zip::ZipError::Corrupt.to_string()),
+            };
+        }
         match zip::extract(entry, &local).map_err(|e| e.to_string())? {
             Ok(data) => return Ok((data, entry.name.clone())),
             Err(need) if (start + need) <= arc.len && need as usize > local.len() => {

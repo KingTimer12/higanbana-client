@@ -85,7 +85,7 @@ impl SearchPalette {
 
     fn on_query(&mut self, query: &str, window: &mut Window, cx: &mut Context<Self>) {
         let q = query.trim().to_owned();
-        self.query = q.clone();
+        self.query.clone_from(&q);
         if q.is_empty() {
             self.groups.clear();
             self.debounce = None;
@@ -285,7 +285,18 @@ fn downloads_panel(state: &Entity<AppState>, cx: &App) -> impl IntoElement {
                                 .into_any_element(),
                         )
                     }
-                    _ => None,
+                    DlStatus::Running | DlStatus::Queued => {
+                        let (st, id) = (state.clone(), d.id.clone());
+                        Some(
+                            Button::new(gpui_kit::ElementId::Name(format!("cancel:{key}").into()))
+                                .ghost()
+                                .small()
+                                .icon(IconName::Close)
+                                .tooltip("Cancelar download")
+                                .on_click(move |_, _, cx| st.update(cx, |s, cx| s.cancel_download(&id, cx)))
+                                .into_any_element(),
+                        )
+                    }
                 };
                 h_flex()
                     .gap_3()
