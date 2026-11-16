@@ -153,8 +153,9 @@ export interface Backend {
 
   streamUrl(path: string, size: number): string;
   settings(): PlayerSettings;
-  /** Guarda a posição; devolve se o episódio conta como visto. */
-  saveProgress(path: string, position: number, duration: number, endingStart: number | null): boolean;
+  /** Guarda a posição; devolve se o episódio conta como visto. Com `later`, a gravação
+   * fica na fila e a chamada volta sem esperar o disco (o salvamento periódico). */
+  saveProgress(path: string, position: number, duration: number, endingStart: number | null, later?: boolean): boolean;
   pickTracks(tracks: Track[], dir: string): TrackPick;
   rememberTracks(tracks: Track[], dir: string, sub: number | null, audio: number | null): void;
   skipTimes(chapters: Chapter[], duration: number, malId: number | null, episode: number | null): Promise<SkipTimes>;

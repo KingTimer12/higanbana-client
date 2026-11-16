@@ -6,7 +6,8 @@ use std::{rc::Rc, sync::Arc};
 use futures::{StreamExt, channel::mpsc::UnboundedReceiver};
 use gpui_kit::{
     AnyView, AnyWindowHandle, Context, Entity, FocusHandle, IntoElement, KeyBinding, MouseButton, NavigationDirection,
-    ParentElement, Render, SharedString, Styled, Subscription, Window, actions, div, prelude::*, AnimationExt as _,
+    ParentElement, Render, SharedString, Styled, StyleRefinement, Subscription, Window, actions, div, prelude::*,
+    AnimationExt as _,
 };
 use gpui_kit::component::{
     ActiveTheme as _, WindowExt as _, h_flex, v_flex,
@@ -16,7 +17,7 @@ use higanbana_core::{Core, Event, library::{Place, classify}};
 
 use crate::{
     chrome::{SearchPalette, sidebar, sort_sections, title_bar},
-    music::bar::MusicBar,
+    music::{bar::MusicBar, session::{MusicEvent, MusicSession}},
     reader::{ReadTarget, ReaderEvent, ReaderView},
     state::{AppEvent, AppState, Tone, state},
     video::{PlayTarget, PlayerEvent, PlayerView, Surface},
@@ -36,11 +37,11 @@ pub fn bind_keys(cx: &mut gpui_kit::App) {
 pub struct AppView {
     state: Entity<AppState>,
     surface: Rc<Surface>,
-    page: Option<(String, AnyView)>,
+    workspace: Entity<Workspace>,
     login: Option<Entity<LoginView>>,
     palette: Entity<SearchPalette>,
-    sections: Vec<String>,
     music: Entity<MusicBar>,
+    music_session: Entity<MusicSession>,
     player: Option<(Entity<PlayerView>, Subscription)>,
     reader: Option<(Entity<ReaderView>, Subscription)>,
     /// Foco da janela: sem ele nenhum atalho global (Ctrl+K, Alt+←) chega aqui.
@@ -52,8 +53,11 @@ impl AppView {
     pub fn new(core: Arc<Core>, surface: Rc<Surface>, mut events: UnboundedReceiver<Event>, window_handle: AnyWindowHandle, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let state = state(cx);
         let _ = core;
+        let music_session = state.read(cx).music.clone();
         let subs = vec![
             cx.observe(&state, |_, _, cx| cx.notify()),
+            // Só a troca de álbum mostra/esconde a barra; a posição fica com ela.
+            cx.subscribe(&music_session, |_, _, _: &MusicEvent, cx| cx.notify()),
             cx.subscribe_in(&state, window, |this, _, e: &AppEvent, window, cx| match e {
                 AppEvent::Play(t) => this.play(t.clone(), window, cx),
                 AppEvent::Read(t) => this.read(t.clone(), window, cx),
@@ -69,15 +73,16 @@ impl AppView {
         ];
 
         // Eventos do núcleo (outras threads) viram mudanças de estado aqui.
-        let st = state.clone();
+        let (st, ms) = (state.clone(), music_session.clone());
         cx.spawn(async move |_, cx| {
             while let Some(e) = events.next().await {
-                st.update(cx, |s, cx| match &e {
-                    Event::AuthChanged(session) => s.set_session(session.as_ref(), cx),
-                    Event::DownloadProgress(p) => s.on_download_progress(p, cx),
-                    Event::MusicState(m) => s.on_music_state(m.clone(), cx),
+                match &e {
+                    Event::AuthChanged(session) => st.update(cx, |s, cx| s.set_session(session.as_ref(), cx)),
+                    Event::DownloadProgress(p) => st.update(cx, |s, cx| s.on_download_progress(p, cx)),
+                    // Tique do player: vai para a entidade da música, não para o app inteiro.
+                    Event::MusicState(m) => ms.update(cx, |s, cx| s.on_state(m, cx)),
                     Event::LoginReturned => {}
-                });
+                }
                 if matches!(e, Event::LoginReturned) {
                     let _ = window_handle.update(cx, |_, w, _| w.activate_window());
                 }
@@ -85,21 +90,16 @@ impl AppView {
         })
         .detach();
 
-        crate::views::load_listing(&state, String::new(), cx, |v: &mut Self, r, _| {
-            let names = r.map(|f| f.into_iter().filter(|f| f.is_directory).map(|f| f.name).collect()).unwrap_or_default();
-            v.sections = sort_sections(names);
-        });
-
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         Self {
             focus,
             palette: cx.new(|cx| SearchPalette::new(window, cx)),
             music: cx.new(|cx| MusicBar::new(window, cx)),
-            sections: Vec::new(),
+            music_session,
+            workspace: cx.new(Workspace::new),
             state,
             surface,
-            page: None,
             login: None,
             player: None,
             reader: None,
@@ -144,6 +144,50 @@ impl AppView {
         cx.notify();
     }
 
+    fn render_workspace(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let has_music = self.music_session.read(cx).player.as_ref().is_some_and(|m| m.album.is_some());
+        let st = self.state.clone();
+        let nav = move |back: bool| {
+            let st = st.clone();
+            move |_: &gpui_kit::MouseUpEvent, _: &mut Window, cx: &mut gpui_kit::App| st.update(cx, |s, cx| if back { s.back(cx) } else { s.forward(cx) })
+        };
+        v_flex()
+            .size_full()
+            .on_mouse_up(MouseButton::Navigate(NavigationDirection::Back), nav(true))
+            .on_mouse_up(MouseButton::Navigate(NavigationDirection::Forward), nav(false))
+            .child(title_bar(&self.state, &self.palette, cx))
+            // Em cache: a barra de música redesenha esta raiz a cada tique, a tela não.
+            // A barra de título fica fora (as áreas de controle da janela não são reaproveitadas do cache).
+            .child(self.workspace.clone().cached(StyleRefinement::default().flex_1().min_h_0()))
+            // A barra de música aparece com fade quando um álbum começa a tocar.
+            .when(has_music, |d| {
+                d.child(div().child(self.music.clone()).with_animation("music-bar-in", crate::motion::enter(crate::motion::BASE), |e, t| {
+                    e.opacity(t)
+                }))
+            })
+    }
+}
+
+/// Barra lateral + tela atual. Observa o `AppState` e redesenha com ele; o resto
+/// (tiques da música) reaproveita o quadro anterior.
+struct Workspace {
+    state: Entity<AppState>,
+    page: Option<(String, AnyView)>,
+    sections: Vec<String>,
+    _subs: Vec<Subscription>,
+}
+
+impl Workspace {
+    fn new(cx: &mut Context<Self>) -> Self {
+        let state = state(cx);
+        let subs = vec![cx.observe(&state, |_, _, cx| cx.notify())];
+        crate::views::load_listing(&state, String::new(), cx, |v: &mut Self, r, _| {
+            let names = r.map(|f| f.into_iter().filter(|f| f.is_directory).map(|f| f.name).collect()).unwrap_or_default();
+            v.sections = sort_sections(names);
+        });
+        Self { state, page: None, sections: Vec::new(), _subs: subs }
+    }
+
     /// Tela da rota atual (recriada quando o caminho muda).
     fn page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyView {
         let path = self.state.read(cx).path().to_owned();
@@ -163,10 +207,11 @@ impl AppView {
         self.page = Some((path, view.clone()));
         view
     }
+}
 
-    fn render_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+impl Render for Workspace {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.page(window, cx);
-        let has_music = self.state.read(cx).music.as_ref().is_some_and(|m| m.album.is_some());
         let path_key = self.state.read(cx).path().to_owned();
         // O catálogo rola sozinho: o índice lateral fica fixo e pula até uma letra.
         let own_scroll = matches!(classify(&path_key), Place::Catalog { .. });
@@ -179,35 +224,12 @@ impl AppView {
         let main = div().id(SharedString::from(format!("main:{path_key}"))).flex_1().min_w_0();
         // Uma área rolável por rota: a posição volta ao topo ao navegar.
         let main = if own_scroll { main.min_h_0() } else { main.overflow_y_scroll() };
-        let st = self.state.clone();
-        let nav = move |back: bool| {
-            let st = st.clone();
-            move |_: &gpui_kit::MouseUpEvent, _: &mut Window, cx: &mut gpui_kit::App| st.update(cx, |s, cx| if back { s.back(cx) } else { s.forward(cx) })
-        };
-        v_flex()
-            .size_full()
-            .on_mouse_up(MouseButton::Navigate(NavigationDirection::Back), nav(true))
-            .on_mouse_up(MouseButton::Navigate(NavigationDirection::Forward), nav(false))
-            .child(title_bar(&self.state, &self.palette, cx))
-            .child(
-                h_flex()
-                    .items_stretch()
-                    .flex_1()
-                    .min_h_0()
-                    .child(sidebar(&self.state, &self.sections, cx))
-                    .child(main.child(body)),
-            )
-            // A barra de música aparece com fade quando um álbum começa a tocar.
-            .when(has_music, |d| {
-                d.child(div().child(self.music.clone()).with_animation("music-bar-in", crate::motion::enter(crate::motion::BASE), |e, t| {
-                    e.opacity(t)
-                }))
-            })
+        h_flex().size_full().items_stretch().child(sidebar(&self.state, &self.sections, cx)).child(main.child(body))
     }
 }
 
 impl Render for AppView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let root = div()
             .track_focus(&self.focus)
             .size_full()
@@ -245,6 +267,6 @@ impl Render for AppView {
                 .into_any_element();
         }
         self.login = None;
-        root.child(self.render_workspace(window, cx)).into_any_element()
+        root.child(self.render_workspace(cx)).into_any_element()
     }
 }

@@ -200,15 +200,11 @@ pub fn poster(p: PosterProps, cx: &mut App) -> Stateful<Div> {
     } else {
         cover(media, &p.name, Some(p.width), cx).into_any_element()
     };
-    let meta = p.meta.clone().unwrap_or_else(|| {
-        [
-            format.filter(|f| !f.is_empty()),
-            year.map(|y| y.to_string()),
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" · ")
+    let meta = p.meta.unwrap_or_else(|| match (format.filter(|f| !f.is_empty()), year) {
+        (Some(f), Some(y)) => format!("{f} · {y}"),
+        (Some(f), None) => f,
+        (None, Some(y)) => y.to_string(),
+        (None, None) => String::new(),
     });
     let theme = cx.theme().clone();
     v_flex()
@@ -379,35 +375,55 @@ pub fn stop_click(id: impl Into<ElementId>, child: impl IntoElement) -> Stateful
 pub fn download_button(id: impl Into<ElementId>, path: &str, cx: &mut App) -> AnyElement {
     let id = id.into();
     let s = state(cx);
-    let d = s.read(cx).download(path).cloned();
-    let path = path.to_owned();
-    let start = {
-        let s = s.clone();
-        move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| {
-            s.update(cx, |s, cx| {
-                s.start_downloads(std::slice::from_ref(&path), cx)
-            })
+    // Só estado e fração: o download inteiro (textos) não é copiado por linha a cada quadro.
+    let d = s.read(cx).download(path).map(|d| (d.status, d.progress()));
+    let cancel_button = {
+        let (s, path) = (s.clone(), path.to_owned());
+        let id = ElementId::NamedChild(std::sync::Arc::new(id.clone()), "cancel".into());
+        move || {
+            Button::new(id)
+                .ghost()
+                .xsmall()
+                .icon(IconName::Close)
+                .tooltip("Cancelar download")
+                .on_click(move |_, _, cx| {
+                    s.update(cx, |s, cx| {
+                        if let Some(id) = s.download(&path).map(|d| d.id.clone()) {
+                            s.cancel_download(&id, cx);
+                        }
+                    })
+                })
         }
     };
-    match d.map(|d| (d.status, d)) {
-        Some((DlStatus::Queued, _)) => Button::new(id)
-            .ghost()
-            .small()
-            .label("Na fila")
-            .disabled(true)
-            .into_any_element(),
-        Some((DlStatus::Running, d)) => v_flex()
-            .w_20()
+    let path = path.to_owned();
+    let start = move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| {
+        s.update(cx, |s, cx| s.start_downloads(std::slice::from_ref(&path), cx))
+    };
+    match d {
+        Some((DlStatus::Queued, _)) => h_flex()
             .gap_1()
             .items_center()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child(format!("{}%", (d.progress() * 100.).round()))
+            .child(Button::new(id).ghost().small().label("Na fila").disabled(true))
+            .child(cancel_button())
+            .into_any_element(),
+        Some((DlStatus::Running, progress)) => h_flex()
+            .gap_1()
+            .items_center()
             .child(
-                Progress::new(id)
-                    .value(d.progress() * 100.)
-                    .accessibility_label("Baixando"),
+                v_flex()
+                    .w_20()
+                    .gap_1()
+                    .items_center()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!("{}%", (progress * 100.).round()))
+                    .child(
+                        Progress::new(id)
+                            .value(progress * 100.)
+                            .accessibility_label("Baixando"),
+                    ),
             )
+            .child(cancel_button())
             .into_any_element(),
         Some((DlStatus::Done, _)) => h_flex()
             .gap_1()
@@ -467,7 +483,8 @@ pub fn file_list_in(
     on_read: Option<FileAction>,
     cx: &mut App,
 ) -> Div {
-    let mut sorted = files.to_vec();
+    // Ordena referências: a listagem não é copiada a cada quadro.
+    let mut sorted: Vec<&FileEntry> = files.iter().collect();
     sorted.sort_by(|a, b| {
         b.is_directory
             .cmp(&a.is_directory)
@@ -493,12 +510,11 @@ pub fn file_list_in(
         .filter(|q| eps.iter().all(|e| e.quality.as_deref() == Some(q)));
 
     let s = state(cx);
-    let (progress, reading) = {
-        let st = s.read(cx);
-        (
-            st.player_data.progress.clone(),
-            crate::reader::progress_map(st),
-        )
+    // Progresso de leitura só onde há o que ler (o mapa vem copiado do núcleo).
+    let reading = if on_read.is_some() {
+        crate::reader::progress_map(s.read(cx))
+    } else {
+        Default::default()
     };
     let theme = cx.theme().clone();
 
@@ -512,7 +528,7 @@ pub fn file_list_in(
     for (i, f) in sorted.into_iter().enumerate() {
         let path = join_path(dir, &f.name);
         // Identidade pelo nome do arquivo, não pela posição.
-        let key = SharedString::from(f.name.clone());
+        let key = SharedString::from(f.name.as_str());
         let row = h_flex()
             .gap_3()
             .px_3()
@@ -557,21 +573,23 @@ pub fn file_list_in(
             (None, _) => f.name.clone(),
             (Some(n), Some(_)) => format!(
                 "Episódio {}",
-                n.parse::<f64>().map_or(n.clone(), |v| v.to_string())
+                n.parse::<f64>().map_or_else(|_| n.clone(), |v| v.to_string())
             ),
-            (Some(_), None) => ep.quality.clone().unwrap_or(ep.label.clone()),
+            (Some(_), None) => ep.quality.clone().unwrap_or_else(|| ep.label.clone()),
         };
         let ext = f.extension.clone().unwrap_or_default().to_lowercase();
         let playable = on_play.is_some() && VIDEO_EXT.contains(&ext.as_str());
-        let readable = on_read.is_some() && is_comic(&f);
+        let readable = on_read.is_some() && is_comic(f);
         let read_p = if readable {
             reading.get(&path).cloned()
         } else {
             None
         };
-        let (watched, frac) = match (&read_p, progress.get(&path)) {
+        // Lido aqui, sem copiar o mapa inteiro de progresso a cada quadro.
+        let seen = s.read(cx).player_data.progress.get(&path).map(|p| (p.watched, p.position / p.duration.max(1.)));
+        let (watched, frac) = match (&read_p, seen) {
             (Some(r), _) => (r.read, (r.page as f64 + 1.) / (r.total.max(1) as f64)),
-            (None, Some(p)) => (p.watched, p.position / p.duration.max(1.)),
+            (None, Some(p)) => p,
             _ => (false, -1.),
         };
         let details = [
@@ -766,12 +784,13 @@ pub fn version_card(
 pub fn title_card(id: ElementId, name: &str, target: String, media: MediaType, width: Pixels, cx: &mut App) -> Div {
     let s = state(cx);
     let looked = s.read(cx).lookup(name, media);
+    let loading = looked.is_none();
     let card = poster(
         PosterProps {
             id,
             name: name.to_owned(),
-            media: looked.clone().flatten(),
-            loading: looked.is_none(),
+            media: looked.flatten(),
+            loading,
             width,
             badge: false,
             dimmed: false,
@@ -783,7 +802,7 @@ pub fn title_card(id: ElementId, name: &str, target: String, media: MediaType, w
     div()
         .relative()
         .child(card)
-        .when(looked.is_none(), |d| d.child(when_visible(400., want_lookup(name.to_owned(), media))))
+        .when(loading, |d| d.child(when_visible(400., want_lookup(name.to_owned(), media))))
 }
 
 pub fn want_lookup(name: String, media: MediaType) -> impl FnOnce(&mut App) {

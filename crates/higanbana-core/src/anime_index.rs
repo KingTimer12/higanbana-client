@@ -53,6 +53,13 @@ struct Stored {
     letters: HashMap<String, Vec<IndexEntry>>,
 }
 
+/// Mesmo formato de [`Stored`], sem copiar as entradas.
+#[derive(Serialize)]
+struct StoredRef<'a> {
+    at: u64,
+    letters: HashMap<&'a str, &'a [IndexEntry]>,
+}
+
 #[derive(Default)]
 struct State {
     at: u64,
@@ -119,16 +126,18 @@ impl AnimeIndex {
     }
 
     pub(crate) fn store(&self, letter: &str, entries: Vec<IndexEntry>) {
-        let stored = {
+        let bytes = {
             let mut st = self.state.lock().unwrap();
             if now().saturating_sub(st.at) >= TTL_SECS {
                 st.letters.clear();
                 st.at = now();
             }
             st.letters.insert(letter.to_owned(), Arc::new(entries));
-            Stored { at: st.at, letters: st.letters.iter().map(|(k, v)| (k.clone(), (**v).clone())).collect() }
+            // Serializa por referência: copiar todas as letras a cada letra nova era quadrático.
+            let letters: HashMap<&str, &[IndexEntry]> = st.letters.iter().map(|(k, v)| (k.as_str(), v.as_slice())).collect();
+            serde_json::to_vec(&StoredRef { at: st.at, letters })
         };
-        if let Ok(b) = serde_json::to_vec(&stored) {
+        if let Ok(b) = bytes {
             let _ = std::fs::write(&self.file, b);
         }
     }

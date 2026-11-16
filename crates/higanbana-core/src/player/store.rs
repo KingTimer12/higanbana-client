@@ -81,6 +81,11 @@ impl PlayerStore {
         self.data.lock().unwrap().clone()
     }
 
+    /// Lê sem copiar: `data()` clona o mapa de progresso inteiro.
+    pub fn with_data<R>(&self, f: impl FnOnce(&PlayerData) -> R) -> R {
+        f(&self.data.lock().unwrap())
+    }
+
     /// Aplica a mudança e grava (escreve em `.tmp` e renomeia).
     pub fn update(&self, f: impl FnOnce(&mut PlayerData)) {
         let bytes = {

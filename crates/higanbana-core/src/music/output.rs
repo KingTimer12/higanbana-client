@@ -59,11 +59,14 @@ fn build<T: SizedSample + FromSample<f32>>(
                 out.fill(T::from_sample(0.0));
                 return;
             }
+            // Trava só o tempo de copiar; o que faltar vira silêncio.
             let mut q = shared.buf.lock().unwrap();
-            for o in out.iter_mut() {
-                let s = q.pop_front().map_or(0.0, |s| (s * vol).clamp(-1.0, 1.0));
-                *o = T::from_sample(s);
+            let n = out.len().min(q.len());
+            for (o, s) in out.iter_mut().zip(q.drain(..n)) {
+                *o = T::from_sample((s * vol).clamp(-1.0, 1.0));
             }
+            drop(q);
+            out[n..].fill(T::from_sample(0.0));
         },
         {
             let shared = shared_err;

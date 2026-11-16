@@ -91,7 +91,7 @@ impl Render for LoginView {
             }));
 
         let action = if self.busy {
-            let (c1, c2) = (core.clone(), core.clone());
+            let (c1, c2) = (core.clone(), core);
             v_flex()
                 .gap_3()
                 .p_4()

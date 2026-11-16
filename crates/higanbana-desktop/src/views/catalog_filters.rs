@@ -97,7 +97,11 @@ fn year_label((from, to): (i32, i32)) -> String {
 
 /// Gêneros dos metadados já carregados, sem repetir (sem diferenciar caixa), em ordem alfabética.
 fn loaded_genres<'a>(metas: impl IntoIterator<Item = &'a MediaSummary>) -> Vec<String> {
-    genres_to_offer(&[], &metas.into_iter().flat_map(|m| m.genres.iter().cloned()).collect::<Vec<_>>())
+    // Mesmo resultado de `genres_to_offer(&[], todos)`, copiando só os gêneros novos.
+    let mut seen = HashSet::new();
+    let mut genres: Vec<String> = metas.into_iter().flat_map(|m| &m.genres).filter(|g| seen.insert(g.to_lowercase())).cloned().collect();
+    genres.sort_by_cached_key(|g| g.to_lowercase());
+    genres
 }
 
 /// Os gêneros carregados mais os escolhidos (que sempre entram), em ordem alfabética.
@@ -138,12 +142,14 @@ pub fn thousands(n: usize) -> String {
 
 /// "N obras · metadados X / Y · índice X / 27": metadados e índice só enquanto incompletos.
 pub fn status_line(works: usize, (resolved, total): (usize, usize), (indexed, letters): (usize, usize)) -> String {
+    use std::fmt::Write as _;
     let mut line = format!("{} {}", thousands(works), if works == 1 { "obra" } else { "obras" });
+    // `write!` no mesmo texto, sem um `String` temporário por trecho.
     if resolved < total {
-        line += &format!(" · metadados {} / {}", thousands(resolved), thousands(total));
+        let _ = write!(line, " · metadados {} / {}", thousands(resolved), thousands(total));
     }
     if indexed < letters {
-        line += &format!(" · índice {indexed} / {letters}");
+        let _ = write!(line, " · índice {indexed} / {letters}");
     }
     line
 }
@@ -193,7 +199,7 @@ pub struct Work<'a> {
 pub fn filtered_works(works: &[Work], f: &Filters, sort: Sort) -> Vec<IndexEntry> {
     let mut found: Vec<&Work> = works.iter().filter(|w| judge(&w.entry.name, w.meta, &w.inner, f) == Verdict::Pass).collect();
     // A franquia vale pela melhor das obras conhecidas (a própria pasta ou as de dentro).
-    let best = |w: &Work, key: fn(Option<&MediaSummary>) -> i64| w.meta.into_iter().chain(&w.inner).map(|m| key(Some(m))).max().unwrap_or(key(None));
+    let best = |w: &Work, key: fn(Option<&MediaSummary>) -> i64| w.meta.into_iter().chain(&w.inner).map(|m| key(Some(m))).max().unwrap_or_else(|| key(None));
     match sort {
         Sort::Az => {}
         Sort::Year => found.sort_by_key(|w| std::cmp::Reverse(best(w, |m| sort_key_year(m) as i64))),
@@ -455,7 +461,7 @@ impl Render for FilterBar {
                         .child("Os gêneros aparecem conforme os metadados das obras chegam.")
                         .into_any_element();
                 }
-                b.options("genre", offered.into_iter().map(|g| (g.clone(), g)).collect::<Vec<_>>(), |f| &f.genres, |f| &mut f.genres, cx)
+                b.options("genre", offered.into_iter().map(|g| (g.clone(), g)), |f| &f.genres, |f| &mut f.genres, cx)
             },
             cx,
         );
@@ -623,7 +629,7 @@ mod tests {
             // Sem metadados ainda.
             Work { entry: &c, meta: None, inner: vec![] },
             // Franquia sem metadados próprios, com uma obra de dentro conhecida.
-            Work { entry: &d, meta: None, inner: vec![tv2005.clone()] },
+            Work { entry: &d, meta: None, inner: vec![tv2005] },
         ];
         let names = |v: Vec<IndexEntry>| v.into_iter().map(|e| e.name).collect::<Vec<_>>();
 

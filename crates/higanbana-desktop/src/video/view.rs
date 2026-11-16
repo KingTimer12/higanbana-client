@@ -172,6 +172,9 @@ pub struct PlayerView {
     /// Segundos restantes da contagem do próximo episódio.
     countdown: Option<f64>,
     countdown_task: Option<Task<()>>,
+    /// Próximo episódio de `target`, refeito só quando o arquivo muda (o mpv manda
+    /// eventos várias vezes por segundo e cada um pergunta por ele).
+    next_file: Option<FileEntry>,
     last_saved: Instant,
     drag: Option<Drag>,
     seek_bounds: Rc<Cell<Bounds<Pixels>>>,
@@ -245,6 +248,7 @@ impl PlayerView {
             hide_task: None,
             countdown: None,
             countdown_task: None,
+            next_file: None,
             last_saved: Instant::now(),
             drag: None,
             seek_bounds: Rc::default(),
@@ -256,6 +260,7 @@ impl PlayerView {
             _events: None,
             _subs: subs,
         };
+        this.next_file = next_episode(&this.target.files, &this.target.file.name);
         let opts = base_options(this.surface.mpv_options(), this.data.settings.cache_mib, this.data.settings.decode_threads);
         match Mpv::new(&opts, &OBSERVED).and_then(|(mpv, rx)| this.surface.attach(&mpv).map(|()| (mpv, rx))) {
             Ok((mpv, mut rx)) => {
@@ -287,8 +292,8 @@ impl PlayerView {
         join_path(&self.target.dir, &self.file().name)
     }
 
-    fn next(&self) -> Option<FileEntry> {
-        next_episode(&self.target.files, &self.file().name)
+    fn next(&self) -> Option<&FileEntry> {
+        self.next_file.as_ref()
     }
 
     fn settings(&self) -> &Settings {
@@ -307,7 +312,13 @@ impl PlayerView {
             watched: is_watched(self.pos, self.dur, self.skip.ed),
             updated_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64),
         };
-        self.data.progress.insert(self.playing_path.clone(), p.clone());
+        // A cada `time-pos`: reaproveita a entrada em vez de alocar a chave de novo.
+        match self.data.progress.get_mut(&self.playing_path) {
+            Some(e) => *e = p.clone(),
+            None => {
+                self.data.progress.insert(self.playing_path.clone(), p.clone());
+            }
+        }
         if force || self.last_saved.elapsed() >= SAVE_EVERY {
             self.last_saved = Instant::now();
             self.core.player().save_progress(self.playing_path.clone(), p);
@@ -494,11 +505,11 @@ impl PlayerView {
 
     /// Capítulos do arquivo, senão AniSkip (só animes). Uma vez por arquivo.
     fn resolve_skip(&mut self, cx: &mut Context<Self>) {
-        let name = self.file().name.clone();
-        if !self.loaded || self.dur <= 0. || self.skip_resolved_for == name || self.chapters.len() < self.expected_chapters {
+        if !self.loaded || self.dur <= 0. || self.skip_resolved_for == self.file().name || self.chapters.len() < self.expected_chapters {
             return;
         }
-        self.skip_resolved_for = name.clone();
+        let name = self.file().name.clone();
+        self.skip_resolved_for.clone_from(&name);
         let from_chapters = classify_chapters(&self.chapters, self.dur);
         if from_chapters.op.is_some() || from_chapters.ed.is_some() {
             self.skip = from_chapters;
@@ -589,7 +600,7 @@ impl PlayerView {
     }
 
     fn go_next(&mut self, cx: &mut Context<Self>) {
-        let Some(n) = self.next() else { return };
+        let Some(n) = self.next().cloned() else { return };
         let from = self.file().name.clone();
         if self.advanced_from.as_deref() == Some(from.as_str()) {
             return;
@@ -602,6 +613,7 @@ impl PlayerView {
         self.record_progress(true);
         self.menu = None;
         self.target.file = file;
+        self.next_file = next_episode(&self.target.files, &self.target.file.name);
         self.load_current(None, cx);
     }
 
@@ -971,7 +983,7 @@ impl PlayerView {
                         .text_lg()
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(if is_current { theme.primary_ink() } else { theme.muted_foreground })
-                        .child(n.map_or("·".to_string(), |n| n.to_string())),
+                        .child(n.map_or_else(|| "·".to_string(), |n| n.to_string())),
                 )
                 .child(
                     v_flex()

@@ -203,13 +203,12 @@ impl Catalog {
                 return Err(NO_BUDGET.into());
             }
             for entry in index.letter(cloud, letter).await?.iter() {
-                let (name, path) = (&entry.name, entry.path.clone());
-                let n = norm(&folder_title(name));
+                let n = norm(&folder_title(&entry.name));
                 if exact.contains(&n) {
-                    return Ok(Some(path));
+                    return Ok(Some(entry.path.clone()));
                 }
                 if bases.contains(&n) {
-                    near.push((name.clone(), path));
+                    near.push((entry.name.clone(), entry.path.clone()));
                 }
             }
         }

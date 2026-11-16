@@ -22,7 +22,11 @@ pub fn shrink(bytes: &[u8]) -> FanartResult<(Vec<u8>, &'static str)> {
 
 #[cfg(feature = "webp-lossy")]
 fn encode(img: image::DynamicImage) -> FanartResult<(Vec<u8>, &'static str)> {
-    let rgba = image::DynamicImage::ImageRgba8(img.to_rgba8());
+    // Já em RGBA (PNG com alfa): usa direto, sem copiar a imagem.
+    let rgba = match img {
+        image::DynamicImage::ImageRgba8(_) => img,
+        other => image::DynamicImage::ImageRgba8(other.to_rgba8()),
+    };
     let encoder =
         webp::Encoder::from_image(&rgba).map_err(|e| FanartError::Image(e.to_string()))?;
     Ok((encoder.encode(COVER_QUALITY).to_vec(), "webp"))

@@ -33,6 +33,11 @@ impl Player {
         self.store.data()
     }
 
+    /// Lê o estado sem cloná-lo (com a trava do store: `f` deve ser curta).
+    pub fn with_data<R>(&self, f: impl FnOnce(&PlayerData) -> R) -> R {
+        self.store.with_data(f)
+    }
+
     pub fn save_progress(&self, path: String, progress: Progress) {
         self.store.update(|d| {
             d.progress.insert(path, progress);

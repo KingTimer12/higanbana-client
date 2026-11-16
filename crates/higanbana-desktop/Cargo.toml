@@ -20,6 +20,8 @@ base64.workspace = true
 image.workspace = true
 serde.workspace = true
 tokio.workspace = true
+# Hash rápido para mapas internos (chaves não adversárias); já vem pelo gpui.
+rustc-hash = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

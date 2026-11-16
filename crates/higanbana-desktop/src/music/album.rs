@@ -2,6 +2,8 @@
 
 use crate::interact::hover_layer;
 use crate::interact::Button;
+use std::rc::Rc;
+
 use base64::Engine as _;
 use gpui_kit::{
     Context, ElementId, Entity, EventEmitter, FontWeight, IntoElement, ObjectFit, ParentElement, Render, Styled,
@@ -14,7 +16,10 @@ use gpui_kit::component::{
     tab::{Tab, TabBar},
 };
 use higanbana_core::{
-    music::album::{Album, format_duration, format_label},
+    music::{
+        TrackMeta,
+        album::{Album, format_duration, format_label},
+    },
     nuvem::FileEntry,
 };
 
@@ -22,6 +27,7 @@ pub use higanbana_core::music::album::looks_like_album;
 
 use crate::{
     components::file_list,
+    music::session::{MusicEvent, MusicSession},
     state::{AppState, Img, state},
     theme::ProductColors as _,
     ui::truncate,
@@ -40,8 +46,10 @@ enum Section {
 
 pub struct AlbumView {
     state: Entity<AppState>,
+    music: Entity<MusicSession>,
     work: Option<String>,
-    album: Option<Album>,
+    /// Em `Rc`: o quadro e cada faixa pegam o álbum sem copiá-lo (redesenha a cada estado do player).
+    album: Option<Rc<Album>>,
     tab: Section,
     cover_key: Option<String>,
     _subs: Vec<Subscription>,
@@ -56,7 +64,12 @@ fn pad(n: Option<u32>, i: usize) -> String {
 impl AlbumView {
     pub fn new(path: String, files: Vec<FileEntry>, work: Option<String>, cx: &mut Context<Self>) -> Self {
         let state = state(cx);
-        let subs = vec![cx.observe(&state, |_, _, cx| cx.notify())];
+        let music = state.read(cx).music.clone();
+        // Do player só interessa faixa/play/tags: os tiques de posição ficam com a barra.
+        let subs = vec![
+            cx.observe(&state, |_, _, cx| cx.notify()),
+            cx.subscribe(&music, |_, _, _: &MusicEvent, cx| cx.notify()),
+        ];
         let core = state.read(cx).core.clone();
         let task = core.clone().spawn(async move { core.cloud().load_album(&path, &files).await });
         cx.spawn(async move |this, cx| {
@@ -64,15 +77,15 @@ impl AlbumView {
             let _ = this.update(cx, |v, cx| match album {
                 None => cx.emit(AlbumEvent::NotAlbum),
                 Some(a) => {
-                    v.state.update(cx, |s, cx| s.music_show(&a, cx));
+                    v.music.update(cx, |m, cx| m.show(&a, cx));
                     v.load_cover(&a, cx);
-                    v.album = Some(a);
+                    v.album = Some(Rc::new(a));
                     cx.notify();
                 }
             });
         })
         .detach();
-        Self { state, work, album: None, tab: Section::Tracks, cover_key: None, _subs: subs }
+        Self { state, music, work, album: None, tab: Section::Tracks, cover_key: None, _subs: subs }
     }
 
     /// Capa da pasta; sem ela, a capa embutida na primeira faixa.
@@ -115,17 +128,19 @@ impl Render for AlbumView {
         let Some(a) = self.album.clone() else { return Skeleton::new().h_96().rounded(theme.radius_lg).into_any_element() };
         let rem = f32::from(window.rem_size());
         let st = self.state.read(cx);
-        let current = st.is_current_album(&a);
-        let live = if current { st.music.clone() } else { None };
-        let metas = st.music_session.metas.clone();
+        let ms = self.music.read(cx);
+        let current = ms.is_current_album(&a);
+        let live = if current { ms.player.clone() } else { None };
+        // Só as faixas deste álbum, na ordem delas (não o mapa inteiro da sessão).
+        let metas: Vec<Option<TrackMeta>> = a.tracks.iter().map(|t| ms.metas.get(&t.path).cloned()).collect();
         let progress = st.core.music().store.data().progress.get(&a.path).copied();
         let cover = self.cover_key.as_ref().and_then(|k| st.cached_image(k));
 
-        let obi = a.catalog.clone().or(a.year.clone());
+        let obi = a.catalog.clone().or_else(|| a.year.clone());
         let format = live.as_ref().and_then(|l| l.format.clone()).map(|f| format_label(&f.codec, f.bits, f.sample_rate, f.lossless, f.resampled_to)).or_else(|| {
-            a.tracks.iter().find_map(|t| metas.get(&t.path)).map(|m| format_label(&m.codec, m.bits, m.sample_rate, m.lossless, None))
+            metas.iter().flatten().next().map(|m| format_label(&m.codec, m.bits, m.sample_rate, m.lossless, None))
         });
-        let durations: Vec<Option<f64>> = a.tracks.iter().map(|t| metas.get(&t.path).and_then(|m| m.duration)).collect();
+        let durations: Vec<Option<f64>> = metas.iter().map(|m| m.as_ref().and_then(|m| m.duration)).collect();
         let total_secs = durations.iter().all(Option::is_some).then(|| durations.iter().flatten().sum::<f64>());
         let resume = progress.filter(|p| (p.index > 0 || p.position > 5.) && p.index < a.tracks.len());
         let playing = live.as_ref().is_some_and(|l| l.playing);
@@ -148,7 +163,7 @@ impl Render for AlbumView {
         };
 
         // --- Ações: a principal toca/pausa; "continuar" só quando outro álbum está tocando ---
-        let st_entity = self.state.clone();
+        let music = self.music.clone();
         let (main_label, main_icon) = if current && playing {
             ("Pausar", IconName::Pause)
         } else if current && !ended {
@@ -158,26 +173,26 @@ impl Render for AlbumView {
         };
         let album_for_play = a.clone();
         let main_button = Button::new("album-play").primary().icon(main_icon).label(main_label).on_click({
-            let st = st_entity.clone();
+            let st = music.clone();
             move |_, _, cx| {
                 st.update(cx, |s, cx| {
                     if current && playing {
-                        s.music_command("pause");
+                        s.command("pause");
                     } else if current && !ended {
-                        s.music_command("resume");
+                        s.command("resume");
                     } else {
-                        s.music_open(album_for_play.clone(), 0, 0., cx);
+                        s.open((*album_for_play).clone(), 0, 0., cx);
                     }
                 })
             }
         });
         let resume_button = resume.filter(|_| !current).map(|p| {
-            let st = st_entity.clone();
+            let st = music.clone();
             let al = a.clone();
             Button::new("album-resume")
                 .outline()
                 .label(format!("Continuar faixa {} ({})", p.index + 1, format_duration(p.position)))
-                .on_click(move |_, _, cx| st.update(cx, |s, cx| s.music_open(al.clone(), p.index, p.position, cx)))
+                .on_click(move |_, _, cx| st.update(cx, |s, cx| s.open((*al).clone(), p.index, p.position, cx)))
         });
 
         let art = px(14. * rem);
@@ -238,15 +253,15 @@ impl Render for AlbumView {
             Section::Tracks => v_flex()
                 .gap_4()
                 .children(a.discs.iter().map(|&d| {
-                    let rows: Vec<(usize, higanbana_core::music::album::Track)> = a.tracks.iter().cloned().enumerate().filter(|(_, t)| t.disc == d).collect();
+                    let rows = a.tracks.iter().enumerate().filter(move |(_, t)| t.disc == d);
                     v_flex()
                         .when(a.discs.len() > 1, |x| {
                             x.child(h_flex().mb_1().px_3().gap_2().text_xs().text_color(theme.muted_foreground).child(Icon::new(IconName::Disc3).xsmall()).child(format!("Disco {d}")))
                         })
-                        .children(rows.into_iter().map(|(i, t)| {
-                            let meta = metas.get(&t.path);
+                        .children(rows.map(|(i, t)| {
+                            let meta = metas[i].as_ref();
                             let on = current_index == Some(i) && current;
-                            let st = st_entity.clone();
+                            let st = music.clone();
                             let al = a.clone();
                             h_flex()
                                 .id(ElementId::Name(format!("track:{}", t.path).into()))
@@ -274,11 +289,11 @@ impl Render for AlbumView {
                                     v_flex()
                                         .flex_1()
                                         .min_w_0()
-                                        .child(truncate(meta.and_then(|m| m.title.clone()).filter(|s| !s.is_empty()).unwrap_or(t.title.clone())).when(on, |x| x.text_color(theme.primary_ink())))
+                                        .child(truncate(meta.and_then(|m| m.title.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| t.title.clone())).when(on, |x| x.text_color(theme.primary_ink())))
                                         .children(meta.and_then(|m| m.artist.clone()).map(|ar| truncate(ar).text_xs().text_color(theme.muted_foreground))),
                                 )
                                 .child(div().w_12().text_right().text_sm().text_color(theme.muted_foreground).child(meta.and_then(|m| m.duration).map(format_duration).unwrap_or_default()))
-                                .on_click(move |_, _, cx| st.update(cx, |s, cx| if on { s.music_command("toggle") } else { s.music_open(al.clone(), i, 0., cx) }))
+                                .on_click(move |_, _, cx| st.update(cx, |s, cx| if on { s.command("toggle") } else { s.open((*al).clone(), i, 0., cx) }))
                         }))
                 }))
                 .into_any_element(),

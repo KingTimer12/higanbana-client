@@ -60,8 +60,9 @@ pub fn item_label(file_name: &str, item: &ContinueItem, reading: bool) -> String
 
 /// Barra de progresso que enche com mola ao aparecer (e ao mudar de valor).
 fn filling_progress(id: String, fraction: f32) -> impl IntoElement {
-    Progress::new(ElementId::Name(id.clone().into())).with_spring(
-        ElementId::Name(format!("{id}:fill").into()),
+    let fill = ElementId::Name(format!("{id}:fill").into());
+    Progress::new(ElementId::Name(id.into())).with_spring(
+        fill,
         SpringAnimation::new(SpringConfig::new(120., 20., 1.)).to(fraction.clamp(0., 1.)).from(0.),
         |p, v| p.value(v * 100.),
     )

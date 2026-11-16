@@ -112,7 +112,16 @@ impl StreamProxy {
 fn random_token() -> io::Result<String> {
     let mut bytes = [0u8; 32];
     getrandom::fill(&mut bytes).map_err(|e| io::Error::other(e.to_string()))?;
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+    Ok(hex(&bytes))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(s, "{b:02x}");
+    }
+    s
 }
 
 fn plain(status: StatusCode) -> Response<ProxyBody> {
@@ -123,7 +132,8 @@ fn plain(status: StatusCode) -> Response<ProxyBody> {
 
 /// `/<token>/stream?path=<caminho>[&lane=preview]` → caminho e faixa, se o token confere.
 fn requested_path(uri: &hyper::Uri, token: &str) -> Option<(String, Lane)> {
-    if uri.path() != format!("/{token}/stream") {
+    let ok = uri.path().strip_prefix('/').and_then(|p| p.strip_prefix(token)) == Some("/stream");
+    if !ok {
         return None;
     }
     let query = uri.query()?;
@@ -165,7 +175,7 @@ async fn handle<U: Upstream>(
     let mut resp = Response::new(StreamBody::new(frames).boxed_unsync());
     *resp.status_mut() = StatusCode::from_u16(up.status).unwrap_or(StatusCode::BAD_GATEWAY);
     for (name, value) in up.headers {
-        if FORWARDED_HEADERS.contains(&name.to_ascii_lowercase().as_str())
+        if FORWARDED_HEADERS.iter().any(|h| h.eq_ignore_ascii_case(&name))
             && let (Ok(n), Ok(v)) = (hyper::header::HeaderName::try_from(name), hyper::header::HeaderValue::try_from(value))
         {
             resp.headers_mut().insert(n, v);

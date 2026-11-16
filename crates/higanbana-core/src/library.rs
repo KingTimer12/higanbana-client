@@ -356,35 +356,29 @@ pub fn parse_episode(file_name: &str) -> EpisodeName {
 
 /// Ordem natural sem diferenciar maiúsculas: `Ep 2` antes de `Ep 10`.
 pub fn natural_cmp(a: &str, b: &str) -> Ordering {
-    let (mut a, mut b) = (a.chars().peekable(), b.chars().peekable());
+    // Fatias do próprio texto, sem alocar: roda em toda comparação de `sort_by`.
+    let (mut a, mut b) = (a, b);
     loop {
-        match (a.peek().copied(), b.peek().copied()) {
+        match (a.chars().next(), b.chars().next()) {
             (None, None) => return Ordering::Equal,
             (None, _) => return Ordering::Less,
             (_, None) => return Ordering::Greater,
             (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
-                let take = |it: &mut std::iter::Peekable<std::str::Chars>| {
-                    let mut s = String::new();
-                    while let Some(c) = it.peek().copied().filter(char::is_ascii_digit) {
-                        s.push(c);
-                        it.next();
-                    }
-                    s
-                };
-                let (na, nb) = (take(&mut a), take(&mut b));
-                let (ta, tb) = (na.trim_start_matches('0'), nb.trim_start_matches('0'));
+                let digits = |s: &str| s.bytes().take_while(u8::is_ascii_digit).count();
+                let (la, lb) = (digits(a), digits(b));
+                let (ta, tb) = (a[..la].trim_start_matches('0'), b[..lb].trim_start_matches('0'));
                 let ord = ta.len().cmp(&tb.len()).then_with(|| ta.cmp(tb));
                 if ord != Ordering::Equal {
                     return ord;
                 }
+                (a, b) = (&a[la..], &b[lb..]);
             }
             (Some(x), Some(y)) => {
                 let ord = fold(x).cmp(&fold(y));
                 if ord != Ordering::Equal {
                     return ord;
                 }
-                a.next();
-                b.next();
+                (a, b) = (&a[x.len_utf8()..], &b[y.len_utf8()..]);
             }
         }
     }
@@ -406,7 +400,9 @@ fn fold(c: char) -> char {
 
 /// Só letras/números, minúsculo, sem acento (comparar títulos).
 pub fn norm(s: &str) -> String {
-    s.chars().map(fold).filter(|c| c.is_ascii_alphanumeric()).collect()
+    let mut out = String::with_capacity(s.len());
+    out.extend(s.chars().map(fold).filter(|c| c.is_ascii_alphanumeric()));
+    out
 }
 
 #[cfg(test)]

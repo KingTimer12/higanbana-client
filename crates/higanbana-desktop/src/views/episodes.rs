@@ -65,7 +65,7 @@ pub fn card_text(file: &FileEntry, ep: Option<&EpisodeView>, single: bool) -> (S
     if let Some(e) = ep.filter(|_| single) {
         return (String::new(), e.title.clone());
     }
-    let number = episode_number(&file.name).or(ep.map(|e| e.number));
+    let number = episode_number(&file.name).or_else(|| ep.map(|e| e.number));
     let label = number.map(|n| format!("E{n}")).unwrap_or_default();
     let title = match (ep, number) {
         (Some(e), _) => e.title.clone(),
@@ -209,7 +209,6 @@ pub fn episode_list(
             EpisodeLayout::Grid => (IconName::LayoutList, "Mostrar em lista", EpisodeLayout::List),
             EpisodeLayout::List => (IconName::LayoutGrid, "Mostrar em grade", EpisodeLayout::Grid),
         };
-        let s = s.clone();
         Button::new("episode-layout")
             .ghost()
             .small()

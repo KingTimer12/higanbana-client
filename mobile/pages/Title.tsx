@@ -54,7 +54,11 @@ export function Title(props: { path: string; media: Media | null }) {
     (path) => backend().episodes(path),
   );
   const episodesDir = () => version()?.path ?? work()?.path ?? props.path;
-  const episodes = computed(() => (version() ? (releaseEpisodes() ?? []) : (work()?.episodes ?? [])).map(withProgress));
+  // Os arquivos como vieram da nuvem; a lista os mostra e cada card aplica o próprio
+  // progresso, então o player gravar um episódio só reavalia aquele card.
+  const files = computed(() => (version() ? (releaseEpisodes() ?? []) : (work()?.episodes ?? [])));
+  // Com o progresso de todos: só para o botão de retomar.
+  const episodes = computed(() => files().map(withProgress));
 
   // Metadados: o resumo que veio da temporada, ou o que casa com o nome da pasta.
   // Numa franquia cada temporada casa com a própria entrada do AniList, como no
@@ -80,12 +84,12 @@ export function Title(props: { path: string; media: Media | null }) {
     return text ? plainText(text) : "";
   };
   // TMDB: título e miniatura de cada arquivo, casados como no desktop (detalhe do
-  // AniList + nome da pasta). Chave em texto: o progresso muda `episodes()` sem
-  // mudar os arquivos, e isso não deve pedir de novo.
+  // AniList + nome da pasta). Chave em texto: a lista pode chegar de novo com os
+  // mesmos arquivos, e isso não deve pedir de novo.
   const tmdbKey = () => {
     const d = detail();
     const w = work();
-    const names = episodes().map((e) => e.name);
+    const names = files().map((e) => e.name);
     if (!d || d.id !== folderMedia()?.id) return undefined;
     return w && names.length > 0 ? JSON.stringify([d.id, baseName(w.path), names]) : undefined;
   };
@@ -204,7 +208,7 @@ export function Title(props: { path: string; media: Media | null }) {
         </View>
       </If>
 
-      <SectionTitle aside={<If when={episodes().length > 0}><Text class="text-sm tabular-nums text-muted-foreground">{episodes().length} vídeos</Text></If>}>
+      <SectionTitle aside={<If when={files().length > 0}><Text class="text-sm tabular-nums text-muted-foreground">{files().length} vídeos</Text></If>}>
         Episódios
       </SectionTitle>
       <If when={loadingEpisodes()}>
@@ -233,7 +237,7 @@ export function Title(props: { path: string; media: Media | null }) {
       </If>
       <If when={root.state() === "ready" || root.state() === "refreshing"}>
         <List<Episode>
-          each={episodes()}
+          each={files()}
           keyExtractor={(episode) => episode.path}
           numColumns={2}
           estimatedItemSize={EPISODE_HEIGHT}
@@ -248,7 +252,7 @@ export function Title(props: { path: string; media: Media | null }) {
             </If>
           }
         >
-          {(episode) => <EpisodeCard episode={episode()} info={infoOf(episode().name)} onPress={() => play(episode())} />}
+          {(episode) => <EpisodeCard episode={withProgress(episode())} info={infoOf(episode().name)} onPress={() => play(episode())} />}
         </List>
       </If>
       </View>

@@ -20,12 +20,15 @@ use higanbana_core::{
 };
 
 use crate::{
+    music::session::MusicSession,
     state::{AppState, Img, state},
     ui::truncate,
 };
 
 pub struct MusicBar {
     state: Entity<AppState>,
+    /// Observada direto: os tiques de posição redesenham só a barra.
+    music: Entity<MusicSession>,
     /// Posição como fração da faixa (0..1).
     seek: Entity<SliderState>,
     volume: Entity<SliderState>,
@@ -39,17 +42,20 @@ pub struct MusicBar {
 impl MusicBar {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let state = state(cx);
+        let music = state.read(cx).music.clone();
         let seek = cx.new(|_| SliderState::new().min(0.).max(1.).step(0.001));
         let volume = cx.new(|_| SliderState::new().min(0.).max(1.).step(0.01));
         let subs = vec![
-            cx.observe_in(&state, window, |v, _, window, cx| v.sync(window, cx)),
+            cx.observe_in(&music, window, |v, _, window, cx| v.sync(window, cx)),
+            // Capa carregada (cache de imagens do app).
+            cx.observe(&state, |_, _, cx| cx.notify()),
             cx.subscribe(&seek, |v, _, e: &SliderEvent, cx| match e {
                 SliderEvent::Change(value) => {
                     v.seeking = Some(value.start());
                     cx.notify();
                 }
                 SliderEvent::Release(value) => {
-                    let dur = v.state.read(cx).music.as_ref().and_then(|m| m.duration).unwrap_or(0.);
+                    let dur = v.music.read(cx).player.as_ref().and_then(|m| m.duration).unwrap_or(0.);
                     v.state.read(cx).core.music().seek(value.start() as f64 * dur);
                     v.seeking = None;
                 }
@@ -59,12 +65,12 @@ impl MusicBar {
                 v.state.read(cx).core.music().set(Some(value.start()), None, None, None);
             }),
         ];
-        Self { state, seek, volume, seeking: None, unmuted: None, _subs: subs }
+        Self { state, music, seek, volume, seeking: None, unmuted: None, _subs: subs }
     }
 
     /// Leva posição e volume do motor para os controles (menos o que o usuário está arrastando).
     fn sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(m) = self.state.read(cx).music.clone() else { return };
+        let Some(m) = self.music.read(cx).player.clone() else { return };
         if self.seeking.is_none() {
             let frac = m.duration.filter(|d| *d > 0.).map_or(0., |d| (m.position / d).clamp(0., 1.)) as f32;
             if (self.seek.read(cx).value().start() - frac).abs() > 0.0005 {
@@ -78,7 +84,7 @@ impl MusicBar {
     }
 
     fn toggle_mute(&mut self, cx: &mut Context<Self>) {
-        let Some(volume) = self.state.read(cx).music.as_ref().map(|m| m.volume) else { return };
+        let Some(volume) = self.music.read(cx).player.as_ref().map(|m| m.volume) else { return };
         let next = if volume <= 0.001 {
             self.unmuted.take().unwrap_or(0.8)
         } else {
@@ -94,13 +100,14 @@ impl Render for MusicBar {
         let theme = cx.theme().clone();
         let rem = f32::from(window.rem_size());
         let st = self.state.read(cx);
-        let Some(m) = st.music.clone() else { return div().into_any_element() };
+        let ms = self.music.read(cx);
+        let Some(m) = ms.player.clone() else { return div().into_any_element() };
         let Some(album_path) = m.album.clone() else { return div().into_any_element() };
         let core = st.core.clone();
-        let meta = m.path.as_ref().and_then(|p| st.music_session.metas.get(p)).cloned();
+        let meta = m.path.as_ref().and_then(|p| ms.metas.get(p)).cloned();
         let cover = st.cached_image(&format!("album-cover:{album_path}"));
         let file_title = m.path.as_deref().map(|p| parse_track(base_name(p)).title).unwrap_or_default();
-        let title = m.title.clone().or(meta.as_ref().and_then(|x| x.title.clone())).filter(|t| !t.is_empty()).unwrap_or(file_title);
+        let title = m.title.clone().or_else(|| meta.as_ref().and_then(|x| x.title.clone())).filter(|t| !t.is_empty()).unwrap_or(file_title);
         let album_name = album_title(base_name(&album_path));
         let work = base_name(&parent_path(&album_path)).to_owned();
         let subtitle = m.artist.clone().unwrap_or_else(|| if work.is_empty() { album_name.clone() } else { format!("{work} · {album_name}") });
@@ -161,8 +168,7 @@ impl Render for MusicBar {
                     )
                     .on_click({
                         let st = self.state.clone();
-                        let path = album_path.clone();
-                        move |_, _, cx| st.update(cx, |s, cx| s.go(path.clone(), cx))
+                        move |_, _, cx| st.update(cx, |s, cx| s.go(album_path.clone(), cx))
                     }),
             )
             // Controles e posição.

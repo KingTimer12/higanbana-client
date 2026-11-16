@@ -1,4 +1,4 @@
-import { Image, List, resource, Scroll, signal, Text, View } from "nsh";
+import { computed, Image, List, resource, Scroll, signal, Text, View } from "nsh";
 import { Button, Menu, MenuItem, NavPage } from "nsh/base";
 import { POSTER_COLUMNS, POSTER_GRID, POSTER_HEIGHT, SeasonPoster } from "../components/Poster";
 import { EpisodeFrame } from "../components/Episode";
@@ -66,12 +66,24 @@ function ResumeCard(props: { item: Resume }) {
 
 /** `3 de 12 no acervo`, contando os que já se sabe; o resto ainda está sendo procurado. */
 function SeasonCount(props: { season: Media[] }) {
-  const known = () => props.season.map((m) => cloudPathOf(m.id)).filter((p) => p !== undefined);
-  const inLibrary = () => known().filter(Boolean).length;
+  // Uma passada pela temporada a cada resposta da nuvem, dividida pelos dois textos.
+  const counts = computed(() => {
+    let known = 0;
+    let inLibrary = 0;
+    for (const m of props.season) {
+      const path = cloudPathOf(m.id);
+      if (path === undefined) continue;
+      known++;
+      if (path) inLibrary++;
+    }
+    return { known, inLibrary };
+  });
+  const known = () => counts().known;
+  const inLibrary = () => counts().inLibrary;
   return (
     <If when={props.season.length > 0}>
       <Text class="text-sm tabular-nums text-muted-foreground">
-        {known().length < props.season.length ? "Procurando… " : ""}
+        {known() < props.season.length ? "Procurando… " : ""}
         {inLibrary()} de {props.season.length} no acervo
       </Text>
     </If>

@@ -317,6 +317,8 @@ pub struct Resampler {
     inner: SincFixedIn<f32>,
     channels: usize,
     pending: Vec<Vec<f32>>,
+    /// Saída reaproveitada entre blocos (sem alocar a cada chamada).
+    out: Vec<Vec<f32>>,
     ratio: f64,
     frames_in: u64,
     frames_out: u64,
@@ -333,36 +335,44 @@ impl Resampler {
         };
         let ratio = to as f64 / from as f64;
         let inner = SincFixedIn::new(ratio, 1.0, params, 1024, channels).expect("parâmetros do reamostrador");
+        let out = inner.output_buffer_allocate(true);
         // A rubato 0.16 já compensa o atraso do filtro: a saída começa alinhada com a entrada.
-        Self { inner, channels, pending: vec![Vec::new(); channels], ratio, frames_in: 0, frames_out: 0 }
+        Self { inner, channels, pending: vec![Vec::new(); channels], out, ratio, frames_in: 0, frames_out: 0 }
     }
 
-    fn emit(&mut self, out: Vec<Vec<f32>>, limit: Option<u64>) -> Vec<f32> {
-        let mut take = out.first().map_or(0, Vec::len);
+    /// Intercala os `frames` primeiros quadros de `self.out` em `res`.
+    fn emit(&mut self, frames: usize, limit: Option<u64>, res: &mut Vec<f32>) {
+        let mut take = frames;
         if let Some(max) = limit {
             take = take.min(max.saturating_sub(self.frames_out) as usize);
         }
         self.frames_out += take as u64;
-        let mut v = Vec::with_capacity(take * self.channels);
+        res.reserve(take * self.channels);
         for i in 0..take {
-            for ch in &out {
-                v.push(ch[i]);
+            for ch in &self.out {
+                res.push(ch[i]);
             }
         }
-        v
     }
 
     pub fn process(&mut self, interleaved: &[f32]) -> Vec<f32> {
+        let frames = interleaved.len() / self.channels;
+        for p in &mut self.pending {
+            p.reserve(frames);
+        }
         for (i, s) in interleaved.iter().enumerate() {
             self.pending[i % self.channels].push(*s);
         }
-        self.frames_in += (interleaved.len() / self.channels) as u64;
+        self.frames_in += frames as u64;
         let mut res = Vec::new();
         while self.pending[0].len() >= self.inner.input_frames_next() {
             let need = self.inner.input_frames_next();
-            let chunk: Vec<Vec<f32>> = self.pending.iter_mut().map(|c| c.drain(..need).collect()).collect();
-            let out = self.inner.process(&chunk, None).expect("reamostragem");
-            res.extend(self.emit(out, None));
+            // A rubato lê só os `need` primeiros quadros: passa a fila direto, sem copiar.
+            let (_, n) = self.inner.process_into_buffer(&self.pending, &mut self.out, None).expect("reamostragem");
+            for p in &mut self.pending {
+                p.drain(..need);
+            }
+            self.emit(n, None, &mut res);
         }
         res
     }
@@ -373,14 +383,14 @@ impl Resampler {
         let mut res = Vec::new();
         let rest: Vec<Vec<f32>> = std::mem::take(&mut self.pending);
         self.pending = vec![Vec::new(); self.channels];
-        let out = self.inner.process_partial(Some(&rest), None).expect("reamostragem");
-        res.extend(self.emit(out, Some(expected)));
+        let (_, n) = self.inner.process_partial_into_buffer(Some(&rest), &mut self.out, None).expect("reamostragem");
+        self.emit(n, Some(expected), &mut res);
         while self.frames_out < expected {
-            let out = self.inner.process_partial::<Vec<f32>>(None, None).expect("reamostragem");
-            if out.first().is_none_or(Vec::is_empty) {
+            let (_, n) = self.inner.process_partial_into_buffer::<Vec<f32>, _>(None, &mut self.out, None).expect("reamostragem");
+            if n == 0 {
                 break;
             }
-            res.extend(self.emit(out, Some(expected)));
+            self.emit(n, Some(expected), &mut res);
         }
         res
     }

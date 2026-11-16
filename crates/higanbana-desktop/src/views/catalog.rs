@@ -114,13 +114,15 @@ enum Body {
     Loading,
     Failed(String),
     /// Um pedaço da grade única (com filtro ou fora de A–Z): sem cabeçalho de letra.
-    Flat(Arc<Vec<IndexEntry>>, Range<usize>),
+    Flat(Arc<[IndexEntry]>, Range<usize>),
 }
 
 /// O que define a lista filtrada: igual entre dois quadros, a lista em cache vale.
 #[derive(PartialEq)]
 struct FlatKey {
+    /// Filtros da barra (sem a busca, que vem em `query`).
     filters: Filters,
+    query: String,
     sort: Sort,
     indexed: usize,
     resolved: usize,
@@ -154,7 +156,7 @@ pub struct CatalogView {
     search_gen: u64,
     bar: Entity<FilterBar>,
     /// Grade única em cache.
-    flat: Option<(FlatKey, Arc<Vec<IndexEntry>>)>,
+    flat: Option<(FlatKey, Arc<[IndexEntry]>)>,
     /// Texto da última busca na nuvem pedida e as obras dentro de franquias que ela achou.
     cloud_query: String,
     franchise: Vec<SearchResult>,
@@ -282,7 +284,7 @@ impl CatalogView {
     }
 
     fn searching(&self, cx: &App) -> bool {
-        !self.query(cx).is_empty()
+        !self.search.read(cx).value().trim().is_empty()
     }
 
     /// Busca ou filtros mudaram: guarda a busca, volta ao topo e esquece as medidas.
@@ -306,7 +308,7 @@ impl CatalogView {
         if q == self.cloud_query {
             return;
         }
-        self.cloud_query = q.clone();
+        self.cloud_query.clone_from(&q);
         self.franchise.clear();
         self.cloud_failed = false;
         self.cloud_task = None;
@@ -341,21 +343,28 @@ impl CatalogView {
     }
 
     /// Obras de todas as letras indexadas que passam nos filtros, na ordem pedida.
-    fn flat_works(&mut self, filters: &Filters, sort: Sort, resolved: usize, cx: &App) -> Arc<Vec<IndexEntry>> {
+    fn flat_works(&mut self, query: &str, resolved: usize, cx: &App) -> Arc<[IndexEntry]> {
         let st = self.state.read(cx);
-        let key = FlatKey { filters: filters.clone(), sort, indexed: st.index_progress().0, resolved, inner_gen: st.inner_works_gen() };
+        let bar = self.bar.read(cx);
+        let (filters, sort) = (bar.filters(), bar.sort());
+        let (indexed, inner_gen) = (st.index_progress().0, st.inner_works_gen());
+        // Compara antes de montar a chave: os filtros só são copiados quando a lista muda.
         if let Some((k, works)) = &self.flat
-            && *k == key
+            && k.filters == *filters
+            && k.query == query
+            && (k.sort, k.indexed, k.resolved, k.inner_gen) == (sort, indexed, resolved, inner_gen)
         {
             return works.clone();
         }
+        let key = FlatKey { filters: filters.clone(), query: query.to_owned(), sort, indexed, resolved, inner_gen };
+        let filters = Filters { query: query.to_owned(), ..filters.clone() };
         let letters: Vec<Arc<Vec<IndexEntry>>> = LETTERS.iter().filter_map(|l| st.anime_letter(l)).collect();
         let works: Vec<Work> = letters
             .iter()
             .flat_map(|l| l.iter())
             .map(|e| Work { entry: e, meta: st.lookup_ref(&e.name, MediaType::Anime).flatten(), inner: st.inner_summaries(&e.path) })
             .collect();
-        let found = Arc::new(filtered_works(&works, filters, sort));
+        let found: Arc<[IndexEntry]> = filtered_works(&works, &filters, sort).into();
         self.flat = Some((key, found.clone()));
         found
     }
@@ -498,11 +507,7 @@ impl Render for CatalogView {
         let mut flat_status = None;
         let sections = if flat_mode {
             let metadata = self.state.read(cx).metadata_progress();
-            let (filters, sort) = {
-                let bar = self.bar.read(cx);
-                (Filters { query: query.clone(), ..bar.filters().clone() }, bar.sort())
-            };
-            let works = self.flat_works(&filters, sort, metadata.0, cx);
+            let works = self.flat_works(&query, metadata.0, cx);
             flat_status = Some((works.len(), metadata));
             let block = cols * FLAT_BLOCK_ROWS;
             (0..works.len().div_ceil(block))

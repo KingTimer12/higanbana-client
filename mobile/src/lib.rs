@@ -43,8 +43,20 @@ pub(crate) fn core() -> Result<Arc<Core>, String> {
 /// `file://` para o `Image` do NSH (que também lê URIs de arquivo): barras para frente,
 /// e `%`, `#` e `?` escapados para não virarem parte da URL.
 fn file_uri(path: &std::path::Path) -> String {
-    let path = path.to_string_lossy().replace('\\', "/").replace('%', "%25").replace('#', "%23").replace('?', "%3F");
-    if path.starts_with('/') { format!("file://{path}") } else { format!("file:///{path}") }
+    let path = path.to_string_lossy();
+    // Uma passada só, numa String já do tamanho certo (uma capa por card).
+    let mut uri = String::with_capacity(path.len() + 16);
+    uri.push_str(if path.starts_with('/') || path.starts_with('\\') { "file://" } else { "file:///" });
+    for c in path.chars() {
+        match c {
+            '\\' => uri.push('/'),
+            '%' => uri.push_str("%25"),
+            '#' => uri.push_str("%23"),
+            '?' => uri.push_str("%3F"),
+            c => uri.push(c),
+        }
+    }
+    uri
 }
 
 /// Roda `f` no runtime do núcleo e espera o resultado na thread da interface.
@@ -61,9 +73,7 @@ where
 /// Nome e avatar do Discord, que é o que a interface mostra da sessão.
 fn user_of(session: &Session) -> JsonValue {
     let meta = session.user.as_ref().and_then(|u| u.get("user_metadata"));
-    let field = |keys: &[&str]| {
-        keys.iter().find_map(|k| meta.and_then(|m| m.get(k)).and_then(JsonValue::as_str)).map(str::to_owned)
-    };
+    let field = |keys: &[&str]| keys.iter().find_map(|k| meta.and_then(|m| m.get(k)).and_then(JsonValue::as_str)).map(str::to_owned);
     json!({
         "name": field(&["full_name", "name", "user_name"]).unwrap_or_else(|| "Você".to_owned()),
         "avatar": field(&["avatar_url", "picture"]),
@@ -195,8 +205,7 @@ impl Catalog {
     /// Casa nomes de pasta com o AniList: um resumo (ou `null`) por nome, na mesma ordem.
     pub async fn lookup(names: Vec<String>) -> Result<JsonValue, String> {
         on_core(|c| async move {
-            let items: Vec<LookupRequest> =
-                names.into_iter().map(|name| LookupRequest { name, media_type: MediaType::Anime }).collect();
+            let items: Vec<LookupRequest> = names.into_iter().map(|name| LookupRequest { name, media_type: MediaType::Anime }).collect();
             let found = c.anilist().lookup(&items).await.map_err(|e| e.to_string())?;
             Ok(found
                 .into_iter()
@@ -213,12 +222,7 @@ impl Catalog {
     pub async fn search(query: String) -> Result<JsonValue, String> {
         on_core(|c| async move {
             let found = c.cloud().search(&query).await.map_err(|e| e.to_string())?;
-            Ok(found
-                .results
-                .into_iter()
-                .filter(|r| r.kind == SearchKind::Anime)
-                .map(|r| work_entry(&r.name, &r.path))
-                .collect())
+            Ok(found.results.into_iter().filter(|r| r.kind == SearchKind::Anime).map(|r| work_entry(&r.name, &r.path)).collect())
         })
         .await
     }
