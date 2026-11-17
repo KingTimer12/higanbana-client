@@ -213,8 +213,8 @@ impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.page(window, cx);
         let path_key = self.state.read(cx).path().to_owned();
-        // O catálogo rola sozinho: o índice lateral fica fixo e pula até uma letra.
-        let own_scroll = matches!(classify(&path_key), Place::Catalog { .. });
+        // Catálogo e pasta rolam sozinhos: o índice lateral fica fixo; a lista de arquivos é virtual.
+        let own_scroll = matches!(classify(&path_key), Place::Catalog { .. } | Place::Folder { .. } | Place::Raw { .. });
         // A tela nova entra com fade e um deslize curto no sentido da navegação:
         // avançar vem da direita, voltar vem da esquerda (continuidade do histórico).
         let shift = gpui_kit::px(if self.state.read(cx).went_back() { -crate::motion::PAGE_SHIFT } else { crate::motion::PAGE_SHIFT });

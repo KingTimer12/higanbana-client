@@ -520,58 +520,66 @@ pub fn file_list(
     file_list_in(dir, files, false, on_play, on_read, cx)
 }
 
-/// [`file_list`] com `raw`: as subpastas abrem cruas, como a pasta atual.
-pub fn file_list_in(
-    dir: &str,
-    files: &[FileEntry],
+/// Progresso de leitura por caminho (copiado do núcleo uma vez por quadro).
+pub type ReadingMap = std::collections::HashMap<String, higanbana_core::reader::store::ReadProgress>;
+
+/// Lista de arquivos de uma pasta, pronta para desenhar linha a linha: serve à
+/// lista comum ([`file_list_in`]) e à lista virtual da pasta (`VirtualList`).
+pub struct FileRows {
+    dir: String,
     raw: bool,
+    /// Pastas primeiro, depois arquivos, em ordem natural.
+    entries: Vec<FileEntry>,
+    /// Qualidade comum a todos os episódios (mostrada uma vez no topo).
+    shared: Option<String>,
     on_play: Option<FileAction>,
     on_read: Option<FileAction>,
-    cx: &mut App,
-) -> Div {
-    // Ordena referências: a listagem não é copiada a cada quadro.
-    let mut sorted: Vec<&FileEntry> = files.iter().collect();
-    sorted.sort_by(|a, b| {
-        b.is_directory
-            .cmp(&a.is_directory)
-            .then_with(|| natural_cmp(&a.name, &b.name))
-    });
-    if sorted.is_empty() {
-        return crate::ui::empty_state(IconName::FolderOpen, "Esta pasta está vazia", None, cx)
-            .rounded(cx.theme().radius_lg)
-            .border_1()
-            .border_dashed()
-            .border_color(cx.theme().border);
+}
+
+impl FileRows {
+    pub fn new(dir: &str, files: &[FileEntry], raw: bool, on_play: Option<FileAction>, on_read: Option<FileAction>) -> Self {
+        let mut entries = files.to_vec();
+        entries.sort_by(|a, b| b.is_directory.cmp(&a.is_directory).then_with(|| natural_cmp(&a.name, &b.name)));
+        // Quando todos os episódios têm a mesma qualidade, mostra uma vez só no topo.
+        let eps: Vec<_> = entries.iter().filter(|f| !f.is_directory).map(|f| parse_episode(&f.name)).filter(|e| e.number.is_some()).collect();
+        let shared = (eps.len() >= 2).then(|| eps[0].quality.clone()).flatten().filter(|q| eps.iter().all(|e| e.quality.as_deref() == Some(q)));
+        Self { dir: dir.to_owned(), raw, entries, shared, on_play, on_read }
     }
-    // Quando todos os episódios têm a mesma qualidade, mostra uma vez só no topo.
-    let eps: Vec<_> = sorted
-        .iter()
-        .filter(|f| !f.is_directory)
-        .map(|f| parse_episode(&f.name))
-        .filter(|e| e.number.is_some())
-        .collect();
-    let shared = (eps.len() >= 2)
-        .then(|| eps[0].quality.clone())
-        .flatten()
-        .filter(|q| eps.iter().all(|e| e.quality.as_deref() == Some(q)));
 
-    let s = state(cx);
-    // Progresso de leitura só onde há o que ler (o mapa vem copiado do núcleo).
-    let reading = if on_read.is_some() {
-        crate::reader::progress_map(s.read(cx))
-    } else {
-        Default::default()
-    };
-    let theme = cx.theme().clone();
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
 
-    let mut list = v_flex()
-        .rounded(theme.radius_lg)
-        .border_1()
-        .border_color(theme.border)
-        .bg(theme.group_box)
-        .overflow_hidden();
-    let total = sorted.len();
-    for (i, f) in sorted.into_iter().enumerate() {
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Progresso de leitura, só onde há o que ler.
+    pub fn reading(&self, cx: &App) -> ReadingMap {
+        if self.on_read.is_some() { crate::reader::progress_map(state(cx).read(cx)) } else { Default::default() }
+    }
+
+    /// Altura de cada linha na lista virtual: pasta numa linha; arquivo com detalhes e barra de progresso.
+    pub fn heights(&self, rem: Pixels) -> Vec<gpui_kit::Size<Pixels>> {
+        (0..self.entries.len()).map(|i| gpui_kit::size(px(0.), self.row_height(i, rem))).collect()
+    }
+
+    pub fn row_height(&self, i: usize, rem: Pixels) -> Pixels {
+        if self.entries[i].is_directory { rem * 3. } else { rem * 4.5 }
+    }
+
+    /// "Todos os episódios em 1080p", quando vale.
+    pub fn shared_note(&self, cx: &App) -> Option<Div> {
+        self.shared.as_ref().map(|q| div().text_sm().text_color(cx.theme().muted_foreground).child(format!("Todos os episódios em {q}")))
+    }
+
+    /// Uma linha. `height` fixa a altura (lista virtual); `None` deixa o conteúdo decidir.
+    pub fn row(&self, i: usize, reading: &ReadingMap, height: Option<Pixels>, cx: &mut App) -> AnyElement {
+        let (dir, raw, on_play, on_read, shared) = (self.dir.as_str(), self.raw, &self.on_play, &self.on_read, &self.shared);
+        let f = &self.entries[i];
+        let total = self.entries.len();
+        let s = state(cx);
+        let theme = cx.theme().clone();
         let path = join_path(dir, &f.name);
         // Identidade pelo nome do arquivo, não pela posição.
         let key = SharedString::from(f.name.as_str());
@@ -579,6 +587,7 @@ pub fn file_list_in(
             .gap_3()
             .px_3()
             .py_2p5()
+            .when_some(height, |d, h| d.h(h))
             .when(i > 0, |d| d.border_t_1().border_color(theme.border));
         // Fundo do hover acompanha os cantos da lista na primeira e na última linha.
         let r = theme.radius_lg;
@@ -591,7 +600,7 @@ pub fn file_list_in(
         if f.is_directory {
             let s = s.clone();
             let path = folder_link(dir, &f.name, raw);
-            list = list.child(
+            return (
                 hover_fade(
                     ElementId::Name(format!("dir-hover:{key}").into()),
                     row.id(ElementId::Name(format!("dir:{key}").into()))
@@ -610,9 +619,8 @@ pub fn file_list_in(
                         .on_click(move |_, _, cx| s.update(cx, |s, cx| s.go(path.clone(), cx))),
                 )
                 .fill(theme.list_hover)
-                .radius(corners),
-            );
-            continue;
+                .radius(corners))
+                .into_any_element();
         }
         let ep = parse_episode(&f.name);
         let label = match (&ep.number, &shared) {
@@ -742,22 +750,44 @@ pub fn file_list_in(
                 cx,
             )),
         ));
-        list = list.child(
+        (
             hover_fade(ElementId::Name(format!("ep-hover:{key}").into()), row)
                 .fill(theme.list_hover)
-                .radius(corners),
-        );
+                .radius(corners))
+            .into_any_element()
     }
-    let mut out = v_flex().gap_2();
-    if let Some(q) = shared {
-        out = out.child(
-            div()
-                .text_sm()
-                .text_color(theme.muted_foreground)
-                .child(format!("Todos os episódios em {q}")),
-        );
+}
+
+/// [`file_list`] com `raw`: as subpastas abrem cruas, como a pasta atual.
+pub fn file_list_in(
+    dir: &str,
+    files: &[FileEntry],
+    raw: bool,
+    on_play: Option<FileAction>,
+    on_read: Option<FileAction>,
+    cx: &mut App,
+) -> Div {
+    let rows = FileRows::new(dir, files, raw, on_play, on_read);
+    if rows.is_empty() {
+        return empty_folder(cx);
     }
-    out.child(list)
+    let reading = rows.reading(cx);
+    let items: Vec<AnyElement> = (0..rows.len()).map(|i| rows.row(i, &reading, None, cx)).collect();
+    v_flex().gap_2().children(rows.shared_note(cx)).child(file_list_frame(cx).children(items))
+}
+
+/// Moldura da lista (borda e fundo do grupo).
+pub fn file_list_frame(cx: &App) -> Div {
+    let theme = cx.theme();
+    v_flex().rounded(theme.radius_lg).border_1().border_color(theme.border).bg(theme.group_box).overflow_hidden()
+}
+
+pub fn empty_folder(cx: &mut App) -> Div {
+    crate::ui::empty_state(IconName::FolderOpen, "Esta pasta está vazia", None, cx)
+        .rounded(cx.theme().radius_lg)
+        .border_1()
+        .border_dashed()
+        .border_color(cx.theme().border)
 }
 
 /// Grupo de opções com rótulo à esquerda (temporada, versão).
