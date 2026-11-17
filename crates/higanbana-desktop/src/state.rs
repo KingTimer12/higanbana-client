@@ -652,7 +652,7 @@ impl AppState {
             let result = task.await.ok().and_then(Result::ok);
             let _ = this.update(cx, |s, cx| {
                 s.lookups_inflight = s.lookups_inflight.saturating_sub(1);
-                let anime = |key: &(MediaType, String)| (key.0 == MediaType::Anime).then(|| key.1.clone());
+                let anime = |key: &(MediaType, String)| Some(key.clone());
                 match result {
                     Some(list) => {
                         s.lookups_gen += 1;
@@ -717,7 +717,7 @@ impl AppState {
                             Priority::Interactive => s.lookups_cooldown_until = end,
                             Priority::Background => s.background_cooldown_until = end,
                         }
-                        let failed: Vec<String> = batch.iter().filter_map(anime).collect();
+                        let failed: Vec<(MediaType, String)> = batch.iter().filter_map(anime).collect();
                         for key in batch {
                             s.lookup_retries.remove(&key);
                             s.lookups.remove(&key);

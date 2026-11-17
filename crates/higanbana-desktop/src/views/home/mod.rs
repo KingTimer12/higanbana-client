@@ -24,7 +24,7 @@ use higanbana_core::{
 };
 
 use crate::{
-    components::{columns, content_width, section_label, section_meta, section_order},
+    components::{columns, content_width, nav_entries, section_order},
     state::{AppState, state},
     ui::empty_state,
 };
@@ -186,13 +186,13 @@ impl HomeView {
                 .grid()
                 .grid_cols(cols)
                 .gap_3()
-                .children(list.iter().enumerate().map(|(i, s)| {
-                    let (icon_name, _) = section_meta(s);
-                    let target = s.clone();
+                .children(nav_entries(list).into_iter().enumerate().map(|(i, e)| {
+                    let icon_name = e.icon;
+                    let target = e.target.clone();
                     let state = self.state.clone();
-                    let hue = section_hue(s, &theme);
-                    let label = section_label(s);
-                    let id = format!("section:{s}");
+                    let hue = section_hue(&e.section, &theme);
+                    let label = e.label.clone();
+                    let id = format!("section:{}", e.target);
                     // Selo na cor da seção; no hover o cartão sobe e a borda pega a cor.
                     let card = hover_anim(ElementId::Name(format!("{id}:hover").into()), Duration::from_millis(200), move |t, _, cx| {
                         let e = ease_out_cubic(t);

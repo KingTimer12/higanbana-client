@@ -202,7 +202,7 @@ impl Workspace {
             Place::Title { title_path, rest, media, .. } => cx.new(|cx| TitleView::new(title_path, rest, media, cx)).into(),
             Place::Folder { path } => cx.new(|cx| FolderView::new(path, false, cx)).into(),
             Place::Raw { path } => cx.new(|cx| FolderView::new(path, true, cx)).into(),
-            Place::Catalog { letter } => cx.new(|cx| CatalogView::new(letter, window, cx)).into(),
+            Place::Catalog { media, letter } => cx.new(|cx| CatalogView::new(crate::series::Series::of(media), letter, window, cx)).into(),
         };
         self.page = Some((path, view.clone()));
         view

@@ -1,4 +1,4 @@
-//! Catálogo de Animes: todas as obras numa grade só, de 0-9 a Z, com índice
+//! Catálogo de séries (Animes, Mangás; ver `series::Series`): todas as obras numa grade só, de 0-9 a Z, com índice
 //! lateral e busca por nome.
 //!
 //! A tela tem rolagem própria (não a da área de trabalho): o índice lateral
@@ -21,7 +21,6 @@ use gpui_kit::component::{
     input::{Input, InputEvent, InputState},
 };
 use higanbana_core::{
-    anilist::MediaType,
     anime_index::{IndexEntry, LETTERS},
     catalog_filter::{Filters, Sort},
     library::norm,
@@ -30,6 +29,7 @@ use higanbana_core::{
 
 use crate::{
     catalog_state::CatalogPlace,
+    series::Series,
     components::{breadcrumbs, columns, content_width, title_card, when_visible},
     state::{AppState, state},
     ui::empty_state,
@@ -38,7 +38,7 @@ use crate::{
     },
 };
 
-const ROOT: &str = "Animes";
+
 /// Pouco mais que a espera de uma letra com falha (30 s em `catalog_state`).
 const RETRY_CHECK: Duration = Duration::from_secs(31);
 /// Espera depois da última tecla antes de buscar na nuvem.
@@ -148,6 +148,7 @@ struct SectionKey {
 
 pub struct CatalogView {
     state: Entity<AppState>,
+    series: Series,
     search: Entity<InputState>,
     scroll: ScrollHandle,
     /// Última letra pedida (posição em `LETTERS`): sem busca, as seções vão de 0-9 até ela.
@@ -179,13 +180,14 @@ pub struct CatalogView {
 }
 
 impl CatalogView {
-    pub fn new(letter: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(series: Series, letter: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let media = series.media;
         let state = state(cx);
         // Busca, filtros e posição voltam como estavam ao reabrir o catálogo (abrir uma obra e voltar).
-        let saved_query = state.read(cx).catalog_choice().filters.query.clone();
-        let place = state.read(cx).catalog_choice().place;
+        let saved_query = state.read(cx).catalog_choice(series.media).filters.query.clone();
+        let place = state.read(cx).catalog_choice(series.media).place;
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Buscar no catálogo").default_value(saved_query));
-        let bar = cx.new(|cx| FilterBar::new(state.clone(), window, cx));
+        let bar = cx.new(|cx| FilterBar::new(state.clone(), series, window, cx));
         let subs = vec![
             cx.observe(&state, |_, _, cx| cx.notify()),
             cx.subscribe(&search, |this: &mut Self, _, e: &InputEvent, cx| {
@@ -197,17 +199,18 @@ impl CatalogView {
             // A barra também desenha os menus de ordenação e coleções daqui.
             cx.observe(&bar, |_, _, cx| cx.notify()),
             cx.subscribe(&bar, |this: &mut Self, _, _: &FiltersChanged, cx| this.restart(cx)),
-            cx.on_release(|this: &mut Self, cx| {
+            cx.on_release(move |this: &mut Self, cx| {
                 let place = this.place(cx);
-                this.state.update(cx, |s, _| s.save_catalog_place(place));
+                this.state.update(cx, |s, _| s.save_catalog_place(media, place));
             }),
         ];
         state.update(cx, |s, cx| {
-            s.start_anime_index(cx);
-            s.start_metadata_crawl(cx);
+            s.start_index(series.media, cx);
+            s.start_metadata_crawl(series.media, cx);
         });
         let mut view = Self {
             state,
+            series,
             search,
             scroll: ScrollHandle::new(),
             upto: 0,
@@ -238,7 +241,7 @@ impl CatalogView {
                 view.scroll.set_offset(point(px(0.), px(-y)));
                 view.jumped = true;
             }
-            Reopen::Top => view.state.update(cx, |s, cx| s.want_anime_letter(LETTERS[0], cx)),
+            Reopen::Top => view.state.update(cx, |s, cx| s.want_catalog_letter(series.media, LETTERS[0], cx)),
         }
         // A busca restaurada também traz de volta as obras dentro de franquias.
         view.cloud_search(cx);
@@ -263,7 +266,8 @@ impl CatalogView {
             return;
         }
         self.upto = self.upto.max(letter);
-        self.state.update(cx, |s, cx| s.want_anime_letter(LETTERS[letter], cx));
+        let media = self.series.media;
+        self.state.update(cx, |s, cx| s.want_catalog_letter(media, LETTERS[letter], cx));
         self.scroll.scroll_to_top_of_item(1 + letter);
         self.jumped = true;
         cx.notify();
@@ -275,7 +279,8 @@ impl CatalogView {
             return;
         }
         self.upto = letter;
-        self.state.update(cx, |s, cx| s.want_anime_letter(LETTERS[letter], cx));
+        let media = self.series.media;
+        self.state.update(cx, |s, cx| s.want_catalog_letter(media, LETTERS[letter], cx));
         cx.notify();
     }
 
@@ -290,7 +295,8 @@ impl CatalogView {
     /// Busca ou filtros mudaram: guarda a busca, volta ao topo e esquece as medidas.
     fn restart(&mut self, cx: &mut Context<Self>) {
         let query = self.query(cx);
-        self.state.update(cx, |s, _| s.save_catalog_query(&query));
+        let media = self.series.media;
+        self.state.update(cx, |s, _| s.save_catalog_query(media, &query));
         self.search_gen += 1;
         self.scroll.set_offset(point(px(0.), px(0.)));
         cx.notify();
@@ -335,7 +341,7 @@ impl CatalogView {
                 // Resposta de um texto antigo: descarta.
                 if v.cloud_query == q {
                     v.cloud_failed = results.is_none();
-                    v.franchise = results.map(franchise_results).unwrap_or_default();
+                    v.franchise = results.map(|r| franchise_results(r, v.series)).unwrap_or_default();
                     cx.notify();
                 }
             });
@@ -347,7 +353,7 @@ impl CatalogView {
         let st = self.state.read(cx);
         let bar = self.bar.read(cx);
         let (filters, sort) = (bar.filters(), bar.sort());
-        let (indexed, inner_gen) = (st.index_progress().0, st.inner_works_gen());
+        let (indexed, inner_gen) = (st.index_progress(self.series.media).0, st.inner_works_gen());
         // Compara antes de montar a chave: os filtros só são copiados quando a lista muda.
         if let Some((k, works)) = &self.flat
             && k.filters == *filters
@@ -358,11 +364,11 @@ impl CatalogView {
         }
         let key = FlatKey { filters: filters.clone(), query: query.to_owned(), sort, indexed, resolved, inner_gen };
         let filters = Filters { query: query.to_owned(), ..filters.clone() };
-        let letters: Vec<Arc<Vec<IndexEntry>>> = LETTERS.iter().filter_map(|l| st.anime_letter(l)).collect();
+        let letters: Vec<Arc<Vec<IndexEntry>>> = LETTERS.iter().filter_map(|l| st.catalog_letter(self.series.media, l)).collect();
         let works: Vec<Work> = letters
             .iter()
             .flat_map(|l| l.iter())
-            .map(|e| Work { entry: e, meta: st.lookup_ref(&e.name, MediaType::Anime).flatten(), inner: st.inner_summaries(&e.path) })
+            .map(|e| Work { entry: e, meta: st.lookup_ref(&e.name, self.series.media).flatten(), inner: st.inner_summaries(self.series.media, &e.path) })
             .collect();
         let found: Arc<[IndexEntry]> = filtered_works(&works, &filters, sort).into();
         self.flat = Some((key, found.clone()));
@@ -376,7 +382,7 @@ impl CatalogView {
             return (0..=self.upto)
                 .map(|ix| {
                     let letter = LETTERS[ix];
-                    let body = match (st.anime_letter(letter), st.anime_letter_error(letter)) {
+                    let body = match (st.catalog_letter(self.series.media, letter), st.catalog_letter_error(self.series.media, letter)) {
                         (Some(entries), _) => Body::Entries(entries),
                         (None, Some(e)) => Body::Failed(e),
                         (None, None) => Body::Loading,
@@ -385,11 +391,11 @@ impl CatalogView {
                 })
                 .collect();
         }
-        let indexed = st.index_progress().0;
+        let indexed = st.index_progress(self.series.media).0;
         let fresh = self.found.as_ref().is_some_and(|(q, n, _)| q == query && *n == indexed);
         if !fresh {
             let loaded: Vec<(usize, Arc<Vec<IndexEntry>>)> =
-                LETTERS.iter().enumerate().filter_map(|(ix, l)| st.anime_letter(l).map(|e| (ix, e))).collect();
+                LETTERS.iter().enumerate().filter_map(|(ix, l)| st.catalog_letter(self.series.media, l).map(|e| (ix, e))).collect();
             let found = search_sections(loaded.iter().map(|(ix, e)| (*ix, e.as_slice())), query);
             self.found = Some((query.to_owned(), indexed, found));
         }
@@ -426,8 +432,8 @@ impl CatalogView {
         let grid = || div().grid().grid_cols(cols as u16).gap_x_5().gap_y_8();
         if let Body::Flat(works, range) = section.body {
             let cards = works[range].iter().map(|e| {
-                let id = ElementId::Name(format!("anime:{}", e.path).into());
-                title_card(id, &e.name, e.path.clone(), MediaType::Anime, card_w, cx)
+                let id = ElementId::Name(format!("{}:{}", self.series.id_prefix(), e.path).into());
+                title_card(id, &e.name, e.path.clone(), self.series.media, card_w, cx)
             });
             return div().w(px(width)).mx_auto().pt_8().child(grid().children(cards.collect::<Vec<_>>())).into_any_element();
         }
@@ -449,7 +455,8 @@ impl CatalogView {
             .child(div().flex_1().h_px().bg(theme.border));
         let want_letter = {
             let st = self.state.clone();
-            move |cx: &mut App| st.update(cx, |s, cx| s.want_anime_letter(letter, cx))
+            let media = self.series.media;
+            move |cx: &mut App| st.update(cx, |s, cx| s.want_catalog_letter(media, letter, cx))
         };
         let body = match section.body {
             Body::Entries(entries) if entries.is_empty() => div()
@@ -459,8 +466,8 @@ impl CatalogView {
                 .into_any_element(),
             Body::Entries(entries) => grid()
                 .children(entries.iter().map(|e| {
-                    let id = ElementId::Name(format!("anime:{}", e.path).into());
-                    title_card(id, &e.name, e.path.clone(), MediaType::Anime, card_w, cx)
+                    let id = ElementId::Name(format!("{}:{}", self.series.id_prefix(), e.path).into());
+                    title_card(id, &e.name, e.path.clone(), self.series.media, card_w, cx)
                 }))
                 .into_any_element(),
             Body::Loading => grid()
@@ -501,12 +508,12 @@ impl Render for CatalogView {
         let cols = columns(width, 10. * rem, gap);
         let card_w = px(((width - (cols as f32 - 1.) * gap) / cols as f32).floor());
         let query = self.query(cx);
-        let (indexed, total) = self.state.read(cx).index_progress();
+        let (indexed, total) = self.state.read(cx).index_progress(self.series.media);
         let flat_mode = self.flat_mode(cx);
         // Grade única: a lista filtrada em blocos de algumas linhas (seção = bloco).
         let mut flat_status = None;
         let sections = if flat_mode {
-            let metadata = self.state.read(cx).metadata_progress();
+            let metadata = self.state.read(cx).metadata_progress(self.series.media);
             let works = self.flat_works(&query, metadata.0, cx);
             flat_status = Some((works.len(), metadata));
             let block = cols * FLAT_BLOCK_ROWS;
@@ -675,7 +682,7 @@ impl CatalogView {
             let cards: Vec<_> = self
                 .franchise
                 .iter()
-                .map(|r| title_card(ElementId::Name(format!("franchise:{}", r.path).into()), &r.name, r.path.clone(), MediaType::Anime, card_w, cx))
+                .map(|r| title_card(ElementId::Name(format!("franchise:{}", r.path).into()), &r.name, r.path.clone(), self.series.media, card_w, cx))
                 .collect();
             v_flex()
                 .pt_4()
@@ -705,14 +712,14 @@ impl CatalogView {
             .mx_auto()
             .pt_6()
             .gap_4()
-            .child(breadcrumbs(ROOT, cx))
-            .child(div().text_2xl().font_weight(FontWeight::SEMIBOLD).child(ROOT))
+            .child(breadcrumbs(self.series.root, cx))
+            .child(div().text_2xl().font_weight(FontWeight::SEMIBOLD).child(self.series.title))
             .child(
                 h_flex()
                     .gap_2()
                     .child(div().flex_1().min_w_0().child(Input::new(&self.search).prefix(Icon::new(IconName::Search).small()).cleanable(true)))
                     .child(sort_menu(&self.bar, cx))
-                    .child(collections_menu(&self.state, ROOT, cx)),
+                    .child(collections_menu(&self.state, self.series, cx)),
             )
             .child(self.bar.clone())
             .children(status)

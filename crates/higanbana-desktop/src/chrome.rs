@@ -23,7 +23,7 @@ use higanbana_core::{
 };
 
 use crate::{
-    components::{format_bytes, rounded_image, section_label, section_meta, section_order},
+    components::{active_nav, format_bytes, nav_entries, rounded_image, section_order},
     state::{AppState, DlStatus, state},
     ui::{empty_state, truncate},
 };
@@ -402,9 +402,10 @@ pub fn sidebar(state: &Entity<AppState>, sections: &[String], cx: &mut App) -> i
         move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| st.update(cx, |s, cx| s.go(target.clone(), cx))
     };
     let mut menu = SidebarMenu::new().child(SidebarMenuItem::new("Início").cursor_pointer().icon(IconName::House).active(current.is_empty()).on_click(go(String::new())));
-    for name in sections {
-        let (icon, _) = section_meta(name);
-        menu = menu.child(SidebarMenuItem::new(section_label(name)).cursor_pointer().icon(icon).active(current == *name).on_click(go(name.clone())));
+    let entries = nav_entries(sections);
+    let active = if current.is_empty() { None } else { active_nav(&entries, path) };
+    for (i, e) in entries.into_iter().enumerate() {
+        menu = menu.child(SidebarMenuItem::new(e.label).cursor_pointer().icon(e.icon).active(active == Some(i)).on_click(go(e.target)));
     }
     let avatar = user.as_ref().and_then(|u| u.avatar.clone());
     let name = user.map(|u| u.name).unwrap_or_default();

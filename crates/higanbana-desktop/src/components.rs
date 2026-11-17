@@ -285,6 +285,51 @@ pub fn section_meta(name: &str) -> (IconName, &'static str) {
     }
 }
 
+/// Pasta das revistas, dentro de `Mangás` (fica separada das séries na navegação).
+pub const MAGAZINES_PATH: &str = "Mangás/Revistas Antigas sobre Animes";
+
+/// Um destino da navegação (barra lateral e atalhos do início).
+#[derive(Clone, Debug, PartialEq)]
+pub struct NavEntry {
+    pub label: String,
+    pub icon: IconName,
+    /// Rota aberta ao clicar.
+    pub target: String,
+    /// Seção da raiz a que pertence (cor).
+    pub section: String,
+}
+
+/// Seções da raiz viram destinos; `Mangás` se divide em séries (catálogo) e revistas.
+pub fn nav_entries(sections: &[String]) -> Vec<NavEntry> {
+    let entry = |label: &str, icon, target: &str, section: &str| NavEntry { label: label.into(), icon, target: target.into(), section: section.into() };
+    sections
+        .iter()
+        .flat_map(|name| match name.as_str() {
+            "Mangás" => vec![
+                entry("Mangás", IconName::BookOpen, crate::series::MANGA.root, name),
+                entry("Revistas", IconName::Newspaper, MAGAZINES_PATH, name),
+            ],
+            _ => vec![entry(&section_label(name), section_meta(name).0, name, name)],
+        })
+        .collect()
+}
+
+/// Destino ativo para a rota: o de prefixo mais longo (`Mangás/Revistas…` vence `Mangás`).
+pub fn active_nav(entries: &[NavEntry], path: &str) -> Option<usize> {
+    let segs = split_path(path);
+    entries
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| {
+            let t = split_path(&e.target);
+            segs.len() >= t.len() && segs[..t.len()] == t[..]
+        })
+        .max_by_key(|(_, e)| split_path(&e.target).len())
+        .map(|(i, _)| i)
+        // Pasta `Mangás` aberta direto: fica no destino da seção.
+        .or_else(|| segs.first().and_then(|first| entries.iter().position(|e| e.section == *first)))
+}
+
 /// Ordem na barra lateral: conteúdo principal primeiro.
 pub fn section_order(a: &str, b: &str) -> std::cmp::Ordering {
     const ORDER: [&str; 7] = [
@@ -821,4 +866,17 @@ mod tests {
         assert_eq!(folder_link("Animes/Letra S", "Smile", true), "raw:Animes/Letra S/Smile");
         assert_eq!(folder_link("", "Animes", true), "raw:Animes");
     }
+}
+
+#[test]
+fn mangas_split_into_series_and_magazines() {
+    let sections: Vec<String> = ["Animes", "Mangás", "Doramas"].map(String::from).into();
+    let entries = nav_entries(&sections);
+    let targets: Vec<&str> = entries.iter().map(|e| e.target.as_str()).collect();
+    assert_eq!(targets, ["Animes", "Mangás/Séries Mangás", MAGAZINES_PATH, "Doramas"]);
+    assert_eq!(entries[2].label, "Revistas");
+    assert_eq!(active_nav(&entries, "Mangás/Séries Mangás/Letra G/Gantz"), Some(1));
+    assert_eq!(active_nav(&entries, "Mangás/Revistas Antigas sobre Animes/Animage"), Some(2));
+    assert_eq!(active_nav(&entries, "Mangás"), Some(1));
+    assert_eq!(active_nav(&entries, "Animes/Letra B"), Some(0));
 }
