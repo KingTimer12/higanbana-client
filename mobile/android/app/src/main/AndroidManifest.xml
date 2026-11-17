@@ -7,6 +7,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Atualização: o app abre o instalador de pacotes com o APK baixado do GitHub
+         (o Android pede à pessoa que permita instalar apps desta origem). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- usesCleartextTraffic: o vídeo vem do proxy local do núcleo (http://127.0.0.1) e,
          em desenvolvimento, o bundle vem do `nsh dev`. -->
@@ -33,6 +36,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Só a pasta de atualizações do cache (res/xml/update_paths.xml), e só para quem
+             recebe a permissão na intent: o instalador de pacotes. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
     </application>
 
 </manifest>

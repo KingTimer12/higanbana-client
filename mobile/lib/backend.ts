@@ -7,6 +7,15 @@ export interface User {
   avatar: string | null;
 }
 
+/** Uma versão mais nova do app, publicada no GitHub. */
+export interface AppUpdate {
+  version: string;
+  /** As notas da release (markdown do GitHub). */
+  notes: string;
+  /** Tamanho do download, em bytes. */
+  size: number;
+}
+
 /** Resumo de uma mídia do AniList (campos que as telas usam). */
 export interface Media {
   id: number;
@@ -174,6 +183,17 @@ export interface Backend {
   skipTimes(chapters: Chapter[], duration: number, malId: number | null, episode: number | null): Promise<SkipTimes>;
   continueWatching(): Resume[];
   setPlaying(playing: boolean): void;
+
+  /** A versão instalada (`0.1.0`). */
+  version(): string;
+  /** Uma versão mais nova, ou `null` (já está na mais nova, ou a plataforma não se atualiza sozinha). */
+  checkUpdate(): Promise<AppUpdate | null>;
+  /** Baixa e confere a versão achada por `checkUpdate`; resolve quando o arquivo está pronto. */
+  downloadUpdate(): Promise<void>;
+  /** Quanto do download chegou, de 0 a 1. */
+  updateProgress(): number;
+  /** Abre o instalador do sistema com o arquivo baixado; `false` se ele não abriu. */
+  installUpdate(): Promise<boolean>;
 }
 
 let current: Backend | undefined;

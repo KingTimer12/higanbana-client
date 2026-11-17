@@ -1,4 +1,3 @@
-import groovy.json.JsonSlurper
 import higanbana.AdbLaunch
 import higanbana.AndroidAbi
 import higanbana.CargoNdkBuild
@@ -28,9 +27,18 @@ val toolchain = Toolchain.locate(
     providers.gradleProperty("higanbana.cargo").orNull,
 )
 
-/** Versão do app: a mesma do nsh.json (`version` e `build`). */
-@Suppress("UNCHECKED_CAST")
-val nshManifest = JsonSlurper().parse(mobileDir.resolve("nsh.json")) as Map<String, Any?>
+/**
+ * Versão do app: o arquivo `VERSION` da raiz do repositório, o mesmo do desktop e do
+ * atualizador do núcleo. O `versionCode` sai dela (`1.2.3` vira 1002003), então só
+ * sobe: o Android recusa instalar por cima uma versão de código menor.
+ */
+val appVersion: String = mobileDir.parentFile.resolve("VERSION").readText().trim().removePrefix("v")
+val appVersionCode: Int = appVersion.split('-', '+').first().split('.').let { parts ->
+    require(parts.size == 3) { "VERSION inválido: '$appVersion' (esperado major.minor.patch)" }
+    val (major, minor, patch) = parts.map(String::toInt)
+    require(minor < 1000 && patch < 1000) { "VERSION fora do intervalo do versionCode: '$appVersion'" }
+    major * 1_000_000 + minor * 1_000 + patch
+}
 
 android {
     namespace = "dev.kingtimer12.higanbana"
@@ -45,8 +53,8 @@ android {
         applicationId = "dev.kingtimer12.higanbana"
         minSdk = minSdkVersion
         targetSdk = 36
-        versionCode = (nshManifest["build"] as? Number)?.toInt() ?: 1
-        versionName = nshManifest["version"] as? String ?: "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersion
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -133,6 +141,7 @@ dependencies {
     "bundledImplementation"(nshClasses.getValue("bundled"))
     "devServerImplementation"(nshClasses.getValue("devServer"))
     implementation(libs.libmpv)
+    implementation(libs.androidx.core)
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)

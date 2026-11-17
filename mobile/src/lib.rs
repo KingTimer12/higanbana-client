@@ -6,6 +6,7 @@
 
 mod library;
 mod player;
+mod updates;
 
 use std::{
     future::Future,
@@ -29,11 +30,17 @@ use serde_json::json;
 
 pub use library::Library;
 pub use player::Player;
+pub use updates::Updates;
 
 /// O que `App.tsx` importa de `higanbana/native`.
 #[native_module("higanbana/native")]
 fn native(registry: &mut Registry) {
-    registry.module::<Account>().module::<Catalog>().module::<Library>().module::<Player>();
+    registry
+        .module::<Account>()
+        .module::<Catalog>()
+        .module::<Library>()
+        .module::<Player>()
+        .module::<Updates>();
 }
 
 static CORE: OnceLock<Arc<Core>> = OnceLock::new();

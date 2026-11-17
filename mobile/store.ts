@@ -2,7 +2,7 @@
 // chamam as funções; ninguém escreve o estado de outra tela.
 import { openUrl, signal } from "nsh";
 import { createNavStack } from "nsh/base";
-import { backend, type Media, type User } from "./lib/backend";
+import { type AppUpdate, backend, type Media, type User } from "./lib/backend";
 import { errorMessage, mediaCover } from "./lib/format";
 import { KeyedSignals } from "./lib/keyed";
 
@@ -100,6 +100,76 @@ export async function signOut() {
   nav.popToRoot();
   tab.set("home");
   session.set({ status: "signedOut" });
+}
+
+// --- Atualização ---
+
+export type UpdateState =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "available"; update: AppUpdate }
+  | { status: "downloading"; update: AppUpdate; progress: number }
+  | { status: "ready"; update: AppUpdate };
+
+const updateState = signal<UpdateState>({ status: "idle" });
+/** O aviso de versão nova foi fechado nesta sessão (o menu da conta ainda oferece). */
+const updateDismissed = signal(false);
+
+/** Onde está a atualização do app. */
+export const currentUpdate = () => updateState();
+/** O aviso de versão nova aparece no início. */
+export const showUpdateBanner = () => updateState().status !== "idle" && updateState().status !== "checking" && !updateDismissed();
+
+/** Procura uma versão nova. `manual`: a pessoa pediu, e ouve a resposta mesmo sem versão nova. */
+export async function checkForUpdate(manual = false) {
+  const state = updateState();
+  if (state.status !== "idle") {
+    // Já achada: o pedido manual mostra o aviso de novo.
+    if (manual) updateDismissed.set(false);
+    return;
+  }
+  updateState.set({ status: "checking" });
+  try {
+    const found = await backend().checkUpdate();
+    updateState.set(found ? { status: "available", update: found } : { status: "idle" });
+    if (!found && manual) notify(`Você está na versão mais nova (${backend().version()}).`);
+  } catch (error) {
+    updateState.set({ status: "idle" });
+    if (manual) notify(`Não foi possível procurar atualizações. ${errorMessage(error)}`);
+  }
+}
+
+/** Baixa a versão nova (se ainda não baixou) e abre o instalador do sistema. */
+export async function installUpdate() {
+  const state = updateState();
+  if (state.status !== "available" && state.status !== "ready") return;
+  const update = state.update;
+  if (state.status === "available") {
+    updateState.set({ status: "downloading", update, progress: 0 });
+    const timer = setInterval(() => {
+      const now = updateState();
+      if (now.status === "downloading") updateState.set({ ...now, progress: backend().updateProgress() });
+    }, 250);
+    try {
+      await backend().downloadUpdate();
+      updateState.set({ status: "ready", update });
+    } catch (error) {
+      updateState.set({ status: "available", update });
+      notify(`Não foi possível baixar a atualização. ${errorMessage(error)}`);
+      return;
+    } finally {
+      clearInterval(timer);
+    }
+  }
+  const opened = await backend()
+    .installUpdate()
+    .catch(() => false);
+  if (!opened) notify("Não foi possível abrir o instalador.");
+}
+
+/** Esconde o aviso de versão nova até o app abrir de novo. */
+export function dismissUpdate() {
+  updateDismissed.set(true);
 }
 
 // --- Avisos ---
