@@ -3,6 +3,18 @@ name: Release
 # Para lançar: edite o arquivo VERSION, faça commit, e crie a tag `v<VERSION>`:
 #   git tag v0.1.0 && git push origin v0.1.0
 # A versão vem do VERSION (e não do Cargo.toml) para não invalidar o cache de build.
+# O APK do Android também lê o VERSION (versionName, e o versionCode sai dela).
+#
+# Cada plataforma compila no seu job e sobe os arquivos como artefato; o job
+# `publish` junta tudo, gera um SHA256SUMS só e cria a release. Os atualizadores
+# (desktop e Android) leem o SHA256SUMS pelo nome do arquivo de cada plataforma.
+#
+# Secrets do Android (Settings > Secrets and variables > Actions):
+#   ANDROID_KEYSTORE_BASE64    o .jks em base64 (`base64 -i upload.jks | pbcopy`)
+#   ANDROID_KEYSTORE_PASSWORD  senha da keystore e da chave
+#   ANDROID_KEY_ALIAS          alias da chave
+# A chave tem de ser sempre a mesma: o Android só instala uma atualização por cima
+# se a assinatura bate com a do app instalado.
 on:
   push:
     tags: ["v*"]
@@ -36,11 +48,11 @@ jobs:
           }
           "version=$v" >> $env:GITHUB_OUTPUT
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
 
       # A chave de cache vem do Cargo.lock e dos Cargo.toml. Como a versão fica no
       # VERSION, lançar uma release nova não muda nenhum deles.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       - name: Compilar
         shell: pwsh
@@ -84,32 +96,153 @@ jobs:
           & $iscc "/DAppVersion=$v" packaging\higanbana.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC falhou ($LASTEXITCODE)" }
 
-      # Formato do `sha256sum` (hash, dois espaços, nome): é o que o atualizador do app lê.
-      - name: SHA256SUMS
-        shell: pwsh
-        run: |
-          Set-Location dist
-          $lines = Get-ChildItem Higanbana-* -File | ForEach-Object {
-            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
-          }
-          [IO.File]::WriteAllText("$PWD\SHA256SUMS", (($lines -join "`n") + "`n"))
-          Get-Content SHA256SUMS
-
       - uses: actions/upload-artifact@v4
         with:
           name: higanbana-${{ steps.version.outputs.version }}-windows
           path: |
-            dist/Higanbana-*
-            dist/SHA256SUMS
+            dist/Higanbana-Setup-*.exe
+            dist/Higanbana-*-windows-x64.zip
           if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ler a versão
+        id: version
+        run: |
+          v="$(tr -d '[:space:]' < VERSION)"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "VERSION inválido: '$v'"; exit 1; }
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "v$v" ]]; then
+            echo "A tag $GITHUB_REF_NAME não bate com o VERSION (v$v)."; exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      # Uma release precisa da chave de sempre; sem ela o APK sai com a de debug
+      # (serve para testar o workflow manual, não para atualizar quem já instalou).
+      # A chave só é decodificada no passo do Gradle, e apagada no fim dele.
+      - name: Conferir a chave de assinatura
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [[ -z "$KEYSTORE_BASE64" ]]; then
+            if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+              echo "Falta o secret ANDROID_KEYSTORE_BASE64: sem a chave de sempre o Android não instala a atualização."; exit 1
+            fi
+            echo "::warning::Sem ANDROID_KEYSTORE_BASE64: o APK sai assinado com a chave de debug."
+          fi
+
+      # O daemon do Gradle pede o JDK 21 (mobile/android/gradle/gradle-daemon-jvm.properties).
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: "platforms;android-36 build-tools;36.0.0 ndk;28.2.13676358 cmake;3.22.1"
+
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          targets: aarch64-linux-android
+
+      # O app mobile é um workspace próprio (mobile/Cargo.toml), com o target em mobile/target.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: mobile -> target
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+
+      # Mesma versão do nsh-core/nsh-base do mobile/Cargo.toml, com o SHA-256 fixo aqui
+      # (atualizar os dois juntos). O `nsh check` confere o crate do app também para o
+      # host Linux, que liga o GTK 4.
+      - name: Instalar o nsh
+        env:
+          NSH_VERSION: v0.4.0
+          NSH_SHA256: 8806121aebf40bb51f8fb6aa703722fbb01253f9a435759c18d53beece1ec976
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q libgtk-4-dev
+          curl -fsSL -o "$RUNNER_TEMP/nsh.tar.gz" \
+            "https://github.com/longbridge/nsh/releases/download/$NSH_VERSION/nsh-linux-x86_64.tar.gz"
+          echo "$NSH_SHA256  $RUNNER_TEMP/nsh.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/nsh.tar.gz" -C "$HOME"
+          test -x "$HOME/.nsh/bin/nsh" || mv "$HOME/nsh" "$HOME/.nsh"
+          "$HOME/.nsh/bin/nsh" --version
+          echo "$HOME/.nsh/bin" >> "$GITHUB_PATH"
+
+      - name: Compilar o APK
+        working-directory: mobile/android
+        env:
+          ANITSU_SUPABASE_ANON_KEY: ${{ secrets.ANITSU_SUPABASE_ANON_KEY }}
+          TMDB_TOKEN: ${{ secrets.TMDB_TOKEN }}
+          TMDB_KEY: ${{ secrets.TMDB_KEY }}
+          FANART_TV: ${{ secrets.FANART_TV }}
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          [[ -n "$ANITSU_SUPABASE_ANON_KEY" ]] || { echo "Falta o secret ANITSU_SUPABASE_ANON_KEY."; exit 1; }
+          if [[ -n "$KEYSTORE_BASE64" ]]; then
+            export KEYSTORE="$RUNNER_TEMP/upload.jks"
+            trap 'rm -f "$KEYSTORE"' EXIT
+            echo "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE"
+          fi
+          unset KEYSTORE_BASE64
+          ./gradlew --no-daemon :app:assembleBundledRelease \
+            -Phiganbana.abis=arm64-v8a \
+            -Phiganbana.keyAlias="${{ secrets.ANDROID_KEY_ALIAS || 'androiddebugkey' }}"
+
+      - name: Montar o arquivo
+        run: |
+          v='${{ steps.version.outputs.version }}'
+          mkdir -p dist
+          cp mobile/android/app/build/outputs/apk/bundled/release/app-bundled-release.apk "dist/Higanbana-$v-android.apk"
+          # Confere a versão gravada no APK (a mesma do VERSION).
+          aapt="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt2"
+          "$aapt" dump badging "dist/Higanbana-$v-android.apk" | head -1
+          "$aapt" dump badging "dist/Higanbana-$v-android.apk" | grep -q "versionName='$v'"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: higanbana-${{ steps.version.outputs.version }}-android
+          path: dist/Higanbana-*-android.apk
+          if-no-files-found: error
+
+  publish:
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # Formato do `sha256sum` (hash, dois espaços, nome): é o que os atualizadores leem.
+      - name: SHA256SUMS
+        working-directory: dist
+        run: |
+          sha256sum Higanbana-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: higanbana-sha256sums
+          path: dist/SHA256SUMS
 
       - name: Publicar a release
         if: github.ref_type == 'tag'
-        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $v = '${{ steps.version.outputs.version }}'
-          $tag = "v$v"
-          gh release create $tag --title "Higanbana $tag" --generate-notes --verify-tag `
-            "dist/Higanbana-Setup-$v.exe" "dist/Higanbana-$v-windows-x64.zip" "dist/SHA256SUMS"
+          v="$(tr -d '[:space:]' < VERSION)"
+          gh release create "v$v" --title "Higanbana v$v" --generate-notes --verify-tag \
+            "dist/Higanbana-Setup-$v.exe" \
+            "dist/Higanbana-$v-windows-x64.zip" \
+            "dist/Higanbana-$v-android.apk" \
+            dist/SHA256SUMS
