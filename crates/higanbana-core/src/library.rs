@@ -34,8 +34,8 @@ pub enum Place {
     Shelf { path: String, media: MediaType },
     /// Dentro de um título. `rest` = subpastas abaixo do título.
     Title { path: String, title_path: String, rest: Vec<String>, media: MediaType },
-    /// Catálogo de Animes (A–Z contínuo); `letter` abre já rolado até ela.
-    Catalog { letter: Option<String> },
+    /// Catálogo de séries (A–Z contínuo) de Animes ou Mangás; `letter` abre já rolado até ela.
+    Catalog { media: MediaType, letter: Option<String> },
     /// Pasta aberta como está, sem catálogo nem prateleira (ver [`raw_path`]).
     Raw { path: String },
 }
@@ -67,6 +67,17 @@ pub fn base_name(path: &str) -> &str {
     path.trim_end_matches('/').rsplit('/').next().unwrap_or(path)
 }
 
+/// Mídias com catálogo de séries (A–Z contínuo).
+pub const CATALOG_MEDIA: [MediaType; 2] = [MediaType::Anime, MediaType::Manga];
+
+/// Pasta raiz do catálogo de séries de cada mídia (`Animes`, `Mangás/Séries Mangás`).
+pub fn catalog_root(media: MediaType) -> &'static str {
+    match media {
+        MediaType::Anime => crate::anime_index::ANIME_ROOT,
+        MediaType::Manga => crate::anime_index::MANGA_ROOT,
+    }
+}
+
 pub fn classify(path: &str) -> Place {
     if let Some(raw) = path.strip_prefix(RAW_PREFIX) {
         return Place::Raw { path: raw.to_owned() };
@@ -75,11 +86,17 @@ pub fn classify(path: &str) -> Place {
     if segs.is_empty() {
         return Place::Home;
     }
-    // Animes e suas letras formam um catálogo só; coleções seguem como prateleira.
-    match segs[..] {
-        ["Animes"] => return Place::Catalog { letter: None },
-        ["Animes", letter] if LETTERS.contains(&letter) => return Place::Catalog { letter: Some(letter.to_owned()) },
-        _ => {}
+    // A raiz de séries e suas letras formam um catálogo só; coleções seguem como prateleira.
+    for media in CATALOG_MEDIA {
+        let root = split_path(catalog_root(media));
+        if segs.len() < root.len() || segs[..root.len()] != root[..] {
+            continue;
+        }
+        match segs[root.len()..] {
+            [] => return Place::Catalog { media, letter: None },
+            [letter] if LETTERS.contains(&letter) => return Place::Catalog { media, letter: Some(letter.to_owned()) },
+            _ => {}
+        }
     }
     for s in &SECTIONS {
         if s.prefix.len() > segs.len() || s.prefix.iter().zip(&segs).any(|(p, s)| p != s) {
@@ -447,7 +464,7 @@ mod tests {
     #[test]
     fn classifies_places() {
         assert_eq!(classify(""), Place::Home);
-        assert_eq!(classify("Animes/Letra B"), Place::Catalog { letter: Some("Letra B".into()) });
+        assert_eq!(classify("Animes/Letra B"), Place::Catalog { media: MediaType::Anime, letter: Some("Letra B".into()) });
         assert_eq!(
             classify("Animes/Letra B/B - The Beginning/Extras"),
             Place::Title {
@@ -457,16 +474,16 @@ mod tests {
                 media: MediaType::Anime
             }
         );
-        assert!(matches!(classify("Mangás/Séries Mangás/Letra G"), Place::Shelf { media: MediaType::Manga, .. }));
+        assert_eq!(classify("Mangás/Séries Mangás/Letra G"), Place::Catalog { media: MediaType::Manga, letter: Some("Letra G".into()) });
         assert_eq!(classify("Doramas/X"), Place::Folder { path: "Doramas/X".into() });
-        assert_eq!(classify("Animes"), Place::Catalog { letter: None });
+        assert_eq!(classify("Animes"), Place::Catalog { media: MediaType::Anime, letter: None });
     }
 
     #[test]
     fn classifies_catalog() {
-        assert_eq!(classify("Animes"), Place::Catalog { letter: None });
-        assert_eq!(classify("Animes/Letra P"), Place::Catalog { letter: Some("Letra P".into()) });
-        assert_eq!(classify("Animes/0-9"), Place::Catalog { letter: Some("0-9".into()) });
+        assert_eq!(classify("Animes"), Place::Catalog { media: MediaType::Anime, letter: None });
+        assert_eq!(classify("Animes/Letra P"), Place::Catalog { media: MediaType::Anime, letter: Some("Letra P".into()) });
+        assert_eq!(classify("Animes/0-9"), Place::Catalog { media: MediaType::Anime, letter: Some("0-9".into()) });
         assert_eq!(
             classify("Animes/[Colecao Curtas]"),
             Place::Shelf { path: "Animes/[Colecao Curtas]".into(), media: MediaType::Anime }
@@ -475,8 +492,11 @@ mod tests {
         assert_eq!(raw_path("Animes/Letra P"), "raw:Animes/Letra P");
         assert_eq!(classify(&raw_path("Animes/Letra P")), Place::Raw { path: "Animes/Letra P".into() });
         assert_eq!(classify("raw:Animes"), Place::Raw { path: "Animes".into() });
-        // Mangás continuam em prateleira.
-        assert!(matches!(classify("Mangás/Séries Mangás/Letra P"), Place::Shelf { media: MediaType::Manga, .. }));
+        // Séries de mangá seguem o mesmo catálogo; revistas são pasta comum.
+        assert_eq!(classify("Mangás/Séries Mangás"), Place::Catalog { media: MediaType::Manga, letter: None });
+        assert!(matches!(classify("Mangás/Séries Mangás/Letra P/Pluto"), Place::Title { media: MediaType::Manga, .. }));
+        assert_eq!(classify("Mangás/Revistas Antigas sobre Animes"), Place::Folder { path: "Mangás/Revistas Antigas sobre Animes".into() });
+        assert_eq!(classify("Mangás/Séries Mangás/Letra P"), Place::Catalog { media: MediaType::Manga, letter: Some("Letra P".into()) });
     }
 
     #[test]

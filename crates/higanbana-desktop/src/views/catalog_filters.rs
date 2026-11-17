@@ -18,15 +18,16 @@ use gpui_kit::component::{
     popover::Popover,
 };
 use higanbana_core::{
-    anilist::{MediaType, types::MediaSummary},
+    anilist::types::MediaSummary,
     anime_index::{IndexEntry, LETTERS},
     catalog_filter::{Filters, Season, Sort, Verdict, judge, sort_key_score, sort_key_year},
     library::{WorkKind, is_dated, join_path, split_path},
-    nuvem::{SearchKind, SearchResult},
+    nuvem::SearchResult,
 };
 
 use crate::{
     interact::{Button, Pointer},
+    series::Series,
     state::AppState,
 };
 
@@ -208,14 +209,15 @@ pub fn filtered_works(works: &[Work], f: &Filters, sort: Sort) -> Vec<IndexEntry
     found.into_iter().map(|w| w.entry.clone()).collect()
 }
 
-/// Resultados da busca na nuvem que são obras dentro de franquias (`Animes/Letra/Franquia/[Ano] Obra`).
+/// Resultados da busca na nuvem que são obras dentro de franquias da seção (`<raiz>/Letra/Franquia/[Ano] Obra`).
 /// Pastas mais fundas (versões, extras, episódios) e subpastas sem ano ficam de fora.
-pub fn franchise_results(results: Vec<SearchResult>) -> Vec<SearchResult> {
+pub fn franchise_results(results: Vec<SearchResult>, series: Series) -> Vec<SearchResult> {
+    let depth = split_path(series.root).len() + 3;
     results
         .into_iter()
         .filter(|r| {
             let parts = split_path(&r.path);
-            r.kind == SearchKind::Anime && parts.len() == 4 && is_dated(parts[3])
+            r.kind == series.search_kind && parts.len() == depth && is_dated(parts[depth - 1])
         })
         .collect()
 }
@@ -234,6 +236,7 @@ pub struct FiltersChanged;
 
 pub struct FilterBar {
     state: Entity<AppState>,
+    series: Series,
     /// Sem `query`: a busca fica na tela do catálogo.
     filters: Filters,
     sort: Sort,
@@ -249,8 +252,8 @@ impl EventEmitter<FiltersChanged> for FilterBar {}
 
 impl FilterBar {
     /// Começa com o que estava escolhido da última vez (guardado em `AppState`).
-    pub fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let saved = state.read(cx).catalog_choice().clone();
+    pub fn new(state: Entity<AppState>, series: Series, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let saved = state.read(cx).catalog_choice(series.media).clone();
         let filters = Filters { query: String::new(), ..saved.filters };
         let (from, to) = year_fields_text(filters.years);
         let year_from = cx.new(|cx| InputState::new(window, cx).placeholder("De").default_value(from));
@@ -261,7 +264,7 @@ impl FilterBar {
             }
         };
         let subs = vec![cx.subscribe(&year_from, on_year), cx.subscribe(&year_to, on_year)];
-        Self { state, filters, sort: saved.sort, year_from, year_to, menu: None, genres: None, _subs: subs }
+        Self { state, series, filters, sort: saved.sort, year_from, year_to, menu: None, genres: None, _subs: subs }
     }
 
     pub fn filters(&self) -> &Filters {
@@ -278,8 +281,8 @@ impl FilterBar {
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {
-        let (filters, sort) = (self.filters.clone(), self.sort);
-        self.state.update(cx, |s, _| s.save_catalog_filters(&filters, sort));
+        let (filters, sort, media) = (self.filters.clone(), self.sort, self.series.media);
+        self.state.update(cx, |s, _| s.save_catalog_filters(media, &filters, sort));
         cx.emit(FiltersChanged);
         cx.notify();
     }
@@ -318,12 +321,12 @@ impl FilterBar {
     /// Gêneros dos metadados de todas as letras já indexadas; refeito só quando chegam metadados.
     fn refresh_genres(&mut self, cx: &App) {
         let st = self.state.read(cx);
-        let progress = st.metadata_progress();
+        let progress = st.metadata_progress(self.series.media);
         if self.genres.as_ref().is_some_and(|(k, _)| *k == progress) {
             return;
         }
-        let letters: Vec<_> = LETTERS.iter().filter_map(|l| st.anime_letter(l)).collect();
-        let metas = letters.iter().flat_map(|l| l.iter()).filter_map(|e| st.lookup_ref(&e.name, MediaType::Anime).flatten());
+        let letters: Vec<_> = LETTERS.iter().filter_map(|l| st.catalog_letter(self.series.media, l)).collect();
+        let metas = letters.iter().flat_map(|l| l.iter()).filter_map(|e| st.lookup_ref(&e.name, self.series.media).flatten());
         self.genres = Some((progress, loaded_genres(metas)));
     }
 
@@ -478,11 +481,11 @@ impl Render for FilterBar {
             .flex_wrap()
             .items_center()
             .gap_2()
-            .child(kind_menu)
+            .when(self.series.kind_filter, |d| d.child(kind_menu))
             .child(genre_menu)
             .child(year_menu)
-            .child(season_menu)
-            .child(
+            .when(self.series.season_filter, |d| d.child(season_menu))
+            .when(self.series.dubbed_filter, |d| d.child(
                 Button::new("catalog-filter:dubbed")
                     .outline()
                     .small()
@@ -492,7 +495,7 @@ impl Render for FilterBar {
                         b.filters.dubbed = !b.filters.dubbed;
                         b.changed(cx);
                     })),
-            )
+            ))
             .when(active, |d| {
                 d.child(div().w_px().h_5().mx_1().bg(theme.border))
                     .children(chips)
@@ -519,13 +522,14 @@ pub fn sort_menu(bar: &Entity<FilterBar>, cx: &App) -> impl IntoElement {
 }
 
 /// Menu das coleções de `root` (pastas fora das letras); cada uma abre como estante.
-pub fn collections_menu(state: &Entity<AppState>, root: &'static str, cx: &App) -> impl IntoElement {
-    let empty = state.read(cx).anime_collections().is_empty();
+pub fn collections_menu(state: &Entity<AppState>, series: Series, cx: &App) -> impl IntoElement {
+    let (media, root) = (series.media, series.root);
+    let empty = state.read(cx).catalog_collections(media).is_empty();
     let st = state.clone();
     let button = KitButton::new("catalog-collections").outline().label("Coleções").dropdown_caret(true).disabled(empty);
     Pointer::new(
         button.dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, cx| {
-            st.read(cx).anime_collections().into_iter().fold(menu.max_h(px(420.)).scrollable(true), |menu, name| {
+            st.read(cx).catalog_collections(media).into_iter().fold(menu.max_h(px(420.)).scrollable(true), |menu, name| {
                 let st = st.clone();
                 let target = join_path(root, &name);
                 menu.item(PopupMenuItem::new(name).on_click(move |_, _, cx| st.update(cx, |s, cx| s.go(target.clone(), cx))))
@@ -538,6 +542,7 @@ pub fn collections_menu(state: &Entity<AppState>, root: &'static str, cx: &App) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use higanbana_core::nuvem::SearchKind;
     use serde_json::json;
 
     fn summary(v: serde_json::Value) -> MediaSummary {
@@ -676,7 +681,8 @@ mod tests {
     #[test]
     fn keeps_works_inside_franchises() {
         let r = |path: &str, kind| SearchResult { name: path.rsplit('/').next().unwrap().into(), path: path.into(), kind };
-        let found = franchise_results(vec![
+        let found = franchise_results(
+            vec![
             r("Animes/Letra P/Precure", SearchKind::Anime),
             r("Animes/Letra P/Precure/[2010] Heartcatch Precure!", SearchKind::Anime),
             r("Mangas/Letra P/Precure/Vol 1", SearchKind::Manga),
@@ -686,8 +692,26 @@ mod tests {
             r("Animes/Letra P/Precure/[2010] Heartcatch Precure!/Extras", SearchKind::Anime),
             // Subpasta da franquia sem ano.
             r("Animes/Letra P/Precure/Extras", SearchKind::Anime),
-        ]);
+            ],
+            crate::series::ANIME,
+        );
         let paths: Vec<&str> = found.iter().map(|r| r.path.as_str()).collect();
         assert_eq!(paths, vec!["Animes/Letra P/Precure/[2010] Heartcatch Precure!", "/Animes/Letra H/Hunter x Hunter/[2011] Hunter x Hunter/"]);
     }
+}
+
+#[test]
+fn keeps_manga_works_inside_franchises() {
+    use higanbana_core::nuvem::SearchKind;
+    let r = |path: &str, kind| SearchResult { name: path.rsplit('/').next().unwrap().into(), path: path.into(), kind };
+    let found = franchise_results(
+        vec![
+            r("Mangás/Séries Mangás/Letra G/Gantz/[2000] Gantz", SearchKind::Manga),
+            r("Mangás/Séries Mangás/Letra G/Gantz", SearchKind::Manga),
+            r("Animes/Letra G/Gantz/[2004] Gantz", SearchKind::Anime),
+        ],
+        crate::series::MANGA,
+    );
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].path, "Mangás/Séries Mangás/Letra G/Gantz/[2000] Gantz");
 }

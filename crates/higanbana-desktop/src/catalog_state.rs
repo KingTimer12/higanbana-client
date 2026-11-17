@@ -1,5 +1,6 @@
-//! Estado do catálogo de Animes: índice de letras, metadados em segundo plano
-//! e pausa enquanto há vídeo tocando.
+//! Estado dos catálogos de séries (Animes, Mangás): índice de letras, metadados em
+//! segundo plano e pausa enquanto há vídeo tocando. Uma faixa por mídia; a tela é a
+//! mesma para todas (`views::catalog`, descrita por `series::Series`).
 
 use std::{
     cell::Cell,
@@ -13,6 +14,7 @@ use higanbana_core::{
     anilist::{MediaType, Priority, types::MediaSummary},
     anime_index::{IndexEntry, LETTERS},
     catalog_filter::{Filters, Sort},
+    library::CATALOG_MEDIA,
 };
 
 use crate::state::AppState;
@@ -30,9 +32,24 @@ const LETTER_COOLDOWN: Duration = Duration::from_secs(30);
 /// (letras carregadas, geração das respostas) e o `metadata_progress` medido com elas.
 type MetaProgress = ((usize, u64), (usize, usize));
 
-/// Campos do catálogo dentro de `AppState`.
-#[derive(Default)]
+/// Campos dos catálogos dentro de `AppState`.
 pub struct CatalogState {
+    lanes: HashMap<MediaType, Lane>,
+    playing: bool,
+    inner_works: HashMap<String, Vec<String>>,
+    /// Muda a cada `set_inner_works`.
+    inner_gen: u64,
+}
+
+impl Default for CatalogState {
+    fn default() -> Self {
+        Self { lanes: CATALOG_MEDIA.into_iter().map(|m| (m, Lane::default())).collect(), playing: false, inner_works: HashMap::new(), inner_gen: 0 }
+    }
+}
+
+/// Estado de um catálogo (uma mídia).
+#[derive(Default)]
+struct Lane {
     index_task: Option<Task<()>>,
     crawl_task: Option<Task<()>>,
     letter_tasks: HashMap<String, Task<()>>,
@@ -41,10 +58,6 @@ pub struct CatalogState {
     pending: Vec<String>,
     /// Nomes que o rastreio pediu e ainda não tiveram resposta.
     crawl_sent: HashSet<String>,
-    playing: bool,
-    inner_works: HashMap<String, Vec<String>>,
-    /// Muda a cada `set_inner_works`.
-    inner_gen: u64,
     /// `metadata_progress` em cache: (letras carregadas, geração das respostas) → resultado.
     meta_progress: Cell<Option<MetaProgress>>,
     /// Filtros, ordenação e busca do catálogo: sobrevivem a abrir uma obra e voltar.
@@ -104,21 +117,29 @@ pub fn may_retry(failed_at: Option<Instant>, now: Instant, cooldown: Duration) -
 }
 
 impl AppState {
+    fn cat_lane(&self, media: MediaType) -> &Lane {
+        &self.cat.lanes[&media]
+    }
+
+    fn cat_lane_mut(&mut self, media: MediaType) -> &mut Lane {
+        self.cat.lanes.entry(media).or_default()
+    }
+
     /// Idempotente: lista a raiz e indexa as letras no runtime do core.
-    pub fn start_anime_index(&mut self, cx: &mut Context<Self>) {
-        if self.cat.index_task.is_some() {
+    pub fn start_index(&mut self, media: MediaType, cx: &mut Context<Self>) {
+        if self.cat_lane(media).index_task.is_some() {
             return;
         }
         let core = self.core.clone();
-        self.cat.index_task = Some(cx.spawn(async move |this, cx| {
+        let task = cx.spawn(async move |this, cx| {
             // Progresso e pausa da nuvem (429): mudou, redesenha.
-            let look = |core: &higanbana_core::Core| (core.anime_index().progress(), core.cloud().backing_off_until().is_some());
+            let look = |core: &higanbana_core::Core| (core.section_index(media).progress(), core.cloud().backing_off_until().is_some());
             let mut shown = look(&core);
             loop {
                 let c = core.clone();
                 let task = core.spawn(async move {
-                    c.anime_index().root(c.cloud()).await?;
-                    c.anime_index().fill_all(c.cloud()).await
+                    c.section_index(media).root(c.cloud()).await?;
+                    c.section_index(media).fill_all(c.cloud()).await
                 });
                 while !task.is_finished() {
                     cx.background_executor().timer(PROGRESS_EVERY).await;
@@ -138,7 +159,7 @@ impl AppState {
                 shown = now;
                 let updated = this.update(cx, |s, cx| {
                     // Terminou: libera a vaga para reabrir o catálogo recomeçar depois do vencimento (12 h).
-                    if finished && let Some(task) = s.cat.index_task.take() {
+                    if finished && let Some(task) = s.cat_lane_mut(media).index_task.take() {
                         task.detach();
                     }
                     if changed {
@@ -150,57 +171,58 @@ impl AppState {
                 }
                 cx.background_executor().timer(INDEX_RETRY).await;
             }
-        }));
+        });
+        self.cat_lane_mut(media).index_task = Some(task);
     }
 
-    pub fn anime_letter(&self, letter: &str) -> Option<Arc<Vec<IndexEntry>>> {
-        self.core.anime_index().loaded(letter)
+    pub fn catalog_letter(&self, media: MediaType, letter: &str) -> Option<Arc<Vec<IndexEntry>>> {
+        self.core.section_index(media).loaded(letter)
     }
 
     /// Prioriza uma letra ainda não indexada. Depois de uma falha, só tenta de novo após o período de espera.
-    pub fn want_anime_letter(&mut self, letter: &str, cx: &mut Context<Self>) {
-        if self.anime_letter(letter).is_some() || self.cat.letter_tasks.contains_key(letter) {
+    pub fn want_catalog_letter(&mut self, media: MediaType, letter: &str, cx: &mut Context<Self>) {
+        if self.catalog_letter(media, letter).is_some() || self.cat_lane(media).letter_tasks.contains_key(letter) {
             return;
         }
-        let failed_at = self.cat.letter_failed.get(letter).map(|(at, _)| *at);
+        let failed_at = self.cat_lane(media).letter_failed.get(letter).map(|(at, _)| *at);
         if !may_retry(failed_at, Instant::now(), LETTER_COOLDOWN) {
             return;
         }
-        self.cat.letter_failed.remove(letter);
+        self.cat_lane_mut(media).letter_failed.remove(letter);
         let core = self.core.clone();
         let name = letter.to_owned();
-        self.cat.letter_tasks.insert(
-            name.clone(),
-            cx.spawn(async move |this, cx| {
-                let c = core.clone();
-                let n = name.clone();
-                let result = match core.spawn(async move { c.anime_index().letter(c.cloud(), &n).await }).await {
-                    Ok(r) => r.map(|_| ()),
-                    Err(e) => Err(e.to_string()),
-                };
-                let _ = this.update(cx, |s, cx| {
-                    s.cat.letter_tasks.remove(&name);
-                    // A falha fica guardada: o aviso aparece, mas o novo pedido espera o período.
-                    if let Err(e) = result {
-                        s.cat.letter_failed.insert(name, (Instant::now(), e));
-                    }
-                    cx.notify();
-                });
-            }),
-        );
+        let key = name.clone();
+        let task = cx.spawn(async move |this, cx| {
+            let c = core.clone();
+            let n = name.clone();
+            let result = match core.spawn(async move { c.section_index(media).letter(c.cloud(), &n).await }).await {
+                Ok(r) => r.map(|_| ()),
+                Err(e) => Err(e.to_string()),
+            };
+            let _ = this.update(cx, |s, cx| {
+                let lane = s.cat_lane_mut(media);
+                lane.letter_tasks.remove(&name);
+                // A falha fica guardada: o aviso aparece, mas o novo pedido espera o período.
+                if let Err(e) = result {
+                    lane.letter_failed.insert(name, (Instant::now(), e));
+                }
+                cx.notify();
+            });
+        });
+        self.cat_lane_mut(media).letter_tasks.insert(key, task);
     }
 
     /// Último erro ao carregar a letra, enquanto estiver no período de espera.
-    pub fn anime_letter_error(&self, letter: &str) -> Option<String> {
-        self.cat.letter_failed.get(letter).map(|(_, e)| e.clone())
+    pub fn catalog_letter_error(&self, media: MediaType, letter: &str) -> Option<String> {
+        self.cat_lane(media).letter_failed.get(letter).map(|(_, e)| e.clone())
     }
 
-    pub fn anime_collections(&self) -> Vec<String> {
-        self.core.anime_index().collections()
+    pub fn catalog_collections(&self, media: MediaType) -> Vec<String> {
+        self.core.section_index(media).collections()
     }
 
-    pub fn index_progress(&self) -> (usize, usize) {
-        self.core.anime_index().progress()
+    pub fn index_progress(&self, media: MediaType) -> (usize, usize) {
+        self.core.section_index(media).progress()
     }
 
     /// Até quando a nuvem pediu pausa (HTTP 429), se ainda estiver em vigor.
@@ -209,11 +231,11 @@ impl AppState {
     }
 
     /// Enfileira aos poucos os nomes das letras que chegam (um lote de 18 por vez, em segundo plano); não roda com vídeo.
-    pub fn start_metadata_crawl(&mut self, cx: &mut Context<Self>) {
-        if self.cat.crawl_task.is_some() {
+    pub fn start_metadata_crawl(&mut self, media: MediaType, cx: &mut Context<Self>) {
+        if self.cat_lane(media).crawl_task.is_some() {
             return;
         }
-        self.cat.crawl_task = Some(cx.spawn(async move |this, cx| {
+        let task = cx.spawn(async move |this, cx| {
             // Pausa do AniList começou ou acabou (429 vindo de qualquer pedido): redesenha
             // para o aviso do contador aparecer na hora.
             let mut paused = false;
@@ -225,7 +247,7 @@ impl AppState {
                         paused = now;
                         cx.notify();
                     }
-                    s.crawl_step(cx)
+                    s.crawl_step(media, cx)
                 }) else {
                     return;
                 };
@@ -233,53 +255,63 @@ impl AppState {
                     return;
                 }
             }
-        }));
+        });
+        self.cat_lane_mut(media).crawl_task = Some(task);
     }
 
     /// Uma rodada; `true` quando não há mais nada a fazer. Espera a resposta
     /// do lote anterior (no máximo um lote do rastreio em andamento) e fica
     /// parado enquanto a escolha da tela não precisa de metadados.
-    fn crawl_step(&mut self, cx: &mut Context<Self>) -> bool {
-        if !crawl_wanted(&self.cat.view) || self.cat.playing || self.lookups_busy() {
+    fn crawl_step(&mut self, media: MediaType, cx: &mut Context<Self>) -> bool {
+        if !crawl_wanted(&self.cat_lane(media).view) || self.cat.playing || self.lookups_busy() {
             return false;
         }
         for letter in LETTERS {
-            if self.cat.crawled.contains(letter) {
+            if self.cat_lane(media).crawled.contains(letter) {
                 continue;
             }
-            if let Some(entries) = self.anime_letter(letter) {
-                self.cat.crawled.insert(letter.to_owned());
-                self.cat.pending.extend(entries.iter().map(|e| e.name.clone()));
+            if let Some(entries) = self.catalog_letter(media, letter) {
+                let lane = self.cat_lane_mut(media);
+                lane.crawled.insert(letter.to_owned());
+                lane.pending.extend(entries.iter().map(|e| e.name.clone()));
             }
         }
-        for name in next_crawl_batch(&mut self.cat.pending, CRAWL_BATCH) {
-            if self.want_lookup_with(&name, MediaType::Anime, Priority::Background, cx) {
-                self.cat.crawl_sent.insert(name);
+        for name in next_crawl_batch(&mut self.cat_lane_mut(media).pending, CRAWL_BATCH) {
+            if self.want_lookup_with(&name, media, Priority::Background, cx) {
+                self.cat_lane_mut(media).crawl_sent.insert(name);
             }
         }
-        self.cat.pending.is_empty() && self.cat.crawl_sent.is_empty() && self.cat.crawled.len() == LETTERS.len()
+        let lane = self.cat_lane(media);
+        lane.pending.is_empty() && lane.crawl_sent.is_empty() && lane.crawled.len() == LETTERS.len()
     }
 
-    /// Resposta de um lote: nomes do rastreio num lote que falhou voltam à fila.
-    pub(crate) fn crawl_lookups_done(&mut self, names: &[String], failed: bool) {
-        settle_crawl(&mut self.cat.pending, &mut self.cat.crawl_sent, names, failed);
+    /// Resposta de um lote: nomes do rastreio num lote que falhou voltam à fila da mídia deles.
+    pub(crate) fn crawl_lookups_done(&mut self, keys: &[(MediaType, String)], failed: bool) {
+        for media in CATALOG_MEDIA {
+            let names: Vec<String> = keys.iter().filter(|(m, _)| *m == media).map(|(_, n)| n.clone()).collect();
+            if !names.is_empty() {
+                let lane = self.cat_lane_mut(media);
+                settle_crawl(&mut lane.pending, &mut lane.crawl_sent, &names, failed);
+            }
+        }
     }
 
     /// Nomes resolvidos / total de nomes no índice. Recontado só quando chega letra ou resposta.
-    pub fn metadata_progress(&self) -> (usize, usize) {
+    pub fn metadata_progress(&self, media: MediaType) -> (usize, usize) {
         // Chamado a cada quadro: no acerto do cache só conta as letras, sem montar lista.
-        let loaded = LETTERS.iter().filter(|l| self.anime_letter(l).is_some()).count();
+        let loaded = LETTERS.iter().filter(|l| self.catalog_letter(media, l).is_some()).count();
         let key = (loaded, self.lookups_gen());
-        if let Some((k, progress)) = self.cat.meta_progress.get()
+        let cache = &self.cat_lane(media).meta_progress;
+        if let Some((k, progress)) = cache.get()
             && k == key
         {
             return progress;
         }
-        let letters: Vec<Arc<Vec<IndexEntry>>> = LETTERS.iter().filter_map(|l| self.anime_letter(l)).collect();
+        let letters: Vec<Arc<Vec<IndexEntry>>> = LETTERS.iter().filter_map(|l| self.catalog_letter(media, l)).collect();
         let entries = letters.iter().flat_map(|l| l.iter());
         let total = letters.iter().map(|l| l.len()).sum();
-        let resolved = entries.filter(|e| self.lookup_ref(&e.name, MediaType::Anime).is_some()).count();
-        self.cat.meta_progress.set(Some((key, (resolved, total))));
+        let resolved = entries.filter(|e| self.lookup_ref(&e.name, media).is_some()).count();
+        cache.set(Some((key, (resolved, total))));
         (resolved, total)
     }
 
@@ -299,29 +331,30 @@ impl AppState {
     }
 
     /// Filtros, ordenação e busca guardados da última vez na tela do catálogo.
-    pub fn catalog_choice(&self) -> &CatalogChoice {
-        &self.cat.view
+    pub fn catalog_choice(&self, media: MediaType) -> &CatalogChoice {
+        &self.cat_lane(media).view
     }
 
     /// Guarda os filtros e a ordenação (a busca fica como está).
-    pub fn save_catalog_filters(&mut self, filters: &Filters, sort: Sort) {
-        let query = std::mem::take(&mut self.cat.view.filters.query);
-        self.cat.view = CatalogChoice { filters: Filters { query, ..filters.clone() }, sort, place: self.cat.view.place };
+    pub fn save_catalog_filters(&mut self, media: MediaType, filters: &Filters, sort: Sort) {
+        let view = &mut self.cat_lane_mut(media).view;
+        let query = std::mem::take(&mut view.filters.query);
+        *view = CatalogChoice { filters: Filters { query, ..filters.clone() }, sort, place: view.place };
     }
 
-    pub fn save_catalog_query(&mut self, query: &str) {
-        query.clone_into(&mut self.cat.view.filters.query);
+    pub fn save_catalog_query(&mut self, media: MediaType, query: &str) {
+        query.clone_into(&mut self.cat_lane_mut(media).view.filters.query);
     }
 
-    pub fn save_catalog_place(&mut self, place: CatalogPlace) {
-        self.cat.view.place = place;
+    pub fn save_catalog_place(&mut self, media: MediaType, place: CatalogPlace) {
+        self.cat_lane_mut(media).view.place = place;
     }
 
-    pub fn inner_summaries(&self, title_path: &str) -> Vec<MediaSummary> {
+    pub fn inner_summaries(&self, media: MediaType, title_path: &str) -> Vec<MediaSummary> {
         self.cat
             .inner_works
             .get(title_path)
-            .map(|names| names.iter().filter_map(|n| self.lookup(n, MediaType::Anime).flatten()).collect())
+            .map(|names| names.iter().filter_map(|n| self.lookup(n, media).flatten()).collect())
             .unwrap_or_default()
     }
 }

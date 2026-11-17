@@ -10,6 +10,7 @@ mod interact;
 mod motion;
 mod music;
 mod reader;
+mod series;
 mod state;
 mod theme;
 mod ui;
