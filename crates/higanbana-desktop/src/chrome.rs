@@ -404,29 +404,30 @@ pub fn sidebar(state: &Entity<AppState>, sections: &[String], cx: &mut App) -> i
     let collapsed = s.sidebar_collapsed();
     let entries = nav_entries(sections);
     let active = if current.is_empty() { None } else { active_nav(&entries, path) };
-    let item = |i: usize, e: &NavEntry| SidebarMenuItem::new(e.label.clone()).icon(e.icon).active(active == Some(i)).on_click(go(e.target.to_string()));
+    let item = |i: usize, e: &NavEntry, label: SharedString| SidebarMenuItem::new(label).icon(e.icon).active(active == Some(i)).on_click(go(e.target.to_string()));
 
-    // Acervo: as seções com conteúdo; Mangás abre um submenu com Séries e Revistas.
+    // Acervo: as seções com conteúdo. Seção com mais de um destino (Mangás: Séries
+    // e Revistas) vira um grupo próprio, como Nuvem, logo depois do Acervo.
     let mut library = SidebarMenu::new().child(SidebarMenuItem::new("Início").icon(IconName::House).active(current.is_empty()).on_click(go(String::new())));
+    let mut sections_groups: Vec<(String, SidebarMenu)> = Vec::new();
     let mut cloud = SidebarMenu::new();
     let mut ix = 0;
     while ix < entries.len() {
         let e = &entries[ix];
         let kids: Vec<usize> = (ix..entries.len()).take_while(|j| entries[*j].section == e.section).collect();
-        let node = if kids.len() > 1 {
-            let open = kids.iter().any(|j| active == Some(*j));
-            SidebarMenuItem::new(section_label(&e.section))
-                .icon(e.icon)
-                // Recolhida, o pai representa os filhos: destaca e abre o primeiro.
-                .active(collapsed && open)
-                .on_click(go(e.target.to_string()))
-                .default_open(true)
-                .click_to_open(true)
-                .children(kids.iter().map(|j| item(*j, &entries[*j])))
+        if kids.len() > 1 {
+            // Dentro do grupo "Mangás", o destino principal se chama "Séries".
+            let menu = kids.iter().fold(SidebarMenu::new(), |menu, j| {
+                let k = &entries[*j];
+                let label = if k.label == k.section { SharedString::from("Séries") } else { k.label.clone() };
+                menu.child(item(*j, k, label))
+            });
+            sections_groups.push((section_label(&e.section), menu));
+        } else if is_library_section(&e.section) {
+            library = library.child(item(ix, e, e.label.clone()));
         } else {
-            item(ix, e)
-        };
-        if is_library_section(&e.section) { library = library.child(node) } else { cloud = cloud.child(node) }
+            cloud = cloud.child(item(ix, e, e.label.clone()));
+        }
         ix += kids.len().max(1);
     }
 
@@ -478,6 +479,7 @@ pub fn sidebar(state: &Entity<AppState>, sections: &[String], cx: &mut App) -> i
         .collapsed(collapsed)
         .header(header)
         .child(SidebarGroup::new("Acervo").child(library))
+        .children(sections_groups.into_iter().map(|(label, menu)| SidebarGroup::new(label).child(menu)))
         .when(!cloud_is_empty(sections), |s| s.child(SidebarGroup::new("Nuvem").child(cloud)))
         .footer(footer)
 }
