@@ -1,6 +1,6 @@
 // Um núcleo de mentira, com um acervo pequeno e fixo: para os testes das
 // telas e para olhar o app no desktop sem conta nem rede da nuvem.
-import type { Backend, Episode, Media, User, Work } from "../lib/backend";
+import type { AppUpdate, Backend, Episode, Media, User, Work } from "../lib/backend";
 
 const USER: User = { name: "Aaron", avatar: null };
 const SAMPLE_VIDEO = "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
@@ -91,9 +91,13 @@ function work(path: string): Work {
 }
 
 
-/** Um backend com dados fixos. `signedIn: false` começa na tela de login. */
-export function fakeBackend(options: { signedIn: boolean }): Backend {
+/** Uma versão nova de mentira, oferecida quando o fixture pede (`update: true`). */
+const UPDATE: AppUpdate = { version: "0.2.0", notes: "- Mangás no celular", size: 64 * 1024 * 1024 };
+
+/** Um backend com dados fixos. `signedIn: false` começa na tela de login; `update: true` oferece uma versão nova. */
+export function fakeBackend(options: { signedIn: boolean; update?: boolean }): Backend {
   let user: User | null = options.signedIn ? USER : null;
+  let downloaded = 0;
   const saved: Record<string, { position: number; duration: number }> = {};
   return {
     user: async () => user,
@@ -170,5 +174,13 @@ export function fakeBackend(options: { signedIn: boolean }): Backend {
       },
     ],
     setPlaying: () => {},
+
+    version: () => "0.1.0",
+    checkUpdate: async () => (options.update ? UPDATE : null),
+    downloadUpdate: async () => {
+      downloaded = 1;
+    },
+    updateProgress: () => downloaded,
+    installUpdate: async () => downloaded === 1,
   };
 }

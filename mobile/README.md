@@ -86,8 +86,26 @@ Para forçar o decodificador (ex.: software num aparelho cujo hardware falha):
 adb shell am start -n dev.kingtimer12.higanbana/.MainActivity --es hwdec no
 ```
 
+## Versão e atualização
+
+A versão é o arquivo `VERSION` da raiz, a mesma do desktop: o Gradle tira dela o `versionName` e o
+`versionCode` (`1.2.3` vira 1002003), e o app a mostra no menu da conta e na tela de login
+(`Updates.version()`).
+
+Ao abrir, o app procura no GitHub Releases o `Higanbana-<versão>-android.apk` mais novo
+(`src/updates.rs`, sobre `higanbana_core::update`). Se há, o início mostra o aviso; “Atualizar” baixa o
+APK para o cache, confere o SHA-256 contra o `SHA256SUMS` da release e chama
+`openUrl("higanbana://update/install?file=...")`, que o host (`update/UpdateInstaller.java`) troca pelo
+instalador de pacotes do Android via `FileProvider`. A pessoa confirma a instalação (e, na primeira vez,
+permite instalar apps do Higanbana).
+
+O Android só instala por cima um APK assinado com a mesma chave: as releases saem do CI
+(`.github/workflows/release.yml`, job `android`) com a keystore dos secrets `ANDROID_KEYSTORE_*`. Um APK
+instalado com a chave de debug precisa ser desinstalado uma vez antes da primeira versão do CI.
+
 ## O que falta
 
 - iOS: o `Video` do NSH (AVPlayer) não abre mkv; precisa do mesmo componente com libmpv/MPVKit.
 - Mangás, música e downloads ficaram fora desta etapa. Os episódios já trazem título e miniatura do TMDB (chaves `TMDB_TOKEN`/`TMDB_KEY` no `.env`, como no desktop).
 - Depois do login no navegador é preciso voltar ao app à mão.
+- iOS não se atualiza pelo app (lá a distribuição é pela loja ou TestFlight).

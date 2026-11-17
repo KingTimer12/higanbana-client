@@ -24,6 +24,11 @@ public final class NshHost {
         view.setLimits(0, 0, 30_000, 15_000, 0);
     }
 
+    /** Quem atende o {@code openUrl} das telas antes do sistema ({@code true}: atendeu). */
+    public void onOpenUrl(NshView.OpenUrlHandler handler) {
+        view.setOpenUrlHandler(handler);
+    }
+
     public void register(String name, NshComponent.Factory factory) {
         view.registerComponent(name, factory);
     }

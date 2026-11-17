@@ -1,5 +1,6 @@
 import { Text, View } from "nsh";
 import { GhostButton, OutlineButton, PrimaryButton } from "../components/ui";
+import { backend } from "../lib/backend";
 import { cancelSignIn, isLoginPending, loginFailure, reopenLogin, signIn } from "../store";
 
 /** Entrada do app para quem não tem sessão: login pelo Discord no navegador. */
@@ -31,6 +32,10 @@ export function Login() {
           <GhostButton label="Cancelar" onPress={cancelSignIn} />
         </View>
       </If>
+
+      <View class="absolute inset-x-0 bottom-0 items-center pb-[calc(env(safe-area-inset-bottom)+16px)]">
+        <Text class="text-xs tabular-nums text-faint">Versão {backend().version()}</Text>
+      </View>
     </View>
   );
 }

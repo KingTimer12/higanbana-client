@@ -3,9 +3,10 @@ import { Button, Menu, MenuItem } from "nsh/base";
 import { EpisodeFrame } from "../components/Episode";
 import { Discover, Highlights } from "../components/Showcase";
 import { TAB_BAR_CLEARANCE } from "../components/TabBar";
+import { UpdateBanner } from "../components/UpdateBanner";
 import { IconButton, SectionTitle, TabHeader } from "../components/ui";
 import { backend, type Resume, type User } from "../lib/backend";
-import { nav, sessionState, signOut } from "../store";
+import { checkForUpdate, currentUpdate, installUpdate, nav, sessionState, signOut } from "../store";
 
 const resume = signal<Resume[]>([]);
 
@@ -16,6 +17,28 @@ export function refreshResume() {
   } catch {
     resume.set([]);
   }
+}
+
+/** O item de atualização do menu: procurar, ou instalar a versão já achada. */
+function updateLabel() {
+  const state = currentUpdate();
+  switch (state.status) {
+    case "checking":
+      return "Procurando atualizações…";
+    case "available":
+    case "ready":
+      return `Atualizar para ${state.update.version}`;
+    case "downloading":
+      return `Baixando ${state.update.version}…`;
+    default:
+      return "Procurar atualizações";
+  }
+}
+
+function updateAction() {
+  const status = currentUpdate().status;
+  if (status === "available" || status === "ready") installUpdate();
+  else checkForUpdate(true);
 }
 
 function AccountMenu(props: { user: User }) {
@@ -39,9 +62,15 @@ function AccountMenu(props: { user: User }) {
         </View>
       }
     >
+      <MenuItem onSelect={updateAction} class="min-h-11 justify-center rounded-(--radius) px-3 py-2 active:bg-accent">
+        <Text class="text-base text-popover-foreground">{updateLabel()}</Text>
+      </MenuItem>
       <MenuItem onSelect={signOut} class="min-h-11 justify-center rounded-(--radius) px-3 py-2 active:bg-accent">
         <Text class="text-base text-popover-foreground">Sair</Text>
       </MenuItem>
+      <View class="mt-1 border-t border-border px-3 pt-2 pb-1">
+        <Text class="text-xs tabular-nums text-muted-foreground">Higanbana {backend().version()}</Text>
+      </View>
     </Menu>
   );
 }
@@ -104,6 +133,7 @@ export function Home() {
         }
       />
       <Scroll class="flex-1" contentClass={`gap-8 pt-2 ${TAB_BAR_CLEARANCE}`} testID="home">
+        <UpdateBanner />
         <Highlights list={highlights()} state={highlights.state()} error={highlights.error()} onRetry={highlights.refetch} />
         <ContinueRow />
         {/* As listas do descobrir esperam os destaques: dividem o saldo de listagens da nuvem. */}

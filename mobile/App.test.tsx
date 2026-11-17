@@ -94,3 +94,30 @@ test("a barra de abas troca de seção e guarda o estado da aba", async () => {
   await app.press("id:tab-home");
   await app.waitFor("Continuar assistindo");
 });
+
+test("a tela de login mostra a versão instalada", async () => {
+  const app = await open("./FixtureSignedOut.tsx");
+  await app.waitFor("Versão 0.1.0");
+});
+
+test("sem versão nova, o início não mostra aviso", async () => {
+  const app = await open("./Fixture.tsx");
+  await app.waitFor(highlightsHeading());
+  expect(app.texts()).not.toContain("Versão 0.2.0 disponível");
+});
+
+test("a versão nova aparece no início, baixa e abre o instalador", async () => {
+  const app = await open("./FixtureUpdate.tsx");
+  await app.waitFor("Versão 0.2.0 disponível");
+  await app.press("Atualizar");
+  await app.waitFor("Pronta para instalar.");
+  expect(app.texts()).not.toContain("Não foi possível abrir o instalador.");
+});
+
+test("o aviso de versão nova pode ser fechado", async () => {
+  const app = await open("./FixtureUpdate.tsx");
+  await app.waitFor("Versão 0.2.0 disponível");
+  await app.press("label:Agora não");
+  await app.waitFor(highlightsHeading());
+  expect(app.texts()).not.toContain("Versão 0.2.0 disponível");
+});

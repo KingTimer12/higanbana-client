@@ -8,6 +8,7 @@ import check from "../assets/icons/check.svg";
 import chevron from "../assets/icons/chevron.svg";
 import clapperboard from "../assets/icons/clapperboard.svg";
 import close from "../assets/icons/close.svg";
+import download from "../assets/icons/download.svg";
 import drama from "../assets/icons/drama.svg";
 import folderCheck from "../assets/icons/folder-check.svg";
 import forward from "../assets/icons/forward.svg";
@@ -30,6 +31,7 @@ const ICONS = {
   chevron,
   clapperboard,
   close,
+  download,
   drama,
   "folder-check": folderCheck,
   forward,
@@ -170,6 +172,19 @@ export function WatchBar(props: { value: number; class?: string }) {
       class={props.class}
       trackClass="h-1 overflow-hidden rounded-full bg-on-video/20"
       indicatorClass="h-1 rounded-full bg-primary"
+    />
+  );
+}
+
+/** Quanto de um trabalho longo (um download) já foi feito. */
+export function ProgressBar(props: { value: number; label: string; class?: string }) {
+  return (
+    <Progress
+      value={props.value}
+      accessibilityLabel={props.label}
+      class={props.class}
+      trackClass="h-1.5 overflow-hidden rounded-full bg-muted"
+      indicatorClass="h-1.5 rounded-full bg-primary"
     />
   );
 }

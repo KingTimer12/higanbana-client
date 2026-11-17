@@ -1,9 +1,10 @@
 // O núcleo de verdade: o crate Rust do app (`src/lib.rs`), que fala com a
 // nuvem, o AniList e guarda sessão e progresso.
 import process from "process";
-import { platform } from "nsh";
-import { Account, Catalog, Library, Player } from "higanbana/native";
+import { openUrl, platform } from "nsh";
+import { Account, Catalog, Library, Player, Updates } from "higanbana/native";
 import type {
+  AppUpdate,
   Backend,
   Chapter,
   Episode,
@@ -26,6 +27,8 @@ export function nativeBackend(): Backend {
   // sistema, as mesmas do app desktop (mesma sessão e progresso).
   // `process.dataDir` é nulo na sessão do `nsh dev` no Android; aí o crate usa a pasta do app.
   Account.start(platform.desktop ? null : process.dataDir);
+  // O endereço do arquivo baixado; o host Android o troca pelo instalador de pacotes.
+  let installer: string | null = null;
   return {
     user: () => Account.user() as Promise<User | null>,
     login: () => Account.login() as Promise<User>,
@@ -59,5 +62,13 @@ export function nativeBackend(): Backend {
       Player.skipTimes(chapters, duration, malId, episode) as Promise<SkipTimes>,
     continueWatching: () => Player.continueWatching() as Resume[],
     setPlaying: (playing) => Player.setPlaying(playing),
+
+    version: () => Updates.version(),
+    checkUpdate: () => Updates.check() as Promise<AppUpdate | null>,
+    downloadUpdate: async () => {
+      installer = await Updates.download();
+    },
+    updateProgress: () => Updates.progress(),
+    installUpdate: async () => installer !== null && (await openUrl(installer)).opened,
   };
 }

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- O que o FileProvider entrega: só a pasta onde o núcleo grava o APK da atualização
+     (`<getFilesDir()>/nsh/<id do app>/cache/update/`, ver mobile/src/updates.rs). -->
+<paths>
+    <files-path name="update" path="nsh/dev.kingtimer12.higanbana/cache/update/" />
+</paths>

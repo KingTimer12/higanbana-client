@@ -8,7 +8,7 @@ import { Player } from "./pages/Player";
 import { Search } from "./pages/Search";
 import { Tabs } from "./pages/Tabs";
 import { Title } from "./pages/Title";
-import { nav, restoreSession, type Route, sessionState } from "./store";
+import { checkForUpdate, nav, restoreSession, type Route, sessionState } from "./store";
 
 function page(route: Route) {
   switch (route.name) {
@@ -25,6 +25,8 @@ function page(route: Route) {
 
 export function Root() {
   restoreSession();
+  // Uma consulta por abertura; sem rede, segue calado.
+  checkForUpdate();
   return (
     <View class="flex-1 bg-background">
       <If when={sessionState().status === "loading"}>

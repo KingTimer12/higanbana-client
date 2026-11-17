@@ -2,12 +2,15 @@
 agp = "9.1.1"
 # Player: libmpv empacotado para Android (traz o kotlin-stdlib de que precisa).
 libmpv = "1.0.0"
+# FileProvider: entrega o APK da atualização ao instalador de pacotes.
+androidxCore = "1.13.1"
 junit = "4.13.2"
 junitVersion = "1.1.5"
 espressoCore = "3.5.1"
 
 [libraries]
 libmpv = { group = "dev.jdtech.mpv", name = "libmpv", version.ref = "libmpv" }
+androidx-core = { group = "androidx.core", name = "core", version.ref = "androidxCore" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
