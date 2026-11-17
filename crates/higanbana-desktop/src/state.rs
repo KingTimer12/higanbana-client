@@ -107,7 +107,7 @@ pub enum AppEvent {
 }
 
 /// `None` = ainda buscando; `Some(None)` = sem correspondência.
-type Answer = Option<Option<MediaSummary>>;
+type Answer = Option<Option<Arc<MediaSummary>>>;
 
 /// Respostas do AniList, um mapa por tipo de mídia: a consulta por `&str` não
 /// precisa montar uma chave `(MediaType, String)` a cada card desenhado.
@@ -560,7 +560,7 @@ impl AppState {
     // --- AniList em lote ---
 
     /// `None` = ainda buscando; `Some(None)` = sem correspondência.
-    pub fn lookup(&self, name: &str, media: MediaType) -> Option<Option<MediaSummary>> {
+    pub fn lookup(&self, name: &str, media: MediaType) -> Option<Option<Arc<MediaSummary>>> {
         self.lookups.get(media, name).cloned().flatten()
     }
 
@@ -571,7 +571,7 @@ impl AppState {
 
     /// Como `lookup`, sem copiar (para varrer o índice inteiro).
     pub fn lookup_ref(&self, name: &str, media: MediaType) -> Option<Option<&MediaSummary>> {
-        self.lookups.get(media, name).and_then(Option::as_ref).map(Option::as_ref)
+        self.lookups.get(media, name).and_then(Option::as_ref).map(Option::as_deref)
     }
 
     /// Até quando a faixa espera (falha de lote ou 429 pedido ao cliente).
@@ -678,7 +678,7 @@ impl AppState {
                             }
                             match v {
                                 Lookup::Found(v) => {
-                                    s.lookups.insert(key, Some(serde_json::from_value::<MediaSummary>(v).ok()));
+                                    s.lookups.insert(key, Some(serde_json::from_value::<MediaSummary>(v).ok().map(Arc::new)));
                                 }
                                 Lookup::NotFound => {
                                     s.lookups.insert(key, Some(None));

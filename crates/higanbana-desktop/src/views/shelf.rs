@@ -111,8 +111,7 @@ impl Render for ShelfView {
             Some(Err(e)) => empty_state(IconName::WifiOff, "Não foi possível abrir esta pasta", Some(e.clone().into()), cx),
             Some(Ok(_)) if titles.is_empty() => empty_state(IconName::Search, format!("Nenhum título com “{query}” em {name}"), None, cx),
             Some(Ok(_)) => div().grid().grid_cols(cols as u16).gap_x_5().gap_y_8().children(titles.into_iter().map(|t| {
-                let id = ElementId::Name(format!("title:{}", t.name).into());
-                title_card(id, &t.name, join_path(&self.path, &t.name), self.media, card_w, cx)
+                title_card("title", &t.name, &join_path(&self.path, &t.name), self.media, card_w, cx)
             })),
         };
         let count = match &self.listing {

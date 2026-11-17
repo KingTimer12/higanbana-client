@@ -354,7 +354,7 @@ impl AppState {
         self.cat
             .inner_works
             .get(title_path)
-            .map(|names| names.iter().filter_map(|n| self.lookup(n, media).flatten()).collect())
+            .map(|names| names.iter().filter_map(|n| self.lookup_ref(n, media).flatten().cloned()).collect())
             .unwrap_or_default()
     }
 }

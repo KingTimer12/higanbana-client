@@ -432,8 +432,7 @@ impl CatalogView {
         let grid = || div().grid().grid_cols(cols as u16).gap_x_5().gap_y_8();
         if let Body::Flat(works, range) = section.body {
             let cards = works[range].iter().map(|e| {
-                let id = ElementId::Name(format!("{}:{}", self.series.id_prefix(), e.path).into());
-                title_card(id, &e.name, e.path.clone(), self.series.media, card_w, cx)
+                title_card(self.series.id_prefix(), &e.name, &e.path, self.series.media, card_w, cx)
             });
             return div().w(px(width)).mx_auto().pt_8().child(grid().children(cards.collect::<Vec<_>>())).into_any_element();
         }
@@ -466,8 +465,7 @@ impl CatalogView {
                 .into_any_element(),
             Body::Entries(entries) => grid()
                 .children(entries.iter().map(|e| {
-                    let id = ElementId::Name(format!("{}:{}", self.series.id_prefix(), e.path).into());
-                    title_card(id, &e.name, e.path.clone(), self.series.media, card_w, cx)
+                    title_card(self.series.id_prefix(), &e.name, &e.path, self.series.media, card_w, cx)
                 }))
                 .into_any_element(),
             Body::Loading => grid()
@@ -682,7 +680,7 @@ impl CatalogView {
             let cards: Vec<_> = self
                 .franchise
                 .iter()
-                .map(|r| title_card(ElementId::Name(format!("franchise:{}", r.path).into()), &r.name, r.path.clone(), self.series.media, card_w, cx))
+                .map(|r| title_card("franchise", &r.name, &r.path, self.series.media, card_w, cx))
                 .collect();
             v_flex()
                 .pt_4()

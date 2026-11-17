@@ -73,3 +73,50 @@ mod tests {
         assert!(Assets.load("icons/nao-existe.svg").unwrap().is_none());
     }
 }
+
+thread_local! {
+    static INTERNED: std::cell::RefCell<rustc_hash::FxHashMap<Box<str>, SharedString>> = Default::default();
+}
+
+/// `SharedString` de um texto que se repete a cada quadro (nome e caminho de obra,
+/// id de card): a primeira vez aloca, as seguintes só consultam o mapa e copiam o
+/// ponteiro. Só para textos do acervo, que são finitos; nunca para texto digitado.
+pub fn interned(text: &str) -> SharedString {
+    INTERNED.with(|map| {
+        if let Some(s) = map.borrow().get(text) {
+            return s.clone();
+        }
+        let s = SharedString::from(text.to_owned());
+        map.borrow_mut().insert(text.into(), s.clone());
+        s
+    })
+}
+
+#[cfg(test)]
+mod interned_tests {
+    use super::*;
+
+    #[test]
+    fn same_text_shares_one_allocation() {
+        let a = interned("Animes/Letra B/B - The Beginning");
+        let b = interned("Animes/Letra B/B - The Beginning");
+        assert_eq!(a, b);
+        assert!(std::ptr::eq(a.as_ref().as_ptr(), b.as_ref().as_ptr()));
+    }
+}
+
+thread_local! {
+    static INTERNED_IDS: std::cell::RefCell<rustc_hash::FxHashMap<&'static str, rustc_hash::FxHashMap<Box<str>, gpui_kit::ElementId>>> = Default::default();
+}
+
+/// `ElementId` `"<prefixo>:<chave>"` sem montar a string a cada quadro (ver [`interned`]).
+pub fn interned_id(prefix: &'static str, key: &str) -> gpui_kit::ElementId {
+    INTERNED_IDS.with(|map| {
+        if let Some(id) = map.borrow().get(prefix).and_then(|m| m.get(key)) {
+            return id.clone();
+        }
+        let id = gpui_kit::ElementId::Name(format!("{prefix}:{key}").into());
+        map.borrow_mut().entry(prefix).or_default().insert(key.into(), id.clone());
+        id
+    })
+}

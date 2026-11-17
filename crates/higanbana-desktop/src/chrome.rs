@@ -404,7 +404,7 @@ pub fn sidebar(state: &Entity<AppState>, sections: &[String], cx: &mut App) -> i
     let collapsed = s.sidebar_collapsed();
     let entries = nav_entries(sections);
     let active = if current.is_empty() { None } else { active_nav(&entries, path) };
-    let item = |i: usize, e: &NavEntry| SidebarMenuItem::new(e.label.clone()).icon(e.icon.clone()).active(active == Some(i)).on_click(go(e.target.to_string()));
+    let item = |i: usize, e: &NavEntry| SidebarMenuItem::new(e.label.clone()).icon(e.icon).active(active == Some(i)).on_click(go(e.target.to_string()));
 
     // Acervo: as seções com conteúdo; Mangás abre um submenu com Séries e Revistas.
     let mut library = SidebarMenu::new().child(SidebarMenuItem::new("Início").icon(IconName::House).active(current.is_empty()).on_click(go(String::new())));
@@ -416,7 +416,7 @@ pub fn sidebar(state: &Entity<AppState>, sections: &[String], cx: &mut App) -> i
         let node = if kids.len() > 1 {
             let open = kids.iter().any(|j| active == Some(*j));
             SidebarMenuItem::new(section_label(&e.section))
-                .icon(e.icon.clone())
+                .icon(e.icon)
                 // Recolhida, o pai representa os filhos: destaca e abre o primeiro.
                 .active(collapsed && open)
                 .on_click(go(e.target.to_string()))

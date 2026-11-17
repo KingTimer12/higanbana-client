@@ -299,14 +299,14 @@ impl TitleView {
         self.season_name().unwrap_or_else(|| base_name(&self.title_path).to_owned())
     }
 
-    fn summary(&self, cx: &gpui_kit::App) -> Option<Option<MediaSummary>> {
+    fn summary(&self, cx: &gpui_kit::App) -> Option<Option<std::sync::Arc<MediaSummary>>> {
         self.state.read(cx).lookup(&self.lookup_name(), self.media_type)
     }
 
     fn media(&self, cx: &gpui_kit::App) -> Option<MediaSummary> {
         match &self.detail {
             Some(Some(d)) => Some(d.summary.clone()),
-            _ => self.summary(cx).flatten(),
+            _ => self.summary(cx).flatten().map(|m| (*m).clone()),
         }
     }
 

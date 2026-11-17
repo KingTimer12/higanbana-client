@@ -171,8 +171,8 @@ fn score_mark(score: i64, cx: &App) -> Div {
 
 pub struct PosterProps {
     pub id: ElementId,
-    pub name: String,
-    pub media: Option<MediaSummary>,
+    pub name: SharedString,
+    pub media: Option<std::sync::Arc<MediaSummary>>,
     pub loading: bool,
     pub width: Pixels,
     pub badge: bool,
@@ -198,7 +198,7 @@ pub fn poster(p: PosterProps, cx: &mut App) -> Stateful<Div> {
             .rounded(cx.theme().radius_lg)
             .into_any_element()
     } else {
-        cover(media, &p.name, Some(p.width), cx).into_any_element()
+        cover(media.map(|m| &**m), &p.name, Some(p.width), cx).into_any_element()
     };
     let meta = p.meta.unwrap_or_else(|| match (format.filter(|f| !f.is_empty()), year) {
         (Some(f), Some(y)) => format!("{f} · {y}"),
@@ -855,16 +855,19 @@ pub fn version_card(
         .when(!selected, |d| d.child(hover_layer("ring").border(theme.ring).radius(theme.radius_lg)))
 }
 
-/// Pôster de um título da nuvem numa grade: busca os metadados quando aparece
-/// na tela e abre `target` ao clicar.
-pub fn title_card(id: ElementId, name: &str, target: String, media: MediaType, width: Pixels, cx: &mut App) -> Div {
+/// Pôster de um título da nuvem numa grade: busca os metadados quando aparece na
+/// tela e abre o caminho ao clicar. Nome, caminho e id vêm do interner (`ui::interned`):
+/// redesenhar milhares de cards não aloca texto a cada quadro.
+pub fn title_card(prefix: &'static str, name: &str, path: &str, media: MediaType, width: Pixels, cx: &mut App) -> Div {
     let s = state(cx);
     let looked = s.read(cx).lookup(name, media);
     let loading = looked.is_none();
+    let name = crate::ui::interned(name);
+    let target = crate::ui::interned(path);
     let card = poster(
         PosterProps {
-            id,
-            name: name.to_owned(),
+            id: crate::ui::interned_id(prefix, path),
+            name: name.clone(),
             media: looked.flatten(),
             loading,
             width,
@@ -874,14 +877,15 @@ pub fn title_card(id: ElementId, name: &str, target: String, media: MediaType, w
         },
         cx,
     )
-    .on_click(move |_, _, cx| s.update(cx, |s, cx| s.go(target.clone(), cx)));
+    .on_click(move |_, _, cx| s.update(cx, |s, cx| s.go(target.to_string(), cx)));
     div()
         .relative()
         .child(card)
-        .when(loading, |d| d.child(when_visible(400., want_lookup(name.to_owned(), media))))
+        .when(loading, |d| d.child(when_visible(400., want_lookup(name, media))))
 }
 
-pub fn want_lookup(name: String, media: MediaType) -> impl FnOnce(&mut App) {
+pub fn want_lookup(name: impl Into<SharedString>, media: MediaType) -> impl FnOnce(&mut App) {
+    let name = name.into();
     move |cx| {
         state(cx).update(cx, |s: &mut AppState, cx| s.want_lookup(&name, media, cx));
     }
