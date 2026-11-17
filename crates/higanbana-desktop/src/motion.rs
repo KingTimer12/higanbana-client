@@ -22,11 +22,13 @@ pub const RISE_DISTANCE: f32 = 14.;
 pub const STAGGER_STEP: Duration = Duration::from_millis(40);
 pub const STAGGER_CAP: usize = 12;
 
-/// Desacelera no fim: o movimento chega devagar ao lugar.
+/// Desacelera no fim: o movimento chega devagar ao lugar (curva do kit).
 pub fn ease_out_cubic(t: f32) -> f32 {
-    let t = t.clamp(0., 1.);
-    1. - (1. - t).powi(3)
+    gpui_kit::component::animation::ease_out_cubic(t.clamp(0., 1.))
 }
+
+/// Quanto a página nova desliza ao entrar (px), no sentido da navegação.
+pub const PAGE_SHIFT: f32 = 16.;
 
 /// Desacelera passando um pouco do lugar e volta: algo que "desabrocha".
 /// Passa de 1 por volta de 5 % no meio do caminho e termina exatamente em 1.
@@ -43,7 +45,8 @@ pub fn enter(duration: Duration) -> Animation {
 
 /// Quanto o item `index` espera antes de começar a subir.
 pub fn stagger_delay(index: usize) -> Duration {
-    STAGGER_STEP * index.min(STAGGER_CAP) as u32
+    // Cascata do kit a partir do primeiro; o teto limita a espera de listas longas.
+    gpui_kit::base::Stagger::new(STAGGER_STEP, gpui_kit::base::StaggerOrigin::First).delay(index.min(STAGGER_CAP), STAGGER_CAP + 1)
 }
 
 /// Progresso (já com a curva) da entrada de um item que espera `delay` e sobe

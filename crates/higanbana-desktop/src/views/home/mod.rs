@@ -242,7 +242,7 @@ impl Render for HomeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let rem = f32::from(window.rem_size());
-        let width = content_width(window, 80. * rem);
+        let width = content_width(window, cx, 80. * rem);
         let name = self.state.read(cx).user.as_ref().map(|u| u.name.clone());
         let sections = self.sections(width, rem, cx);
 

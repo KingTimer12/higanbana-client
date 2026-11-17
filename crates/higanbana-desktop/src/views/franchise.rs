@@ -58,11 +58,11 @@ fn tab_of(name: &WorkName, meta: Option<&MediaSummary>) -> FranchiseTab {
 
 /// Abas não vazias, na ordem Séries TV · Filmes · Especiais · Outros, com os
 /// índices das obras em ordem de `(ano, ordem)` (empate mantém a ordem de entrada).
-pub fn franchise_tabs(works: &[(String, WorkName, Option<MediaSummary>)]) -> Vec<(FranchiseTab, Vec<usize>)> {
+pub fn franchise_tabs<M: std::borrow::Borrow<MediaSummary>>(works: &[(String, WorkName, Option<M>)]) -> Vec<(FranchiseTab, Vec<usize>)> {
     [FranchiseTab::Tv, FranchiseTab::Movies, FranchiseTab::Specials, FranchiseTab::Others]
         .into_iter()
         .filter_map(|tab| {
-            let mut ix: Vec<usize> = (0..works.len()).filter(|&i| tab_of(&works[i].1, works[i].2.as_ref()) == tab).collect();
+            let mut ix: Vec<usize> = (0..works.len()).filter(|&i| tab_of(&works[i].1, works[i].2.as_ref().map(|m| m.borrow())) == tab).collect();
             ix.sort_by_key(|&i| (works[i].1.year, works[i].1.order));
             (!ix.is_empty()).then_some((tab, ix))
         })
@@ -105,7 +105,7 @@ impl Render for FranchiseView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let rem = f32::from(window.rem_size());
-        let width = content_width(window, 72. * rem);
+        let width = content_width(window, cx, 72. * rem);
         let gap = 1.25 * rem;
         let cols = columns(width, 9.5 * rem, gap);
         let card_w = px(((width - (cols as f32 - 1.) * gap) / cols as f32).floor());
@@ -114,8 +114,8 @@ impl Render for FranchiseView {
         let franchise = base_name(&self.title_path).to_owned();
         let hero_media = st.lookup(&franchise, MediaType::Anime).flatten();
         // `None` = AniList/MAL ainda não respondeu para essa obra.
-        let looked: Vec<Option<Option<MediaSummary>>> = self.works.iter().map(|(name, _)| st.lookup(name, MediaType::Anime)).collect();
-        let works: Vec<(String, WorkName, Option<MediaSummary>)> = self
+        let looked: Vec<Option<Option<std::sync::Arc<MediaSummary>>>> = self.works.iter().map(|(name, _)| st.lookup(name, MediaType::Anime)).collect();
+        let works: Vec<(String, WorkName, Option<std::sync::Arc<MediaSummary>>)> = self
             .works
             .iter()
             .zip(&looked)
@@ -136,7 +136,7 @@ impl Render for FranchiseView {
         let hero = h_flex()
             .items_end()
             .gap_6()
-            .child(div().flex_none().shadow_lg().rounded(theme.radius_lg).child(cover(hero_media.as_ref(), &franchise, Some(px(9. * rem)), cx)))
+            .child(div().flex_none().shadow_lg().rounded(theme.radius_lg).child(cover(hero_media.as_deref(), &franchise, Some(px(9. * rem)), cx)))
             .child(
                 v_flex()
                     .flex_1()
@@ -180,7 +180,7 @@ impl Render for FranchiseView {
             let card = poster(
                 PosterProps {
                     id: ElementId::Name(format!("work:{name}").into()),
-                    name: name.clone(),
+                    name: name.clone().into(),
                     media: meta.clone(),
                     loading: pending,
                     width: card_w,

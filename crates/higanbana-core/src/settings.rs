@@ -20,6 +20,8 @@ struct Data {
     rating_provider: RatingProvider,
     #[serde(default)]
     episode_layout: EpisodeLayout,
+    #[serde(default)]
+    sidebar_collapsed: bool,
 }
 
 pub struct Settings {
@@ -47,6 +49,15 @@ impl Settings {
 
     pub fn set_episode_layout(&self, layout: EpisodeLayout) {
         self.update(|d| d.episode_layout = layout);
+    }
+
+    /// Barra lateral recolhida (só ícones).
+    pub fn sidebar_collapsed(&self) -> bool {
+        self.data.lock().unwrap().sidebar_collapsed
+    }
+
+    pub fn set_sidebar_collapsed(&self, collapsed: bool) {
+        self.update(|d| d.sidebar_collapsed = collapsed);
     }
 
     fn update(&self, change: impl FnOnce(&mut Data)) {

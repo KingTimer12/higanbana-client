@@ -57,7 +57,7 @@ impl Render for ShelfView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let rem = f32::from(window.rem_size());
-        let width = content_width(window, 80. * rem);
+        let width = content_width(window, cx, 80. * rem);
         let name = base_name(&self.path).to_owned();
         let query = self.filter.read(cx).value().trim().to_owned();
         let q = query.to_lowercase();
@@ -111,8 +111,7 @@ impl Render for ShelfView {
             Some(Err(e)) => empty_state(IconName::WifiOff, "Não foi possível abrir esta pasta", Some(e.clone().into()), cx),
             Some(Ok(_)) if titles.is_empty() => empty_state(IconName::Search, format!("Nenhum título com “{query}” em {name}"), None, cx),
             Some(Ok(_)) => div().grid().grid_cols(cols as u16).gap_x_5().gap_y_8().children(titles.into_iter().map(|t| {
-                let id = ElementId::Name(format!("title:{}", t.name).into());
-                title_card(id, &t.name, join_path(&self.path, &t.name), self.media, card_w, cx)
+                title_card("title", &t.name, &join_path(&self.path, &t.name), self.media, card_w, cx)
             })),
         };
         let count = match &self.listing {

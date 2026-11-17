@@ -107,7 +107,7 @@ pub enum AppEvent {
 }
 
 /// `None` = ainda buscando; `Some(None)` = sem correspondência.
-type Answer = Option<Option<MediaSummary>>;
+type Answer = Option<Option<Arc<MediaSummary>>>;
 
 /// Respostas do AniList, um mapa por tipo de mídia: a consulta por `&str` não
 /// precisa montar uma chave `(MediaType, String)` a cada card desenhado.
@@ -156,6 +156,8 @@ pub struct AppState {
     pub user: Option<User>,
     stack: Vec<String>,
     index: usize,
+    /// A última navegação voltou no histórico (a página nova entra pela esquerda).
+    went_back: bool,
     images: ImageCache<Img>,
     lookups: Lookups,
     /// Muda a cada lote de respostas do AniList (nomes resolvidos).
@@ -215,6 +217,7 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             user: None,
             stack: vec![String::new()],
             index: 0,
+            went_back: false,
             images: ImageCache::new(IMAGE_BUDGET),
             lookups: Lookups::default(),
             lookups_gen: 0,
@@ -376,9 +379,15 @@ impl AppState {
         self.stack.truncate(self.index + 1);
         self.stack.push(path);
         self.index += 1;
+        self.went_back = false;
         self.covers_failed.clear();
             cx.emit(AppEvent::Navigated);
         cx.notify();
+    }
+
+    /// A página atual veio de "Voltar".
+    pub fn went_back(&self) -> bool {
+        self.went_back
     }
 
     pub fn can_back(&self) -> bool {
@@ -392,6 +401,7 @@ impl AppState {
     pub fn back(&mut self, cx: &mut Context<Self>) {
         if self.can_back() {
             self.index -= 1;
+            self.went_back = true;
             self.covers_failed.clear();
             cx.emit(AppEvent::Navigated);
             cx.notify();
@@ -401,6 +411,7 @@ impl AppState {
     pub fn forward(&mut self, cx: &mut Context<Self>) {
         if self.can_forward() {
             self.index += 1;
+            self.went_back = false;
             self.covers_failed.clear();
             cx.emit(AppEvent::Navigated);
             cx.notify();
@@ -549,7 +560,7 @@ impl AppState {
     // --- AniList em lote ---
 
     /// `None` = ainda buscando; `Some(None)` = sem correspondência.
-    pub fn lookup(&self, name: &str, media: MediaType) -> Option<Option<MediaSummary>> {
+    pub fn lookup(&self, name: &str, media: MediaType) -> Option<Option<Arc<MediaSummary>>> {
         self.lookups.get(media, name).cloned().flatten()
     }
 
@@ -560,7 +571,7 @@ impl AppState {
 
     /// Como `lookup`, sem copiar (para varrer o índice inteiro).
     pub fn lookup_ref(&self, name: &str, media: MediaType) -> Option<Option<&MediaSummary>> {
-        self.lookups.get(media, name).and_then(Option::as_ref).map(Option::as_ref)
+        self.lookups.get(media, name).and_then(Option::as_ref).map(Option::as_deref)
     }
 
     /// Até quando a faixa espera (falha de lote ou 429 pedido ao cliente).
@@ -667,7 +678,7 @@ impl AppState {
                             }
                             match v {
                                 Lookup::Found(v) => {
-                                    s.lookups.insert(key, Some(serde_json::from_value::<MediaSummary>(v).ok()));
+                                    s.lookups.insert(key, Some(serde_json::from_value::<MediaSummary>(v).ok().map(Arc::new)));
                                 }
                                 Lookup::NotFound => {
                                     s.lookups.insert(key, Some(None));
@@ -792,6 +803,19 @@ impl AppState {
     }
 
     // --- Avisos ---
+
+    // --- Barra lateral ---
+
+    /// Recolhida (só ícones); guardada nas configurações.
+    pub fn sidebar_collapsed(&self) -> bool {
+        self.core.settings().sidebar_collapsed()
+    }
+
+    pub fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        let collapsed = !self.sidebar_collapsed();
+        self.core.settings().set_sidebar_collapsed(collapsed);
+        cx.notify();
+    }
 
     pub fn toast(&mut self, message: impl Into<String>, tone: Tone, cx: &mut Context<Self>) {
         cx.emit(AppEvent::Notify(tone, message.into()));

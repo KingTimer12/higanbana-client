@@ -213,14 +213,16 @@ impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.page(window, cx);
         let path_key = self.state.read(cx).path().to_owned();
-        // O catálogo rola sozinho: o índice lateral fica fixo e pula até uma letra.
-        let own_scroll = matches!(classify(&path_key), Place::Catalog { .. });
-        // A tela nova aparece com um fade curto: deixa claro que o conteúdo trocou.
-        let body = div().when(own_scroll, |d| d.size_full()).child(page).with_animation(
-            SharedString::from(format!("enter:{path_key}")),
-            crate::motion::enter(crate::motion::BASE),
-            |d, t| d.opacity(t),
-        );
+        // Catálogo e pasta rolam sozinhos: o índice lateral fica fixo; a lista de arquivos é virtual.
+        let own_scroll = matches!(classify(&path_key), Place::Catalog { .. } | Place::Folder { .. } | Place::Raw { .. });
+        // A tela nova entra com fade e um deslize curto no sentido da navegação:
+        // avançar vem da direita, voltar vem da esquerda (continuidade do histórico).
+        let shift = gpui_kit::px(if self.state.read(cx).went_back() { -crate::motion::PAGE_SHIFT } else { crate::motion::PAGE_SHIFT });
+        let body = gpui_kit::component::animation::EffectTransition::new(crate::motion::BASE)
+            .ease(crate::motion::ease_out_cubic)
+            .fade(0., 1.)
+            .slide_x(shift, gpui_kit::px(0.))
+            .apply(div().relative().when(own_scroll, |d| d.size_full()).child(page), SharedString::from(format!("enter:{path_key}")));
         let main = div().id(SharedString::from(format!("main:{path_key}"))).flex_1().min_w_0();
         // Uma área rolável por rota: a posição volta ao topo ao navegar.
         let main = if own_scroll { main.min_h_0() } else { main.overflow_y_scroll() };

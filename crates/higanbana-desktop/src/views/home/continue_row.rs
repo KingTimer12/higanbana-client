@@ -141,7 +141,7 @@ impl ContinueRow {
     }
 
     /// Metadados da obra (`None` enquanto a busca não voltou).
-    fn media(&self, item: &ContinueItem, cx: &App) -> Option<MediaSummary> {
+    fn media(&self, item: &ContinueItem, cx: &App) -> Option<std::sync::Arc<MediaSummary>> {
         self.state.read(cx).lookup(base_name(&item.work_path), media_of(&item.work_path)).flatten()
     }
 
@@ -225,7 +225,7 @@ impl ContinueRow {
                 gpui_kit::linear_color_stop(glow.opacity(0.3), 0.),
                 gpui_kit::linear_color_stop(glow.opacity(0.), 0.65),
             )))
-            .child(div().flex_none().rounded(theme.radius).overflow_hidden().shadow_lg().child(cover(media.as_ref(), &title, Some(px(4.75 * rem)), cx)))
+            .child(div().flex_none().rounded(theme.radius).overflow_hidden().shadow_lg().child(cover(media.as_deref(), &title, Some(px(4.75 * rem)), cx)))
             .child(
                 v_flex()
                     .flex_1()
@@ -299,7 +299,7 @@ impl ContinueRow {
             .bg(theme.group_box)
             .overflow_hidden()
             .cursor_pointer()
-            .child(div().flex_none().h_full().child(cover(media.as_ref(), &title, Some(px(CARD_REM * rem / 1.5)), cx)))
+            .child(div().flex_none().h_full().child(cover(media.as_deref(), &title, Some(px(CARD_REM * rem / 1.5)), cx)))
             .child(
                 v_flex()
                     .flex_1()

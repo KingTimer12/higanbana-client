@@ -199,8 +199,8 @@ impl Render for Discover {
                                         poster(
                                             PosterProps {
                                                 id: ElementId::Name(card_id.clone().into()),
-                                                name: name.clone(),
-                                                media: Some(summary.clone()),
+                                                name: name.clone().into(),
+                                                media: Some(std::sync::Arc::new(summary.clone())),
                                                 loading: false,
                                                 width,
                                                 badge: false,
