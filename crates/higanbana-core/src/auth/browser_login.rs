@@ -27,6 +27,10 @@ const PROVIDER: &str = "discord";
 const CALLBACK_PATH: &str = "/callback";
 const TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
+/// Quanto a troca do código espera a rede voltar (o usuário voltar ao app).
+const OFFLINE_WINDOW: Duration = Duration::from_secs(5 * 60);
+/// Intervalo entre tentativas enquanto a rede não volta.
+const OFFLINE_RETRY: Duration = Duration::from_secs(1);
 
 /// Login em andamento: URL para reabrir o navegador e canal de cancelamento.
 pub struct PendingLogin {
@@ -55,16 +59,41 @@ pub async fn finish(
     gotrue: &GoTrueClient,
     listener: TcpListener,
     pkce: Pkce,
-    cancel: oneshot::Receiver<()>,
+    mut cancel: oneshot::Receiver<()>,
 ) -> AuthResult<Session> {
     let code = tokio::select! {
         r = wait_for_code(&listener) => r?,
-        _ = cancel => return Err(AuthError::Cancelled),
+        _ = &mut cancel => return Err(AuthError::Cancelled),
         _ = tokio::time::sleep(TIMEOUT) => return Err(AuthError::Timeout),
     };
     drop(listener);
     events(Event::LoginReturned);
-    gotrue.exchange_code(&code, &pkce.verifier).await
+    exchange_when_online(&mut cancel, || gotrue.exchange_code(&code, &pkce.verifier)).await
+}
+
+/// Troca o código, esperando a rede se a requisição não conseguiu sair.
+///
+/// No Android o app fica em segundo plano enquanto o navegador está na frente, e
+/// o sistema corta a internet dele (o loopback do callback continua liberado): a
+/// troca falha sem chegar ao servidor até o usuário voltar ao app. Só se repete
+/// esse caso; um erro que veio do servidor (código usado, recusado) volta na hora.
+async fn exchange_when_online<T, F, Fut>(cancel: &mut oneshot::Receiver<()>, exchange: F) -> AuthResult<T>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = AuthResult<T>>,
+{
+    let deadline = tokio::time::Instant::now() + OFFLINE_WINDOW;
+    loop {
+        match exchange().await {
+            Err(AuthError::Unreachable(_)) if tokio::time::Instant::now() < deadline => {
+                tokio::select! {
+                    _ = &mut *cancel => return Err(AuthError::Cancelled),
+                    _ = tokio::time::sleep(OFFLINE_RETRY) => {}
+                }
+            }
+            other => return other,
+        }
+    }
 }
 
 /// Aceita conexões até chegar um `GET /callback` com `code` ou `error`.
@@ -177,6 +206,49 @@ mod tests {
     #[test]
     fn ignores_other_paths() {
         assert_eq!(parse_callback("/favicon.ico"), Callback::Other);
+    }
+
+    /// No Android o app em segundo plano não sai para a internet (só o loopback):
+    /// a troca falha sem chegar ao servidor até o usuário voltar ao app.
+    #[tokio::test(start_paused = true)]
+    async fn troca_espera_a_rede_voltar() {
+        let tries = std::sync::atomic::AtomicUsize::new(0);
+        let (_keep, mut cancel) = oneshot::channel::<()>();
+        let r = exchange_when_online(&mut cancel, || async {
+            if tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 3 {
+                Err(AuthError::Unreachable("bloqueado".into()))
+            } else {
+                Ok("sessão")
+            }
+        })
+        .await;
+        assert_eq!(r.unwrap(), "sessão");
+        assert_eq!(tries.load(std::sync::atomic::Ordering::SeqCst), 4);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn troca_nao_repete_o_que_chegou_ao_servidor() {
+        let tries = std::sync::atomic::AtomicUsize::new(0);
+        let (_keep, mut cancel) = oneshot::channel::<()>();
+        let r: AuthResult<()> = exchange_when_online(&mut cancel, || async {
+            tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err(AuthError::Provider("código inválido".into()))
+        })
+        .await;
+        assert!(matches!(r, Err(AuthError::Provider(_))));
+        assert_eq!(tries.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn troca_desiste_no_cancelar_e_no_prazo() {
+        let (tx, mut cancel) = oneshot::channel::<()>();
+        tx.send(()).unwrap();
+        let r: AuthResult<()> = exchange_when_online(&mut cancel, || async { Err(AuthError::Unreachable("x".into())) }).await;
+        assert!(matches!(r, Err(AuthError::Cancelled)));
+
+        let (_keep, mut cancel) = oneshot::channel::<()>();
+        let r: AuthResult<()> = exchange_when_online(&mut cancel, || async { Err(AuthError::Unreachable("x".into())) }).await;
+        assert!(matches!(r, Err(AuthError::Unreachable(_))));
     }
 
     #[tokio::test]
