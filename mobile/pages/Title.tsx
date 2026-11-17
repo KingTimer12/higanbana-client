@@ -239,10 +239,9 @@ export function Title(props: { path: string; media: Media | null }) {
         <List<Episode>
           each={files()}
           keyExtractor={(episode) => episode.path}
-          numColumns={2}
           estimatedItemSize={EPISODE_HEIGHT}
           class="flex-1"
-          contentClass="gap-x-3 gap-y-6 px-4 pb-[calc(env(safe-area-inset-bottom)+24px)]"
+          contentClass="gap-y-2 px-4 pb-[calc(env(safe-area-inset-bottom)+24px)]"
           header={header}
           empty={
             <If when={!loadingEpisodes() && !failure()}>

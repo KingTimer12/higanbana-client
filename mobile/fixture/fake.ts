@@ -90,8 +90,6 @@ function work(path: string): Work {
   return { path, title, seasons: [], versions: [], defaultVersion: null, episodes: episodesOf(path) };
 }
 
-/** Ids de mídia para os quais a tela pediu a capa do fanart (os testes conferem). */
-export const coverRequests = new Set<number>();
 
 /** Um backend com dados fixos. `signedIn: false` começa na tela de login. */
 export function fakeBackend(options: { signedIn: boolean }): Backend {
@@ -106,11 +104,17 @@ export function fakeBackend(options: { signedIn: boolean }): Backend {
       user = null;
     },
 
-    season: async () => SEASON,
+    // As vitrines só trazem o que está no acervo; cada ranking em outra ordem.
+    discover: async (ranking, n) => {
+      const order = { popular: [1, 2, 3, 5, 6], topRated: [3, 1, 6, 2, 5], trending: [5, 6, 2] }[ranking];
+      return order.slice(0, n).map((id) => ({
+        media: { ...SEASON.find((m) => m.id === id)!, tags: ["Magia", "Jornada"], studio: "Madhouse" },
+        path: PATHS[id],
+      }));
+    },
     find: async (m) => PATHS[m.id] ?? null,
     cover: async (m) => {
-      coverRequests.add(m.id);
-      return m.id === 1 ? "file:///fanart/1.webp" : null;
+      return null;
     },
     media: async (id) => ({
       ...(SEASON.find((m) => m.id === id) ?? media(id, "Anime")),

@@ -5,7 +5,7 @@ import { effect, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import type { Media, WorkEntry } from "../lib/backend";
 import { mediaTitle, posterMeta } from "../lib/format";
-import { cloudPathOf, coverOf, lookupOf, nav, openingMedia, openMedia, wantCloudPath, wantCover, wantLookup } from "../store";
+import { coverOf, lookupOf, nav, wantCover, wantLookup } from "../store";
 import { Cover, Icon, Skeleton } from "./ui";
 
 /** Colunas das grades de pôsteres no telefone. */
@@ -99,22 +99,6 @@ export function WorkPoster(props: { work: WorkEntry }) {
       media={media()}
       year={props.work.year}
       onPress={() => nav.push({ name: "title", path: props.work.path, media: media() ?? null })}
-    />
-  );
-}
-
-/** Pôster de um anime da temporada: descobre se está no acervo quando aparece. */
-export function SeasonPoster(props: { media: Media }) {
-  effect(() => wantCloudPath(props.media));
-  const known = () => cloudPathOf(props.media.id);
-  return (
-    <Poster
-      title={mediaTitle(props.media)}
-      media={props.media}
-      inLibrary={!!known()}
-      dimmed={known() === null}
-      busy={openingMedia() === props.media.id}
-      onPress={() => openMedia(props.media, mediaTitle(props.media))}
     />
   );
 }

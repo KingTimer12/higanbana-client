@@ -8,6 +8,7 @@ import type {
   Chapter,
   Episode,
   EpisodeInfo,
+  Featured,
   Media,
   PlayerSettings,
   Resume,
@@ -32,7 +33,7 @@ export function nativeBackend(): Backend {
     cancelLogin: () => Account.cancelLogin(),
     logout: () => Account.logout(),
 
-    season: () => Catalog.season() as Promise<Media[]>,
+    discover: (ranking, n) => Catalog.discover(ranking, n) as Promise<Featured[]>,
     find: (media) => Catalog.find(media),
     cover: (media) => Catalog.cover(media),
     media: (id) => Catalog.media(id) as Promise<Media>,

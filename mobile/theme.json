@@ -30,7 +30,10 @@
       "scrim": "#000000",
       "on-video": "#ffffff",
       "on-video-muted": "rgb(255 255 255 / 0.7)",
-      "score": "#facc15"
+      "score": "#facc15",
+      "glass": "rgb(20 20 28 / 0.72)",
+      "glass-border": "rgb(255 255 255 / 0.10)",
+      "glass-selected": "rgb(255 255 255 / 0.10)"
     },
     "dark": {
       "background": "#07070a",
@@ -58,7 +61,10 @@
       "scrim": "#000000",
       "on-video": "#ffffff",
       "on-video-muted": "rgb(255 255 255 / 0.7)",
-      "score": "#facc15"
+      "score": "#facc15",
+      "glass": "rgb(20 20 28 / 0.72)",
+      "glass-border": "rgb(255 255 255 / 0.10)",
+      "glass-selected": "rgb(255 255 255 / 0.10)"
     }
   }
 }

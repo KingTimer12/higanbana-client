@@ -15,6 +15,10 @@ pub enum AuthError {
     InvalidSession(String),
     #[error("erro de rede: {0}")]
     Network(String),
+    /// A requisição não chegou a sair do aparelho (sem rede, ou o sistema bloqueou o
+    /// app em segundo plano): nada foi consumido no servidor, dá para tentar de novo.
+    #[error("sem conexão: {0}")]
+    Unreachable(String),
     /// Discord/GoTrue recusou ou o fluxo OAuth falhou.
     #[error("{0}")]
     Provider(String),
@@ -30,7 +34,7 @@ impl AuthError {
             Self::Timeout => "timeout",
             Self::InProgress => "in_progress",
             Self::InvalidSession(_) => "invalid_session",
-            Self::Network(_) => "network",
+            Self::Network(_) | Self::Unreachable(_) => "network",
             Self::Provider(_) => "provider",
             Self::Storage(_) => "storage",
         }
@@ -51,7 +55,16 @@ impl From<serde_json::Error> for AuthError {
 
 impl From<reqwest::Error> for AuthError {
     fn from(e: reqwest::Error) -> Self {
-        Self::Network(e.to_string())
+        // O `Display` do reqwest para em "error sending request"; a causa (conexão
+        // recusada, DNS, TLS) vem na cadeia de `source`.
+        let mut message = e.to_string();
+        let mut cause = std::error::Error::source(&e);
+        while let Some(c) = cause {
+            message.push_str(": ");
+            message.push_str(&c.to_string());
+            cause = c.source();
+        }
+        if e.is_connect() { Self::Unreachable(message) } else { Self::Network(message) }
     }
 }
 

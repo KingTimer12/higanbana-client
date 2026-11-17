@@ -3,13 +3,17 @@
 import { Image, type ImageAsset, type JSX, Text, View } from "nsh";
 import { Button, Progress } from "nsh/base";
 import back from "../assets/icons/back.svg";
+import book from "../assets/icons/book.svg";
 import check from "../assets/icons/check.svg";
 import chevron from "../assets/icons/chevron.svg";
 import clapperboard from "../assets/icons/clapperboard.svg";
 import close from "../assets/icons/close.svg";
+import drama from "../assets/icons/drama.svg";
 import folderCheck from "../assets/icons/folder-check.svg";
 import forward from "../assets/icons/forward.svg";
 import grid from "../assets/icons/grid.svg";
+import house from "../assets/icons/house.svg";
+import music from "../assets/icons/music.svg";
 import next from "../assets/icons/next.svg";
 import pause from "../assets/icons/pause.svg";
 import play from "../assets/icons/play.svg";
@@ -21,13 +25,17 @@ import tv from "../assets/icons/tv.svg";
 
 const ICONS = {
   back,
+  book,
   check,
   chevron,
   clapperboard,
   close,
+  drama,
   "folder-check": folderCheck,
   forward,
   grid,
+  house,
+  music,
   next,
   pause,
   play,
@@ -217,6 +225,29 @@ export function Cover(props: { src: string | null; title: string; color?: string
         {(src) => <Image src={src()} fadeDuration={200} class="size-full object-cover" accessibilityLabel={props.title} />}
       </If>
       {props.children}
+    </View>
+  );
+}
+
+/** O topo de uma aba: título grande à esquerda, ações à direita, abaixo da barra de status.
+ * As abas não voltam para lugar nenhum, então não há seta; a barra de abas é a navegação. */
+export function TabHeader(props: { title: string; detail?: string; trailing?: JSX.Element }) {
+  return (
+    <View class="flex-row items-center gap-1 pt-[calc(env(safe-area-inset-top)+8px)] pe-2 ps-4 pb-2">
+      {/* Altura de um botão de ícone mesmo sem ações, para o título ficar na mesma linha em todas as abas. */}
+      <View class="min-h-11 flex-1 justify-center gap-0.5">
+        <Text role="header" class="text-3xl font-bold text-foreground" style={{ numberOfLines: 1 }} maxFontSizeMultiplier={1.4}>
+          {props.title}
+        </Text>
+        <If when={props.detail}>
+          {(detail) => (
+            <Text class="text-sm text-muted-foreground" style={{ numberOfLines: 1 }}>
+              {detail()}
+            </Text>
+          )}
+        </If>
+      </View>
+      {props.trailing}
     </View>
   );
 }
