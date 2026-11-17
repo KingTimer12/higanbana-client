@@ -156,6 +156,8 @@ pub struct AppState {
     pub user: Option<User>,
     stack: Vec<String>,
     index: usize,
+    /// A última navegação voltou no histórico (a página nova entra pela esquerda).
+    went_back: bool,
     images: ImageCache<Img>,
     lookups: Lookups,
     /// Muda a cada lote de respostas do AniList (nomes resolvidos).
@@ -215,6 +217,7 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
             user: None,
             stack: vec![String::new()],
             index: 0,
+            went_back: false,
             images: ImageCache::new(IMAGE_BUDGET),
             lookups: Lookups::default(),
             lookups_gen: 0,
@@ -376,9 +379,15 @@ impl AppState {
         self.stack.truncate(self.index + 1);
         self.stack.push(path);
         self.index += 1;
+        self.went_back = false;
         self.covers_failed.clear();
             cx.emit(AppEvent::Navigated);
         cx.notify();
+    }
+
+    /// A página atual veio de "Voltar".
+    pub fn went_back(&self) -> bool {
+        self.went_back
     }
 
     pub fn can_back(&self) -> bool {
@@ -392,6 +401,7 @@ impl AppState {
     pub fn back(&mut self, cx: &mut Context<Self>) {
         if self.can_back() {
             self.index -= 1;
+            self.went_back = true;
             self.covers_failed.clear();
             cx.emit(AppEvent::Navigated);
             cx.notify();
@@ -401,6 +411,7 @@ impl AppState {
     pub fn forward(&mut self, cx: &mut Context<Self>) {
         if self.can_forward() {
             self.index += 1;
+            self.went_back = false;
             self.covers_failed.clear();
             cx.emit(AppEvent::Navigated);
             cx.notify();
