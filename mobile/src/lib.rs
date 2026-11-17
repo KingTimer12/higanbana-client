@@ -14,7 +14,10 @@ use std::{
 
 use higanbana_core::{
     Core, Paths,
-    anilist::{Lookup, LookupRequest, MediaType, types::MediaSummary},
+    anilist::{
+        Lookup, LookupRequest, MediaType, Ranking,
+        types::{MediaSummary, RankedMedia},
+    },
     anime_index::LETTERS,
     auth::Session,
     events,
@@ -165,17 +168,12 @@ impl Account {
     }
 }
 
-/// Descoberta de animes: temporada do AniList, busca e índice A–Z da nuvem.
+/// Descoberta de animes: vitrines do AniList, busca e índice A–Z da nuvem.
 #[module]
 pub struct Catalog;
 
 #[module]
 impl Catalog {
-    /// Animes da temporada atual (resumos do AniList).
-    pub async fn season() -> Result<JsonValue, String> {
-        on_core(|c| async move { c.anilist().season().await.map_err(|e| e.to_string()) }).await
-    }
-
     /// Caminho da obra na nuvem para um resumo do AniList; `null` se não está no acervo.
     pub async fn find(media: JsonValue) -> Result<Option<String>, String> {
         let media: MediaSummary = serde_json::from_value(media).map_err(|e| e.to_string())?;
@@ -227,6 +225,26 @@ impl Catalog {
         .await
     }
 
+    /// Vitrine do início, como no desktop: um ranking de animes do AniList (`"popular"`,
+    /// `"topRated"` ou `"trending"`) só com o que está no acervo, até `n` obras, na ordem
+    /// do ranking: `[{ media, path }]`. Volta quando a conferência termina.
+    pub async fn discover(ranking: String, n: f64) -> Result<JsonValue, String> {
+        let ranking = match ranking.as_str() {
+            "popular" => Ranking::Popular,
+            "topRated" => Ranking::TopRated,
+            "trending" => Ranking::Trending,
+            other => return Err(format!("ranking desconhecido: {other}")),
+        };
+        let n = n.clamp(1.0, 24.0) as usize;
+        on_core(move |c| async move {
+            let mut found = Vec::with_capacity(n);
+            c.discover(MediaType::Anime, ranking, n, c.home_budget(), |m, path| found.push(json!({ "media": ranked_json(&m), "path": path })))
+                .await;
+            Ok(JsonValue::Array(found))
+        })
+        .await
+    }
+
     /// As pastas de letra do catálogo (`0-9`, `Letra A`, ...).
     pub fn letters() -> Vec<String> {
         LETTERS.iter().map(|l| (*l).to_owned()).collect()
@@ -240,6 +258,34 @@ impl Catalog {
         })
         .await
     }
+}
+
+/// Uma obra de ranking no formato `Media` das telas (os campos do AniList em camelCase),
+/// com as três tags mais relevantes sem spoiler e o estúdio principal.
+fn ranked_json(m: &RankedMedia) -> JsonValue {
+    let s = &m.summary;
+    json!({
+        "id": s.id,
+        "idMal": s.id_mal,
+        "type": "ANIME",
+        "format": s.format,
+        "status": s.status,
+        "title": {
+            "romaji": s.title.romaji,
+            "english": s.title.english,
+            "native": s.title.native,
+            "userPreferred": s.title.user_preferred,
+        },
+        "coverImage": s.cover_image.as_ref().map(|c| json!({ "extraLarge": c.extra_large, "large": c.large, "color": c.color })),
+        "bannerImage": s.banner_image,
+        "averageScore": s.average_score,
+        "genres": s.genres,
+        "episodes": s.episodes,
+        "seasonYear": s.year(),
+        "description": m.description,
+        "tags": m.top_tags(3),
+        "studio": m.studios.as_ref().and_then(|st| st.nodes.first()).map(|n| n.name.clone()),
+    })
 }
 
 /// Uma pasta de obra como a lista mostra.

@@ -47,21 +47,9 @@ export function posterMeta(media: Media | null | undefined, folderYear: number |
   return [format, year ? String(year) : null].filter(Boolean).join(" · ");
 }
 
-const SEASONS = { WINTER: "inverno", SPRING: "primavera", SUMMER: "verão", FALL: "outono" } as const;
-
-/** `Temporada de outono 2026`: a mesma conta do núcleo (`season_at`), dezembro já é o inverno seguinte. */
-export function seasonHeading(now = new Date()): string {
-  const month = now.getMonth() + 1;
-  let year = now.getFullYear();
-  let season: keyof typeof SEASONS;
-  if (month === 12) {
-    season = "WINTER";
-    year += 1;
-  } else if (month <= 2) season = "WINTER";
-  else if (month <= 5) season = "SPRING";
-  else if (month <= 8) season = "SUMMER";
-  else season = "FALL";
-  return `Temporada de ${SEASONS[season]} ${year}`;
+/** `Destaques de 2026`: o título do carrossel do início, o ano corrente como no desktop. */
+export function highlightsHeading(now = new Date()): string {
+  return `Destaques de ${now.getFullYear()}`;
 }
 
 /** Número do episódio no card: `01`, `12`, `104`. */

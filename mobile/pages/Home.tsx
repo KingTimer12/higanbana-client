@@ -1,11 +1,11 @@
-import { computed, Image, List, resource, Scroll, signal, Text, View } from "nsh";
-import { Button, Menu, MenuItem, NavPage } from "nsh/base";
-import { POSTER_COLUMNS, POSTER_GRID, POSTER_HEIGHT, SeasonPoster } from "../components/Poster";
+import { Image, resource, Scroll, signal, Text, View } from "nsh";
+import { Button, Menu, MenuItem } from "nsh/base";
 import { EpisodeFrame } from "../components/Episode";
-import { EmptyState, IconButton, SectionCard, SectionTitle, Skeleton } from "../components/ui";
-import { backend, type Media, type Resume, type User } from "../lib/backend";
-import { errorMessage, seasonHeading } from "../lib/format";
-import { cloudPathOf, nav, sessionState, signOut } from "../store";
+import { Discover, Highlights } from "../components/Showcase";
+import { TAB_BAR_CLEARANCE } from "../components/TabBar";
+import { IconButton, SectionTitle, TabHeader } from "../components/ui";
+import { backend, type Resume, type User } from "../lib/backend";
+import { nav, sessionState, signOut } from "../store";
 
 const resume = signal<Resume[]>([]);
 
@@ -64,90 +64,27 @@ function ResumeCard(props: { item: Resume }) {
   );
 }
 
-/** `3 de 12 no acervo`, contando os que já se sabe; o resto ainda está sendo procurado. */
-function SeasonCount(props: { season: Media[] }) {
-  // Uma passada pela temporada a cada resposta da nuvem, dividida pelos dois textos.
-  const counts = computed(() => {
-    let known = 0;
-    let inLibrary = 0;
-    for (const m of props.season) {
-      const path = cloudPathOf(m.id);
-      if (path === undefined) continue;
-      known++;
-      if (path) inLibrary++;
-    }
-    return { known, inLibrary };
-  });
-  const known = () => counts().known;
-  const inLibrary = () => counts().inLibrary;
+/** Os episódios em andamento, do mais recente; some quando não há nenhum. */
+function ContinueRow() {
   return (
-    <If when={props.season.length > 0}>
-      <Text class="text-sm tabular-nums text-muted-foreground">
-        {known() < props.season.length ? "Procurando… " : ""}
-        {inLibrary()} de {props.season.length} no acervo
-      </Text>
+    <If when={resume().length > 0}>
+      <View class="gap-3">
+        <View class="px-4">
+          <SectionTitle>Continuar assistindo</SectionTitle>
+        </View>
+        <Scroll horizontal scrollbar={false} contentClass="flex-row gap-3 px-4">
+          <Each of={resume()} key={(item) => item.path}>
+            {(item) => <ResumeCard item={item()} />}
+          </Each>
+        </Scroll>
+      </View>
     </If>
   );
 }
 
-function HomeHeader(props: { user: User | null; season: Media[]; seasonState: string; seasonError: unknown; onRetry: () => void }) {
-  return (
-    <View class="gap-8 pb-4">
-      <View class="flex-row items-center gap-1">
-        <View class="flex-1 gap-1">
-          <Text role="header" class="text-2xl font-semibold text-foreground" style={{ numberOfLines: 1 }}>
-            {props.user ? `Olá, ${props.user.name}` : "Bem-vindo de volta"}
-          </Text>
-          <Text class="text-sm text-muted-foreground">Busque um anime ou abra o catálogo.</Text>
-        </View>
-        <IconButton icon="search" label="Buscar" onPress={() => nav.push({ name: "search" })} />
-        <If when={props.user}>{(user) => <AccountMenu user={user()} />}</If>
-      </View>
-
-      <SectionCard
-        icon="tv"
-        label="Animes"
-        blurb="Catálogo de A a Z, por letra"
-        onPress={() => nav.push({ name: "catalog" })}
-        testID="section-animes"
-      />
-
-      <If when={resume().length > 0}>
-        <View>
-          <SectionTitle class="mb-4">Continuar assistindo</SectionTitle>
-          <Scroll horizontal scrollbar={false} class="-mx-4" contentClass="flex-row gap-3 px-4">
-            <Each of={resume()} key={(item) => item.path}>
-              {(item) => <ResumeCard item={item()} />}
-            </Each>
-          </Scroll>
-        </View>
-      </If>
-
-      <View>
-        <SectionTitle aside={<SeasonCount season={props.season} />}>{seasonHeading()}</SectionTitle>
-        <If when={props.seasonState === "pending"}>
-          <View class="mt-4 flex-row gap-3">
-            <Each of={[0, 1, 2]}>{() => <Skeleton class="aspect-2/3 flex-1 rounded-(--radius-lg)" />}</Each>
-          </View>
-        </If>
-        <If when={props.seasonState === "errored"}>
-          <View class="h-48">
-            <EmptyState
-              title="Não foi possível carregar a temporada agora"
-              detail={errorMessage(props.seasonError)}
-              action="Tentar de novo"
-              onAction={props.onRetry}
-            />
-          </View>
-        </If>
-      </View>
-    </View>
-  );
-}
-
-/** Início: saudação, a entrada do catálogo, o que continuar e os animes da temporada. */
+/** A aba Início, na ordem do desktop: destaques do ano, o que continuar e o descobrir. */
 export function Home() {
-  const season = resource(() => backend().season());
+  const highlights = resource(() => backend().discover("popular", 6));
   refreshResume();
 
   const user = () => {
@@ -156,28 +93,22 @@ export function Home() {
   };
 
   return (
-    <NavPage title="Início" headerVisible={false}>
-      <View class="flex-1 bg-background pt-[env(safe-area-inset-top)]">
-        <List<Media>
-          each={season() ?? []}
-          keyExtractor={(media) => String(media.id)}
-          numColumns={POSTER_COLUMNS}
-          estimatedItemSize={POSTER_HEIGHT}
-          class="flex-1"
-          contentClass={`${POSTER_GRID} px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+24px)]`}
-          header={
-            <HomeHeader
-              user={user()}
-              season={season() ?? []}
-              seasonState={season.state()}
-              seasonError={season.error()}
-              onRetry={season.refetch}
-            />
-          }
-        >
-          {(media) => <SeasonPoster media={media()} />}
-        </List>
-      </View>
-    </NavPage>
+    <View class="flex-1 bg-background">
+      <TabHeader
+        title={user() ? `Olá, ${user()!.name}` : "Início"}
+        trailing={
+          <>
+            <IconButton icon="search" label="Buscar" onPress={() => nav.push({ name: "search" })} />
+            <If when={user()}>{(u) => <AccountMenu user={u()} />}</If>
+          </>
+        }
+      />
+      <Scroll class="flex-1" contentClass={`gap-8 pt-2 ${TAB_BAR_CLEARANCE}`} testID="home">
+        <Highlights list={highlights()} state={highlights.state()} error={highlights.error()} onRetry={highlights.refetch} />
+        <ContinueRow />
+        {/* As listas do descobrir esperam os destaques: dividem o saldo de listagens da nuvem. */}
+        <Discover ready={highlights.state() !== "pending" && highlights.state() !== "unresolved"} />
+      </Scroll>
+    </View>
   );
 }

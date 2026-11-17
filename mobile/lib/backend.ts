@@ -21,6 +21,18 @@ export interface Media {
   episodes?: number | null;
   seasonYear?: number | null;
   description?: string | null;
+  /** Só nas vitrines: as tags mais relevantes sem spoiler e o estúdio principal. */
+  tags?: string[];
+  studio?: string | null;
+}
+
+/** As listas da vitrine do início, como no desktop. */
+export type Ranking = "popular" | "topRated" | "trending";
+
+/** Uma obra da vitrine: a mídia e onde ela está na nuvem. */
+export interface Featured {
+  media: Media;
+  path: string;
 }
 
 /** Uma pasta de obra na nuvem. */
@@ -133,7 +145,8 @@ export interface Backend {
   cancelLogin(): Promise<void>;
   logout(): Promise<void>;
 
-  season(): Promise<Media[]>;
+  /** Até `n` animes de um ranking do AniList que estão no acervo, na ordem do ranking. */
+  discover(ranking: Ranking, n: number): Promise<Featured[]>;
   /** Caminho da obra na nuvem, ou `null` se não está no acervo. */
   find(media: Media): Promise<string | null>;
   /** URI do pôster local do fanart.tv, ou `null` (fica a capa do AniList). */

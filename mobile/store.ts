@@ -7,14 +7,28 @@ import { errorMessage, mediaCover } from "./lib/format";
 import { KeyedSignals } from "./lib/keyed";
 
 export type Route =
-  | { name: "home" }
-  | { name: "catalog" }
+  | { name: "tabs" }
   | { name: "search" }
   | { name: "title"; path: string; media: Media | null }
   | { name: "player"; dir: string; file: string; title: string; malId: number | null };
 
-/** A pilha de telas. */
-export const nav = createNavStack<Route>([{ name: "home" }]);
+/** A pilha de telas: as abas embaixo, o que se abre a partir delas por cima. */
+export const nav = createNavStack<Route>([{ name: "tabs" }]);
+
+// --- Abas ---
+
+/** As seções do app, na ordem da barra de abas. */
+export type Tab = "home" | "animes" | "mangas" | "doramas" | "musicas";
+
+const tab = signal<Tab>("home");
+
+/** A aba aberta. */
+export const currentTab = () => tab();
+
+/** Abre uma aba (as já visitadas voltam como estavam). */
+export function selectTab(next: Tab) {
+  tab.set(next);
+}
 
 // --- Sessão ---
 
@@ -84,6 +98,7 @@ export function cancelSignIn() {
 export async function signOut() {
   await backend().logout().catch(() => {});
   nav.popToRoot();
+  tab.set("home");
   session.set({ status: "signedOut" });
 }
 
@@ -109,38 +124,6 @@ export function notify(text: string) {
 
 export function dismissNotice(id: number) {
   notices.update((list) => list.filter((n) => n.id !== id));
-}
-
-// --- Abrir obras ---
-
-const opening = signal<number | null>(null);
-
-/** Id da mídia do AniList que está sendo procurada na nuvem. */
-export const openingMedia = () => opening();
-
-/** Abre a obra de uma mídia do AniList, se ela está na nuvem. */
-export async function openMedia(media: Media, title: string) {
-  const known = cloudPathOf(media.id);
-  if (known) {
-    nav.push({ name: "title", path: known, media });
-    return;
-  }
-  if (known === null) {
-    notify(`“${title}” ainda não está na nuvem.`);
-    return;
-  }
-  if (opening() !== null) return;
-  opening.set(media.id);
-  try {
-    const path = await backend().find(media);
-    cloudPaths.set(media.id, path);
-    if (path) nav.push({ name: "title", path, media });
-    else notify(`“${title}” ainda não está na nuvem.`);
-  } catch (error) {
-    notify(`Não foi possível abrir “${title}”. ${errorMessage(error)}`);
-  } finally {
-    opening.set(null);
-  }
 }
 
 // --- O que se sabe de cada card, pedido quando ele aparece ---
@@ -219,40 +202,6 @@ async function runCovers() {
     }
   }
   coverRunning = false;
-}
-
-/** Caminho na nuvem por id do AniList: `null` = fora do acervo; ausente = ainda não se sabe. */
-const cloudPaths = new KeyedSignals<number, string | null>();
-const cloudQueue: Media[] = [];
-const cloudAsked = new Set<number>();
-let cloudRunning = false;
-
-/** Onde está a obra de uma mídia: `undefined` enquanto não se sabe, `null` fora do acervo. */
-export const cloudPathOf = (id: number): string | null | undefined => cloudPaths.get(id);
-
-/** Pede onde está a obra de uma mídia da temporada (um de cada vez: a nuvem limita buscas seguidas). */
-export function wantCloudPath(media: Media) {
-  if (cloudAsked.has(media.id)) return;
-  cloudAsked.add(media.id);
-  cloudQueue.push(media);
-  if (!cloudRunning) {
-    cloudRunning = true;
-    runCloudPaths().catch(() => {});
-  }
-}
-
-async function runCloudPaths() {
-  while (cloudQueue.length > 0) {
-    const media = cloudQueue.shift()!;
-    try {
-      const path = await backend().find(media);
-      cloudPaths.set(media.id, path);
-    } catch {
-      // Fica sem marca; tenta de novo quando o card reaparecer.
-      cloudAsked.delete(media.id);
-    }
-  }
-  cloudRunning = false;
 }
 
 // --- Progresso visto nesta sessão ---

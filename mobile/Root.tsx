@@ -3,18 +3,15 @@ import { View } from "nsh";
 import { NavStack } from "nsh/base";
 import { Notices } from "./components/Notices";
 import { Loading } from "./components/ui";
-import { Catalog } from "./pages/Catalog";
-import { Home } from "./pages/Home";
 import { Login } from "./pages/Login";
 import { Player } from "./pages/Player";
 import { Search } from "./pages/Search";
+import { Tabs } from "./pages/Tabs";
 import { Title } from "./pages/Title";
 import { nav, restoreSession, type Route, sessionState } from "./store";
 
 function page(route: Route) {
   switch (route.name) {
-    case "catalog":
-      return <Catalog />;
     case "search":
       return <Search />;
     case "title":
@@ -22,7 +19,7 @@ function page(route: Route) {
     case "player":
       return <Player dir={route.dir} file={route.file} title={route.title} malId={route.malId} />;
     default:
-      return <Home />;
+      return <Tabs />;
   }
 }
 

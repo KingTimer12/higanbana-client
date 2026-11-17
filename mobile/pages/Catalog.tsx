@@ -1,7 +1,8 @@
 import { List, resource, Scroll, signal, Text, View } from "nsh";
-import { Input, NavPage } from "nsh/base";
+import { Input } from "nsh/base";
 import { POSTER_COLUMNS, POSTER_GRID, POSTER_HEIGHT, WorkPoster } from "../components/Poster";
-import { Chip, EmptyState, Icon, PageHeader, Skeleton, SYSTEM_HEADER } from "../components/ui";
+import { TAB_BAR_CLEARANCE } from "../components/TabBar";
+import { Chip, EmptyState, Icon, IconButton, Skeleton, TabHeader } from "../components/ui";
 import { backend, type WorkEntry } from "../lib/backend";
 import { errorMessage, letterLabel } from "../lib/format";
 import { nav } from "../store";
@@ -48,7 +49,7 @@ export function SearchField(props: { value: string; onChange: (value: string) =>
   );
 }
 
-/** Catálogo de animes da nuvem: o índice A–Z e a grade de pôsteres da letra. */
+/** A aba Animes: o catálogo da nuvem, o índice A–Z e a grade de pôsteres da letra. */
 export function Catalog() {
   const letters = backend().letters();
   const letter = signal(letters[1] ?? letters[0] ?? "");
@@ -67,8 +68,8 @@ export function Catalog() {
   // A lista já tem a margem lateral; fora dela (carregando), quem usa põe a sua.
   const Header = () => (
     <View class="gap-4 pb-2">
-      <View class="flex-row items-end justify-between gap-4 pt-4">
-        <Text role="header" class="text-2xl font-semibold text-foreground">
+      <View class="flex-row items-end justify-between gap-4 pt-3">
+        <Text role="header" class="text-xl font-semibold text-foreground">
           {letterLabel(letter())}
         </Text>
         <If when={works.state() === "ready" || works.state() === "refreshing"}>
@@ -80,52 +81,54 @@ export function Catalog() {
   );
 
   return (
-    <NavPage title="Animes" headerClass={SYSTEM_HEADER} header={<PageHeader title="Animes" onBack={() => nav.pop()} />}>
-      <View class="flex-1 bg-background">
-        <View class="border-b border-border">
-          <Scroll horizontal scrollbar={false} contentClass="flex-row gap-2 px-4 py-3">
-            <Each of={letters}>
-              {(l) => (
-                <Chip label={letterLabel(l())} selected={letter() === l()} onPress={() => choose(l())} testID={`letter-${letterLabel(l())}`} />
-              )}
-            </Each>
-          </Scroll>
-        </View>
-
-        <If when={works.state() === "pending"}>
-          <View class="px-4">
-            <Header />
-          </View>
-          <PosterGridSkeleton />
-        </If>
-        <If when={works.state() === "errored"}>
-          <EmptyState
-            title="Não foi possível abrir esta letra"
-            detail={errorMessage(works.error())}
-            action="Tentar de novo"
-            onAction={works.refetch}
-          />
-        </If>
-        <If when={works.state() === "ready" || works.state() === "refreshing"}>
-          <List<WorkEntry>
-            each={shown()}
-            keyExtractor={(work) => work.path}
-            numColumns={POSTER_COLUMNS}
-            estimatedItemSize={POSTER_HEIGHT}
-            keyboardDismissMode="on-drag"
-            class="flex-1"
-            contentClass={`${POSTER_GRID} px-4 pb-[calc(env(safe-area-inset-bottom)+24px)]`}
-            header={Header}
-            empty={
-              <EmptyState
-                title={filter().trim() ? `Nenhum título com “${filter().trim()}” em ${letterLabel(letter())}` : "Nenhuma obra nesta letra"}
-              />
-            }
-          >
-            {(work) => <WorkPoster work={work()} />}
-          </List>
-        </If>
+    <View class="flex-1 bg-background">
+      <TabHeader
+        title="Animes"
+        trailing={<IconButton icon="search" label="Buscar anime" onPress={() => nav.push({ name: "search" })} />}
+      />
+      <View class="border-b border-border">
+        <Scroll horizontal scrollbar={false} contentClass="flex-row gap-2 px-4 py-3">
+          <Each of={letters}>
+            {(l) => (
+              <Chip label={letterLabel(l())} selected={letter() === l()} onPress={() => choose(l())} testID={`letter-${letterLabel(l())}`} />
+            )}
+          </Each>
+        </Scroll>
       </View>
-    </NavPage>
+
+      <If when={works.state() === "pending"}>
+        <View class="px-4">
+          <Header />
+        </View>
+        <PosterGridSkeleton />
+      </If>
+      <If when={works.state() === "errored"}>
+        <EmptyState
+          title="Não foi possível abrir esta letra"
+          detail={errorMessage(works.error())}
+          action="Tentar de novo"
+          onAction={works.refetch}
+        />
+      </If>
+      <If when={works.state() === "ready" || works.state() === "refreshing"}>
+        <List<WorkEntry>
+          each={shown()}
+          keyExtractor={(work) => work.path}
+          numColumns={POSTER_COLUMNS}
+          estimatedItemSize={POSTER_HEIGHT}
+          keyboardDismissMode="on-drag"
+          class="flex-1"
+          contentClass={`${POSTER_GRID} px-4 ${TAB_BAR_CLEARANCE}`}
+          header={Header}
+          empty={
+            <EmptyState
+              title={filter().trim() ? `Nenhum título com “${filter().trim()}” em ${letterLabel(letter())}` : "Nenhuma obra nesta letra"}
+            />
+          }
+        >
+          {(work) => <WorkPoster work={work()} />}
+        </List>
+      </If>
+    </View>
   );
 }
