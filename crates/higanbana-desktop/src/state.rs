@@ -793,6 +793,19 @@ impl AppState {
 
     // --- Avisos ---
 
+    // --- Barra lateral ---
+
+    /// Recolhida (só ícones); guardada nas configurações.
+    pub fn sidebar_collapsed(&self) -> bool {
+        self.core.settings().sidebar_collapsed()
+    }
+
+    pub fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        let collapsed = !self.sidebar_collapsed();
+        self.core.settings().set_sidebar_collapsed(collapsed);
+        cx.notify();
+    }
+
     pub fn toast(&mut self, message: impl Into<String>, tone: Tone, cx: &mut Context<Self>) {
         cx.emit(AppEvent::Notify(tone, message.into()));
     }

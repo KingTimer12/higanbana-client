@@ -86,7 +86,7 @@ impl Render for FolderView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let rem = f32::from(window.rem_size());
-        let width = content_width(window, 80. * rem);
+        let width = content_width(window, cx, 80. * rem);
         let segs = self.segs();
         let title = if segs.len() == 1 { section_label(&segs[0]) } else { segs.last().cloned().unwrap_or_default() };
         let files = match &self.listing {

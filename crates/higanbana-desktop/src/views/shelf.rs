@@ -57,7 +57,7 @@ impl Render for ShelfView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let rem = f32::from(window.rem_size());
-        let width = content_width(window, 80. * rem);
+        let width = content_width(window, cx, 80. * rem);
         let name = base_name(&self.path).to_owned();
         let query = self.filter.read(cx).value().trim().to_owned();
         let q = query.to_lowercase();

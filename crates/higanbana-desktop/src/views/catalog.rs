@@ -503,7 +503,7 @@ impl Render for CatalogView {
         let theme = cx.theme().clone();
         let rem = f32::from(window.rem_size());
         let rail_w = 2.5 * rem;
-        let width = (content_width(window, 80. * rem + rail_w) - rail_w).max(200.);
+        let width = (content_width(window, cx, 80. * rem + rail_w) - rail_w).max(200.);
         let gap = 1.25 * rem;
         let cols = columns(width, 10. * rem, gap);
         let card_w = px(((width - (cols as f32 - 1.) * gap) / cols as f32).floor());

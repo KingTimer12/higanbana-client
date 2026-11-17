@@ -257,10 +257,11 @@ pub fn columns(width: f32, min: f32, gap: f32) -> usize {
 }
 
 /// Largura útil do conteúdo: janela − barra lateral − margens da página, no máximo `max`.
-pub fn content_width(window: &Window, max: f32) -> f32 {
+pub fn content_width(window: &Window, cx: &App, max: f32) -> f32 {
     let rem = f32::from(window.rem_size());
-    // Barra lateral do kit (255 px) + margens da página (px_8 dos dois lados).
-    (f32::from(window.viewport_size().width) - 255. - 4. * rem).clamp(200., max)
+    // Barra lateral do kit (255 px aberta, 48 px recolhida) + margens da página (px_8 dos dois lados).
+    let sidebar = if state(cx).read(cx).sidebar_collapsed() { 48. } else { 255. };
+    (f32::from(window.viewport_size().width) - sidebar - 4. * rem).clamp(200., max)
 }
 
 /// Rótulo de seção na barra lateral, no início e nas migalhas.
@@ -291,17 +292,17 @@ pub const MAGAZINES_PATH: &str = "Mangás/Revistas Antigas sobre Animes";
 /// Um destino da navegação (barra lateral e atalhos do início).
 #[derive(Clone, Debug, PartialEq)]
 pub struct NavEntry {
-    pub label: String,
+    pub label: SharedString,
     pub icon: IconName,
     /// Rota aberta ao clicar.
-    pub target: String,
+    pub target: SharedString,
     /// Seção da raiz a que pertence (cor).
-    pub section: String,
+    pub section: SharedString,
 }
 
 /// Seções da raiz viram destinos; `Mangás` se divide em séries (catálogo) e revistas.
 pub fn nav_entries(sections: &[String]) -> Vec<NavEntry> {
-    let entry = |label: &str, icon, target: &str, section: &str| NavEntry { label: label.into(), icon, target: target.into(), section: section.into() };
+    let entry = |label: &str, icon, target: &str, section: &str| NavEntry { label: SharedString::from(label.to_owned()), icon, target: SharedString::from(target.to_owned()), section: SharedString::from(section.to_owned()) };
     sections
         .iter()
         .flat_map(|name| match name.as_str() {

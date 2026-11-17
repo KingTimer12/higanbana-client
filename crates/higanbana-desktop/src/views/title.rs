@@ -478,7 +478,7 @@ impl Render for TitleView {
         }
         let theme = cx.theme().clone();
         let rem = f32::from(window.rem_size());
-        let width = content_width(window, 72. * rem);
+        let width = content_width(window, cx, 72. * rem);
         let media = self.media(cx);
         let full = self.detail.clone().flatten();
         let heading = self.heading(cx);

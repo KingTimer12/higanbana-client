@@ -15,7 +15,7 @@ use gpui_kit::component::{
     kbd::Kbd,
     popover::Popover,
     progress::Progress,
-    sidebar::{Sidebar, SidebarFooter, SidebarMenu, SidebarMenuItem},
+    sidebar::{Sidebar, SidebarCollapsible, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarToggleButton},
 };
 use higanbana_core::{
     library::{media_for_kind, raw_path, split_path},
@@ -23,7 +23,7 @@ use higanbana_core::{
 };
 
 use crate::{
-    components::{active_nav, format_bytes, nav_entries, rounded_image, section_order},
+    components::{NavEntry, active_nav, format_bytes, nav_entries, rounded_image, section_label, section_order},
     state::{AppState, DlStatus, state},
     ui::{empty_state, truncate},
 };
@@ -401,22 +401,68 @@ pub fn sidebar(state: &Entity<AppState>, sections: &[String], cx: &mut App) -> i
         let st = state.clone();
         move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| st.update(cx, |s, cx| s.go(target.clone(), cx))
     };
-    let mut menu = SidebarMenu::new().child(SidebarMenuItem::new("Início").cursor_pointer().icon(IconName::House).active(current.is_empty()).on_click(go(String::new())));
+    let collapsed = s.sidebar_collapsed();
     let entries = nav_entries(sections);
     let active = if current.is_empty() { None } else { active_nav(&entries, path) };
-    for (i, e) in entries.into_iter().enumerate() {
-        menu = menu.child(SidebarMenuItem::new(e.label).cursor_pointer().icon(e.icon).active(active == Some(i)).on_click(go(e.target)));
+    let item = |i: usize, e: &NavEntry| SidebarMenuItem::new(e.label.clone()).icon(e.icon.clone()).active(active == Some(i)).on_click(go(e.target.to_string()));
+
+    // Acervo: as seções com conteúdo; Mangás abre um submenu com Séries e Revistas.
+    let mut library = SidebarMenu::new().child(SidebarMenuItem::new("Início").icon(IconName::House).active(current.is_empty()).on_click(go(String::new())));
+    let mut cloud = SidebarMenu::new();
+    let mut ix = 0;
+    while ix < entries.len() {
+        let e = &entries[ix];
+        let kids: Vec<usize> = (ix..entries.len()).take_while(|j| entries[*j].section == e.section).collect();
+        let node = if kids.len() > 1 {
+            let open = kids.iter().any(|j| active == Some(*j));
+            SidebarMenuItem::new(section_label(&e.section))
+                .icon(e.icon.clone())
+                // Recolhida, o pai representa os filhos: destaca e abre o primeiro.
+                .active(collapsed && open)
+                .on_click(go(e.target.to_string()))
+                .default_open(true)
+                .click_to_open(true)
+                .children(kids.iter().map(|j| item(*j, &entries[*j])))
+        } else {
+            item(ix, e)
+        };
+        if is_library_section(&e.section) { library = library.child(node) } else { cloud = cloud.child(node) }
+        ix += kids.len().max(1);
     }
+
+    let toggle = {
+        let st = state.clone();
+        SidebarToggleButton::new()
+            .collapsed(collapsed)
+            .accessibility_label(if collapsed { "Expandir barra lateral" } else { "Recolher barra lateral" })
+            .on_click(move |_, _, cx| st.update(cx, |s, cx| s.toggle_sidebar(cx)))
+    };
+    let header = SidebarHeader::new().child(
+        h_flex()
+            .w_full()
+            .items_center()
+            .when(collapsed, |d| d.justify_center())
+            .when(!collapsed, |d| d.justify_between().child(div().pl_2().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(cx.theme().muted_foreground).child("Navegação")))
+            .child(toggle),
+    );
+
     let avatar = user.as_ref().and_then(|u| u.avatar.clone());
     let name = user.map(|u| u.name).unwrap_or_default();
-    let footer = SidebarFooter::new().child(
+    let face = match avatar {
+        Some(url) => div().size_8().flex_none().rounded_full().overflow_hidden().bg(cx.theme().muted).child(rounded_image(Some(&url), Some(gpui_kit::px(999.)), cx)).into_any_element(),
+        None => Avatar::new().name(name.clone()).small().into_any_element(),
+    };
+    let logout = Button::new("logout").ghost().small().icon(IconName::LogOut).tooltip("Sair da conta").on_click(move |_, _, _| {
+        let c = core.clone();
+        core.spawn(async move { c.auth().logout().await });
+    });
+    let footer = SidebarFooter::new().child(if collapsed {
+        h_flex().w_full().justify_center().child(face).into_any_element()
+    } else {
         h_flex()
             .w_full()
             .gap_2()
-            .child(match avatar {
-                Some(url) => div().size_8().flex_none().rounded_full().overflow_hidden().bg(cx.theme().muted).child(rounded_image(Some(&url), Some(gpui_kit::px(999.)), cx)).into_any_element(),
-                None => Avatar::new().name(name.clone()).small().into_any_element(),
-            })
+            .child(face)
             .child(
                 v_flex()
                     .flex_1()
@@ -424,12 +470,25 @@ pub fn sidebar(state: &Entity<AppState>, sections: &[String], cx: &mut App) -> i
                     .child(truncate(name).text_sm().font_weight(FontWeight::SEMIBOLD))
                     .child(div().text_xs().text_color(cx.theme().muted_foreground).child("Via Discord")),
             )
-            .child(Button::new("logout").ghost().small().icon(IconName::LogOut).tooltip("Sair da conta").on_click(move |_, _, _| {
-                let c = core.clone();
-                core.spawn(async move { c.auth().logout().await });
-            })),
-    );
-    Sidebar::new("nav").collapsible(false).child(menu).footer(footer)
+            .child(logout)
+            .into_any_element()
+    });
+    Sidebar::new("nav")
+        .collapsible(SidebarCollapsible::Icon)
+        .collapsed(collapsed)
+        .header(header)
+        .child(SidebarGroup::new("Acervo").child(library))
+        .when(!cloud_is_empty(sections), |s| s.child(SidebarGroup::new("Nuvem").child(cloud)))
+        .footer(footer)
+}
+
+/// Seções com conteúdo do acervo (o resto é organização da nuvem).
+fn is_library_section(name: &str) -> bool {
+    matches!(name, "Animes" | "Mangás" | "Doramas" | "Desenhos" | "OSTs")
+}
+
+fn cloud_is_empty(sections: &[String]) -> bool {
+    sections.iter().all(|s| is_library_section(s))
 }
 
 /// Aviso de versão nova na barra de título (some quando não há atualização).
