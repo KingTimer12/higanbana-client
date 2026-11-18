@@ -29,7 +29,7 @@ const MAX_SIZE: u64 = 400 * 1024 * 1024;
 pub enum Target {
     /// `Higanbana-Setup-<versão>.exe` (Inno Setup).
     Windows,
-    /// `Higanbana-<versão>-android.apk` (arm64, assinado sempre com a mesma chave).
+    /// `Higanbana-<versão>-android.apk` (arm64 e armv7, assinado sempre com a mesma chave).
     Android,
 }
 

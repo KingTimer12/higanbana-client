@@ -76,8 +76,12 @@ O APK fica em `android/app/build/outputs/apk/<flavor>/<tipo>/`. Opções em `and
 (`higanbana.*`): entrada TSX, ABIs, porta do `nsh dev`, caminhos do `nsh`/`cargo` e a chave de
 assinatura do release (sem ela, a de debug).
 
+Por padrão o APK leva `arm64-v8a` e `armeabi-v7a`: muitos celulares com Android 9 rodam o sistema em
+32 bits (`adb shell getprop ro.product.cpu.abilist` mostra só `armeabi-v7a,armeabi`) e recusam um APK
+só de 64 bits com “O app não foi instalado”.
+
 Requisitos: SDK do Android com o NDK 28.2 e o CMake 3.22.1, JDK, `nsh`, e
-`rustup target add aarch64-linux-android` (mais um alvo por ABI extra). O Android Studio abre `android/`.
+`rustup target add aarch64-linux-android armv7-linux-androideabi` (mais um alvo por ABI extra). O Android Studio abre `android/`.
 
 Para forçar o decodificador (ex.: software num aparelho cujo hardware falha):
 
