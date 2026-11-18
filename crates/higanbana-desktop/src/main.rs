@@ -2,11 +2,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod avif;
 mod catalog_state;
 mod chrome;
 mod components;
 mod image_cache;
 mod interact;
+mod logging;
 mod motion;
 mod music;
 mod reader;
@@ -26,11 +28,14 @@ use higanbana_core::{Core, Event, Paths};
 
 fn main() {
     let paths = Paths::system().expect("pastas do app");
+    let _log = logging::init(&paths.cache);
+    tracing::info!(version = higanbana_core::version::current(), data = %paths.data.display(), cache = %paths.cache.display(), "higanbana abrindo");
     let (tx, rx) = mpsc::unbounded::<Event>();
     let events = Arc::new(move |e| {
         let _ = tx.unbounded_send(e);
     });
     let core = Arc::new(Core::new(paths, events).expect("núcleo do higanbana"));
+    tracing::info!("núcleo pronto");
 
     gpui_kit::application().with_assets(ui::Assets).run(move |cx: &mut App| {
         gpui_kit::init(cx);
@@ -49,6 +54,7 @@ fn main() {
             window_background: gpui_kit::WindowBackgroundAppearance::Transparent,
             ..TitleBar::window_options()
         };
+        tracing::info!("abrindo janela");
         gpui_kit::open_window(options, cx, |window, cx| {
             let hwnd = hwnd(window);
             if let Some(h) = hwnd {
@@ -60,7 +66,12 @@ fn main() {
             cx.new(|cx| app::AppView::new(core.clone(), surface, rx, handle, window, cx))
         })
         .expect("janela principal");
-        cx.on_window_closed(|cx, _| cx.quit()).detach();
+        tracing::info!("janela aberta");
+        cx.on_window_closed(|cx, _| {
+            tracing::info!("janela fechada; saindo");
+            cx.quit()
+        })
+        .detach();
         cx.activate(true);
     });
 }

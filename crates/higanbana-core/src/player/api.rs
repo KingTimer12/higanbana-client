@@ -62,10 +62,15 @@ impl Player {
         if let Some(hit) = self.aniskip.get(&key) {
             return hit;
         }
-        let Ok(resp) = self.http.get(aniskip::url(mal_id, episode, duration)).send().await else {
-            return SkipTimes::default();
+        let resp = match self.http.get(aniskip::url(mal_id, episode, duration)).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(mal_id, episode, error = %e.without_url(), "aniskip falhou");
+                return SkipTimes::default();
+            }
         };
         let status = resp.status().as_u16();
+        tracing::debug!(mal_id, episode, status, "aniskip");
         let body = resp.text().await.unwrap_or_default();
         match aniskip::parse_response(status, &body) {
             Some(times) => {

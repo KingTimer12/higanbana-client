@@ -112,8 +112,13 @@ impl TmdbClient {
                 (None, Some(key)) => req = req.query(&[("api_key", key.as_str())]),
                 (None, None) => return Err(TmdbError::NotConfigured),
             }
-            let resp = req.send().await.map_err(|e| TmdbError::Http(e.without_url().to_string()))?;
+            let resp = req.send().await.map_err(|e| {
+                let e = e.without_url();
+                tracing::warn!(path, error = %e, "tmdb falhou");
+                TmdbError::Http(e.to_string())
+            })?;
             let status = resp.status();
+            tracing::debug!(path, status = status.as_u16(), attempt, "tmdb");
             if status == StatusCode::TOO_MANY_REQUESTS {
                 let wait = retry_after(resp.headers().get(header::RETRY_AFTER).and_then(|v| v.to_str().ok()));
                 if attempt + 1 < MAX_ATTEMPTS {

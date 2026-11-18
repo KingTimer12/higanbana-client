@@ -264,7 +264,7 @@ impl Mpv {
         for (k, v) in options {
             let (k, v) = (cstr(k), cstr(v));
             if let Err(e) = check(unsafe { (api.set_option_string)(handle, k.as_ptr(), v.as_ptr()) }) {
-                eprintln!("mpv: opção {k:?}: {e}");
+                tracing::warn!(option = ?k, error = %e, "mpv: opção recusada");
             }
         }
         if let Err(e) = check(unsafe { (api.initialize)(handle) }) {

@@ -40,6 +40,11 @@ raw-window-handle = "0.6"
 futures = "0.3"
 libloading = "0.8"
 image = "0.25"
+tracing = "0.1"
+rav1d = { version = "1.1", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
+avif-parse = "2.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"
 webp = "0.3"
 
 [profile.release]

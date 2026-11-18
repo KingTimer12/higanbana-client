@@ -164,8 +164,12 @@ async fn handle<U: Upstream>(
 
     let up = match shared.upstream.fetch(&path, range.as_deref()).await {
         Ok(up) => up,
-        Err(_) => return Ok(plain(StatusCode::BAD_GATEWAY)),
+        Err(e) => {
+            tracing::warn!(path, range = range.as_deref().unwrap_or("-"), ?lane, error = %e, "proxy: nuvem falhou");
+            return Ok(plain(StatusCode::BAD_GATEWAY));
+        }
     };
+    tracing::debug!(path, range = range.as_deref().unwrap_or("-"), ?lane, status = up.status, "proxy");
 
     // A permissão vive junto com o corpo: solta quando o mpv termina ou desiste.
     let frames = up.body.map(move |chunk| {

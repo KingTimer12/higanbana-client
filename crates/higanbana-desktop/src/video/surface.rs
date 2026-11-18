@@ -411,7 +411,7 @@ mod imp {
         /// `parent` é a `NSView` do GPUI (`ns_view` do handle AppKit).
         pub fn new(parent: usize) -> Option<Self> {
             if let Err(e) = gl() {
-                eprintln!("vídeo: {e}");
+                tracing::error!(error = %e, "vídeo");
                 return None;
             }
             let parent = parent as *mut AnyObject;
@@ -419,7 +419,7 @@ mod imp {
             unsafe {
                 let sup: *mut AnyObject = msg_send![parent, superview];
                 if sup.is_null() {
-                    eprintln!("vídeo: a view do GPUI ainda não está numa janela");
+                    tracing::warn!("vídeo: a view do GPUI ainda não está numa janela");
                     return None;
                 }
                 let layer: Retained<AnyObject> = msg_send![layer_class(), new];

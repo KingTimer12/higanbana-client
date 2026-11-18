@@ -522,7 +522,13 @@ impl AppState {
                 if s.images.get(&key).is_none() {
                     return;
                 }
-                let img = result.map_or(Img::Failed, |(image, _)| Img::Ready(image));
+                let img = match result {
+                    Some((image, _)) => Img::Ready(image),
+                    None => {
+                        tracing::warn!(image = %key, "imagem não decodifica");
+                        Img::Failed
+                    }
+                };
                 // Bytes da nuvem: fixos fora do LRU, para não refazer a busca; saem em `forget_image`.
                 let evicted = s.images.insert_pinned(key, img);
                 release_images(evicted, cx);

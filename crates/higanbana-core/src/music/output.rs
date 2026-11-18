@@ -71,7 +71,7 @@ fn build<T: SizedSample + FromSample<f32>>(
         {
             let shared = shared_err;
             move |e| {
-                eprintln!("saída de áudio: {e}");
+                tracing::error!(error = %e, "saída de áudio");
                 shared.failed.store(true, Ordering::Relaxed);
             }
         },

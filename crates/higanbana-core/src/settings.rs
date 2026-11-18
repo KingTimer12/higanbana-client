@@ -64,7 +64,7 @@ impl Settings {
         let mut data = self.data.lock().unwrap();
         change(&mut data);
         if let Err(e) = self.save(&data) {
-            eprintln!("configurações: não salvou {}: {e}", self.file.display());
+            tracing::error!(file = %self.file.display(), error = %e, "configurações: não salvou");
         }
     }
 

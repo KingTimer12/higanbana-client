@@ -58,6 +58,7 @@ impl MalSiteClient {
             self.space_out().await;
             let resp = self.http.get(ENDPOINT).query(query).send().await?;
             let status = resp.status();
+            tracing::debug!(status = status.as_u16(), attempt, "mal");
             if status == StatusCode::TOO_MANY_REQUESTS {
                 if attempt + 1 < MAX_ATTEMPTS {
                     tokio::time::sleep(RETRY_DELAY).await;

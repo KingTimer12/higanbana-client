@@ -23,6 +23,7 @@ bytes.workspace = true
 futures-util.workspace = true
 urlencoding.workspace = true
 flate2.workspace = true
+tracing.workspace = true
 unrar = { workspace = true, optional = true }
 symphonia = { workspace = true, optional = true }
 rubato = { workspace = true, optional = true }

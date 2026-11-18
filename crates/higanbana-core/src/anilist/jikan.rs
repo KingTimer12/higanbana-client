@@ -64,6 +64,7 @@ impl JikanClient {
             self.space_out().await;
             let resp = self.http.get(format!("{ENDPOINT}{path}")).query(query).send().await?;
             let status = resp.status();
+            tracing::debug!(path, status = status.as_u16(), attempt, "jikan");
             if status == StatusCode::TOO_MANY_REQUESTS {
                 if attempt + 1 < MAX_ATTEMPTS {
                     tokio::time::sleep(RETRY_DELAY).await;
