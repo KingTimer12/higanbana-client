@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gpui_kit::{App, AppContext, Context, Entity, EventEmitter, Global, ImageFormat, Task};
+use gpui_kit::{App, AppContext, Context, Entity, EventEmitter, Global, Task};
 use higanbana_core::{
     Core,
     anilist::{Lookup, LookupRequest, MediaType, Priority, types::MediaSummary},
@@ -23,7 +23,7 @@ use higanbana_core::{
 use rustc_hash::FxHashMap;
 
 use crate::{
-    image_cache::{decoded_weight, ImageCache, IMAGE_BUDGET},
+    image_cache::{decode, ImageCache, IMAGE_BUDGET, LANDSCAPE_MAX, PAGE_MAX, PORTRAIT_MAX},
     video::PlayTarget,
 };
 
@@ -59,7 +59,7 @@ pub fn user_of(s: &Session) -> User {
 #[derive(Clone)]
 pub enum Img {
     Loading,
-    Ready(Arc<gpui_kit::Image>),
+    Ready(Arc<gpui_kit::RenderImage>),
     Failed,
 }
 
@@ -254,7 +254,7 @@ pub fn install(core: Arc<Core>, cx: &mut App) -> Entity<AppState> {
 /// `Arc<Image>` não basta, o gpui mantém os dois até pedirmos. Adiado para depois
 /// do quadro atual porque `image()` roda durante o desenho, com a janela emprestada.
 fn release_images(evicted: Vec<Img>, cx: &mut Context<AppState>) {
-    let images: Vec<Arc<gpui_kit::Image>> = evicted
+    let images: Vec<_> = evicted
         .into_iter()
         .filter_map(|i| match i {
             Img::Ready(image) => Some(image),
@@ -267,14 +267,7 @@ fn release_images(evicted: Vec<Img>, cx: &mut Context<AppState>) {
     cx.spawn(async move |_, cx| {
         let _ = cx.update(|cx| {
             for image in images {
-                let windows = cx.windows();
-                let render = windows
-                    .iter()
-                    .find_map(|w| w.update(cx, |_, window, cx| image.clone().get_render_image(window, cx)).ok().flatten());
-                if let Some(render) = render {
-                    cx.drop_image(render, None);
-                }
-                image.remove_asset(cx);
+                cx.drop_image(image, None);
             }
         });
     })
@@ -289,18 +282,6 @@ fn file_key(path: &std::path::Path) -> String {
 /// Caminho de uma chave `file:`; `None` para URLs.
 fn file_key_path(key: &str) -> Option<PathBuf> {
     key.strip_prefix("file:").map(PathBuf::from)
-}
-
-/// Formato da imagem pelos primeiros bytes.
-pub fn sniff(bytes: &[u8]) -> Option<ImageFormat> {
-    Some(match bytes {
-        [0x89, b'P', b'N', b'G', ..] => ImageFormat::Png,
-        [0xFF, 0xD8, 0xFF, ..] => ImageFormat::Jpeg,
-        [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => ImageFormat::Webp,
-        [b'G', b'I', b'F', ..] => ImageFormat::Gif,
-        [b'B', b'M', ..] => ImageFormat::Bmp,
-        _ => return None,
-    })
 }
 
 /// Qual faixa da fila sai agora e quantos nomes: o que a pessoa está vendo
@@ -439,20 +420,19 @@ impl AppState {
         let owned = url.to_owned();
         let local = file_key_path(url);
         let task = self.core.spawn(async move {
-            match local {
+            let bytes = match local {
                 Some(path) => tokio::fs::read(path).await.map_err(|e| e.to_string()),
                 None => core.fetch_public(&owned).await,
             }
+            .ok()?;
+            tokio::task::spawn_blocking(move || decode(&bytes, PORTRAIT_MAX, LANDSCAPE_MAX)).await.ok().flatten()
         });
         let key = url.to_owned();
         cx.spawn(async move |this, cx| {
-            let result = task.await.ok().and_then(Result::ok);
+            let result = task.await.ok().flatten();
             let _ = this.update(cx, |s, cx| {
-                let (img, weight) = match result.as_deref().and_then(|b| Some((sniff(b)?, b))) {
-                    Some((fmt, b)) => (
-                        Img::Ready(Arc::new(gpui_kit::Image::from_bytes(fmt, b.to_vec()))),
-                        decoded_weight(b),
-                    ),
+                let (img, weight) = match result {
+                    Some((image, weight)) => (Img::Ready(image), weight),
                     None => (Img::Failed, 0),
                 };
                 if matches!(img, Img::Failed) {
@@ -529,15 +509,27 @@ impl AppState {
     }
 
     /// Guarda bytes já baixados (páginas, capas da nuvem) sob uma chave.
+    /// Decodifica fora da UI; até lá a chave fica `Loading`.
     pub fn put_image(&mut self, key: String, bytes: Vec<u8>, cx: &mut Context<Self>) {
-        let img = match sniff(&bytes) {
-            Some(fmt) => Img::Ready(Arc::new(gpui_kit::Image::from_bytes(fmt, bytes))),
-            None => Img::Failed,
-        };
-        // Bytes da nuvem: fixos fora do LRU, para não refazer a busca; saem em `forget_image`.
-        let evicted = self.images.insert_pinned(key, img);
-        release_images(evicted, cx);
-        cx.notify();
+        self.images.insert_pinned(key.clone(), Img::Loading);
+        let task = self.core.spawn(async move {
+            tokio::task::spawn_blocking(move || decode(&bytes, PAGE_MAX, PAGE_MAX)).await.ok().flatten()
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await.ok().flatten();
+            let _ = this.update(cx, |s, cx| {
+                // Esquecida enquanto decodificava: não ressuscita.
+                if s.images.get(&key).is_none() {
+                    return;
+                }
+                let img = result.map_or(Img::Failed, |(image, _)| Img::Ready(image));
+                // Bytes da nuvem: fixos fora do LRU, para não refazer a busca; saem em `forget_image`.
+                let evicted = s.images.insert_pinned(key, img);
+                release_images(evicted, cx);
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     pub fn cached_image(&self, key: &str) -> Option<Img> {

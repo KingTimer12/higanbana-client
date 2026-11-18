@@ -676,13 +676,11 @@ fn still(it: &Item, loading: bool, radii: Corners<Pixels>, zoom: f32, cx: &mut A
 /// Imagem cobrindo a área toda, ampliada `zoom` vezes a partir do centro e
 /// recortada na própria área com os cantos `radii`. Pintada à mão porque um
 /// `img` maior que o pai perde o arredondamento (o recorte do pai é reto).
-fn zoomed_image(image: Arc<gpui_kit::Image>, zoom: f32, radii: Corners<Pixels>) -> impl IntoElement {
+fn zoomed_image(image: Arc<gpui_kit::RenderImage>, zoom: f32, radii: Corners<Pixels>) -> impl IntoElement {
     canvas(
         |_, _, _| {},
-        move |bounds, _, window, cx| {
-            let Some(data) = image.use_render_image(window, cx) else {
-                return;
-            };
+        move |bounds, _, window, _| {
+            let data = image;
             let cover = ObjectFit::Cover.get_bounds(bounds, data.size(0));
             window.paint_image(bounds, scale_about_center(cover, zoom), radii, data, 0, false).ok();
         },

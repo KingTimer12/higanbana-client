@@ -5,6 +5,7 @@ use crate::interact::{hover_layer, radios};
 use crate::interact::Button;
 use std::{
     cell::Cell,
+    path::Path,
     rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
@@ -89,7 +90,26 @@ enum Drag {
     Seek(f64),
 }
 
-/// Opções fixas: nada da interface do próprio mpv, cache só em RAM.
+/// Pasta do cache em disco do mpv. O mpv apaga o arquivo ao fechar; o que sobrar
+/// de um fechamento forçado é limpo ao abrir o próximo player.
+fn disk_cache_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join("higanbana-cache");
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            // Arquivo ainda aberto (outro processo) não sai no Windows: ignora.
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Quanto do que já passou fica guardado para voltar sem ir à rede de novo.
+/// Fica no disco, então pode ser grande sem custar RAM.
+const BACK_CACHE: &str = "512MiB";
+
+/// Opções fixas: nada da interface do próprio mpv; cache em disco, para a RAM
+/// ficar só com o que está tocando.
 /// `surface` traz as opções de saída de vídeo da plataforma (`wid`/`vo`).
 fn base_options(surface: Vec<(&'static str, String)>, cache_mib: u32, decode_threads: u8) -> Vec<(&'static str, String)> {
     let mut opts = surface;
@@ -104,9 +124,10 @@ fn base_options(surface: Vec<(&'static str, String)>, cache_mib: u32, decode_thr
         ("input-cursor", "no".into()),
         ("cursor-autohide", "no".into()),
         ("cache", "yes".into()),
-        ("cache-on-disk", "no".into()),
+        ("cache-on-disk", "yes".into()),
+        ("demuxer-cache-dir", disk_cache_dir().to_string_lossy().into_owned()),
         ("demuxer-max-bytes", format!("{cache_mib}MiB")),
-        ("demuxer-max-back-bytes", "50MiB".into()),
+        ("demuxer-max-back-bytes", BACK_CACHE.into()),
         ("sub-auto", "no".into()),
     ]);
     opts
@@ -183,6 +204,9 @@ pub struct PlayerView {
     hover: Option<(Pixels, f64)>,
     /// Miniaturas da barra de posição: abertas no primeiro hover de cada arquivo.
     thumbs: Option<Thumbs>,
+    /// Miniaturas de prévias descartadas: o gpui guarda cada uma decodificada (e na
+    /// textura) até pedirmos para soltar; soltas no próximo desenho.
+    thumb_trash: Vec<Arc<Path>>,
     _thumb_events: Option<Task<()>>,
     /// Última posição do mouse (o GPUI repete o evento a cada quadro).
     last_mouse: Option<gpui_kit::Point<Pixels>>,
@@ -255,12 +279,27 @@ impl PlayerView {
             volume_slider,
             hover: None,
             thumbs: None,
+            thumb_trash: Vec::new(),
             _thumb_events: None,
             last_mouse: None,
             _events: None,
             _subs: subs,
         };
         this.next_file = next_episode(&this.target.files, &this.target.file.name);
+        // Fechar o player também solta as prévias que o gpui guardou.
+        cx.on_release(|v: &mut Self, cx| {
+            v.drop_thumbs();
+            let trash = std::mem::take(&mut v.thumb_trash);
+            if trash.is_empty() {
+                return;
+            }
+            cx.defer(move |cx| {
+                if let Some(w) = cx.windows().first().copied() {
+                    let _ = w.update(cx, |_, window, cx| release_thumbs(trash, window, cx));
+                }
+            });
+        })
+        .detach();
         let opts = base_options(this.surface.mpv_options(), this.data.settings.cache_mib, this.data.settings.decode_threads);
         match Mpv::new(&opts, &OBSERVED).and_then(|(mpv, rx)| this.surface.attach(&mpv).map(|()| (mpv, rx))) {
             Ok((mpv, mut rx)) => {
@@ -395,6 +434,13 @@ impl PlayerView {
     /// Abre o gerador de miniaturas do arquivo atual, se estiver ligado nas
     /// configurações e ainda não aberto. Abrir custa uma ida à nuvem, por isso
     /// acontece assim que o mouse se mexe no player, antes do hover na barra.
+    /// Descarta o gerador e guarda as miniaturas já mostradas para soltar da memória.
+    fn drop_thumbs(&mut self) {
+        if let Some(th) = self.thumbs.take() {
+            self.thumb_trash.extend(th.files());
+        }
+    }
+
     fn ensure_thumbs(&mut self, cx: &mut Context<Self>) {
         // Só depois do primeiro quadro: não disputa a rede com a abertura do vídeo.
         if !self.settings().thumbnails || !self.playing || self.broken.is_some() || self.thumbs.is_some() {
@@ -453,7 +499,9 @@ impl PlayerView {
         self.loaded = false;
         self.playing = false;
         // Miniaturas são do arquivo anterior (ou de uma tentativa que falhou).
-        self.thumbs = None;
+        if let Some(th) = self.thumbs.take() {
+            self.thumb_trash.extend(th.files());
+        }
         self._thumb_events = None;
         self.expected_chapters = 0;
         self.buffering = true;
@@ -712,7 +760,7 @@ impl PlayerView {
             let _ = m.set("vd-lavc-threads", &s.decode_threads.to_string());
         }
         if !s.thumbnails {
-            self.thumbs = None;
+            self.drop_thumbs();
             self._thumb_events = None;
         }
         self.data.settings = s.clone();
@@ -807,6 +855,18 @@ impl Drop for PlayerView {
         }
         self.mpv = None;
         self.surface.hide();
+    }
+}
+
+/// Solta do gpui as miniaturas de prévia: a textura no atlas e o decodificado no
+/// cache de assets. Sem isso cada faixa vista fica na RAM até o app fechar.
+fn release_thumbs(paths: Vec<Arc<Path>>, window: &mut Window, cx: &mut gpui_kit::App) {
+    for path in paths {
+        let res = gpui_kit::Resource::Path(path);
+        if let Some(Ok(render)) = window.get_asset::<gpui_kit::ImgResourceLoader>(&res, cx) {
+            cx.drop_image(render, Some(window));
+        }
+        cx.remove_asset::<gpui_kit::ImgResourceLoader>(&res);
     }
 }
 
@@ -946,7 +1006,7 @@ impl PlayerView {
                 ),
             )
             .child(
-                v_flex().gap_1().child(menu_heading("Memória à frente", cx)).child(
+                v_flex().gap_1().child(menu_heading("Buffer à frente", cx)).child(
                     RadioGroup::horizontal("cache")
                         .children(radios(CACHES.map(|n| format!("{n} MB"))))
                         .selected_index(CACHES.iter().position(|n| *n == s.cache_mib))
@@ -1162,6 +1222,10 @@ impl PlayerView {
 
 impl Render for PlayerView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.thumb_trash.is_empty() {
+            let trash = std::mem::take(&mut self.thumb_trash);
+            window.defer(cx, move |window, cx| release_thumbs(trash, window, cx));
+        }
         let hidden = self.controls_hidden();
         // Estado da plataforma espelhando o da tela; idempotente.
         self.surface.set_cursor_hidden(hidden);

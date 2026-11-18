@@ -125,6 +125,11 @@ impl Thumbs {
         self.done.get(&bucket).cloned()
     }
 
+    /// Miniaturas já gravadas.
+    pub fn files(&self) -> impl Iterator<Item = Arc<Path>> + '_ {
+        self.done.values().cloned()
+    }
+
     /// Pede a faixa (substitui o pedido anterior que ainda não começou).
     pub fn want(&mut self, bucket: u32) {
         self.near = Some(bucket);
