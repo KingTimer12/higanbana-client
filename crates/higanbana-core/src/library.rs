@@ -135,6 +135,8 @@ macro_rules! re {
 
 re!(YEAR, r"[\[(]((?:19|20)\d\d)(?:\.(\d+))?[\])]");
 re!(DATED, r"^\s*\[(?:19|20)\d\d(?:\.\d+)?\]");
+// Franquia numerada em vez de datada: `00 Bakemonogatari`, `01 - Nisemonogatari`.
+re!(NUMBERED, r"^\s*(\d{2,3})\s*[-.]?\s+(\S.*)$");
 re!(KIND_TAG, r"(?i)\[\s*(TV|FILME|MOVIE|OVA|ONA|SPECIAL|ESPECIAL)\s*\]");
 re!(BRACKETS, r"\[[^\]]*\]|\([^)]*\)");
 re!(SPACES, r"\s+");
@@ -198,7 +200,26 @@ pub fn parse_work_name(name: &str) -> WorkName {
         "SPECIAL" | "ESPECIAL" => Some(WorkKind::Special),
         _ => None,
     });
-    WorkName { year, order, title: folder_title(name), kind }
+    match (year, numbered(name)) {
+        (None, Some((n, rest))) => WorkName { year, order: n, title: folder_title(rest), kind },
+        _ => WorkName { year, order, title: folder_title(name), kind },
+    }
+}
+
+/// `00 Título` → (0, `Título`).
+fn numbered(name: &str) -> Option<(u32, &str)> {
+    let c = NUMBERED.captures(name)?;
+    Some((c.get(1)?.as_str().parse().ok()?, c.get(2)?.as_str()))
+}
+
+/// `00 Título` → `Título`; outros nomes ficam iguais.
+pub fn strip_numbered(name: &str) -> &str {
+    numbered(name).map_or(name, |(_, rest)| rest)
+}
+
+/// Pasta de obra numerada (`00 Título`), como as da Monogatari Series.
+pub fn is_numbered(name: &str) -> bool {
+    numbered(name).is_some()
 }
 
 /// Começa com `[AAAA]` ou `[AAAA.N]`.
@@ -206,9 +227,20 @@ pub fn is_dated(name: &str) -> bool {
     DATED.is_match(name)
 }
 
-/// Pelo menos 2 subpastas e mais da metade com ano na frente.
+/// Pelo menos 2 subpastas e mais da metade com ano na frente (`[2004] A`) ou
+/// numeradas em sequência (`00 A`, `01 B`). Números repetidos não contam: versões
+/// de um título que começa com número (`86 [BD]`, `86 [WEB]`) não são franquia.
 pub fn is_franchise(dirs: &[&str]) -> bool {
-    dirs.len() >= 2 && dirs.iter().filter(|d| is_dated(d)).count() * 2 > dirs.len()
+    if dirs.len() < 2 {
+        return false;
+    }
+    let dated = dirs.iter().filter(|d| is_dated(d)).count();
+    let mut numbers: Vec<u32> = dirs.iter().filter_map(|d| numbered(d).map(|(n, _)| n)).collect();
+    let count = numbers.len();
+    numbers.sort_unstable();
+    numbers.dedup();
+    let numbered = if numbers.len() == count { count } else { 0 };
+    dated.max(numbered) * 2 > dirs.len()
 }
 
 /// Remove ano e tags de release: `[2018] B - The Beginning [DUAL]` → `B - The Beginning`.
@@ -518,6 +550,10 @@ mod tests {
         assert!(is_franchise(&["[2004] A", "[2005.0] B", "Extras"]));
         assert!(!is_franchise(&["[2004] A"]));
         assert!(!is_franchise(&["[Aenianos] A", "B 1080p"]));
+        assert!(is_franchise(&["00 Bakemonogatari", "01 Kizumonogatari", "02 - Nisemonogatari", "Extras"]));
+        assert!(!is_franchise(&["86 Eighty Six [BD]", "86 Eighty Six [WEB]"]));
+        let w = parse_work_name("01 - Nisemonogatari [TV]");
+        assert_eq!((w.year, w.order, w.title.as_str(), w.kind), (None, 1, "Nisemonogatari", Some(WorkKind::Tv)));
         assert_eq!(WorkKind::from_anilist("TV_SHORT"), Some(WorkKind::Tv));
         assert_eq!(WorkKind::from_anilist("MUSIC"), Some(WorkKind::Special));
         assert_eq!(WorkKind::from_anilist("X"), None);

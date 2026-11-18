@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    library::{Place, classify, is_dated, parent_path},
+    library::{Place, classify, is_dated, is_numbered, parent_path},
     player::store::Progress,
 };
 
@@ -27,7 +27,7 @@ pub fn work_key(file_path: &str) -> String {
     match classify(file_path) {
         Place::Title { title_path, rest, .. } => match rest.first() {
             // `rest` inclui o próprio arquivo: só é subpasta de obra se houver algo depois.
-            Some(work) if rest.len() > 1 && is_dated(work) => format!("{title_path}/{work}"),
+            Some(work) if rest.len() > 1 && (is_dated(work) || is_numbered(work)) => format!("{title_path}/{work}"),
             _ => title_path,
         },
         _ => parent_path(file_path),

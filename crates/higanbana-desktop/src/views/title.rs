@@ -28,7 +28,7 @@ use higanbana_core::{
         types::{MediaDetail, MediaSummary},
     },
     library::{
-        LOOSE_FILES_VERSION, VersionLabel, base_name, folder_title, folder_year, is_extra_folder, is_franchise, join_path,
+        LOOSE_FILES_VERSION, VersionLabel, base_name, folder_title, folder_year, is_extra_folder, is_franchise, join_path, strip_numbered,
         natural_cmp, raw_path, release_tags, resolution_rank, version_label,
     },
     nuvem::FileEntry,
@@ -296,7 +296,12 @@ impl TitleView {
     }
 
     fn lookup_name(&self) -> String {
-        self.season_name().unwrap_or_else(|| base_name(&self.title_path).to_owned())
+        match self.season_name() {
+            // Obra de franquia numerada (`01 Nisemonogatari`): o número não faz parte do título.
+            Some(s) if self.is_franchise() => strip_numbered(&s).to_owned(),
+            Some(s) => s,
+            None => base_name(&self.title_path).to_owned(),
+        }
     }
 
     fn summary(&self, cx: &gpui_kit::App) -> Option<Option<std::sync::Arc<MediaSummary>>> {
