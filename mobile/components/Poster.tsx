@@ -3,7 +3,7 @@
 // `formato · ano`. Quem usa decide o toque e de onde vêm os metadados.
 import { effect, Text, View } from "nsh";
 import { Button } from "nsh/base";
-import type { Media, WorkEntry } from "../lib/backend";
+import type { Media, MediaKind, WorkEntry } from "../lib/backend";
 import { mediaTitle, posterMeta } from "../lib/format";
 import { coverOf, lookupOf, nav, wantCover, wantLookup } from "../store";
 import { Cover, Icon, Skeleton } from "./ui";
@@ -88,17 +88,20 @@ export function Poster(props: PosterProps) {
   );
 }
 
-/** Pôster de uma pasta da nuvem (catálogo, busca): pede os metadados quando aparece e abre a obra. */
-export function WorkPoster(props: { work: WorkEntry }) {
+/** Pôster de uma pasta da nuvem (catálogo, busca, franquia), de qualquer seção:
+ * pede os metadados quando aparece e abre a obra. */
+export function WorkPoster(props: { work: WorkEntry; kind: MediaKind; meta?: string; testID?: string }) {
   // A lista só monta os cards perto da tela, e recicla: o pedido segue o item atual.
-  effect(() => wantLookup(props.work.name));
-  const media = () => lookupOf(props.work.name);
+  effect(() => wantLookup(props.work.name, props.kind));
+  const media = () => lookupOf(props.work.name, props.kind);
   return (
     <Poster
       title={props.work.title}
       media={media()}
       year={props.work.year}
-      onPress={() => nav.push({ name: "title", path: props.work.path, media: media() ?? null })}
+      meta={props.meta}
+      testID={props.testID}
+      onPress={() => nav.push({ name: "title", path: props.work.path, media: media() ?? null, kind: props.kind })}
     />
   );
 }

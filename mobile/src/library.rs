@@ -1,9 +1,12 @@
-//! Como uma obra se abre na nuvem: temporadas de uma franquia, versões
-//! (pastas de release) e episódios com o progresso de quem assiste.
+//! Como uma obra se abre na nuvem: obras de uma franquia, versões (pastas de
+//! release), episódios com o progresso de quem assiste e capítulos de mangá
+//! com o de quem lê.
 
 use higanbana_core::{
     Core,
     anilist::types::MediaDetail,
+    franchise::{franchise_span, franchise_tabs},
+    reader::logic::{chapter_label, comic_files, label_text},
     tmdb::{matching::work_query, still_url},
     library::{
         base_name, folder_title, is_extra_folder, is_franchise, join_path, natural_cmp, parse_episode,
@@ -27,9 +30,10 @@ pub struct Library;
 #[module]
 impl Library {
     /// Abre a pasta de uma obra:
-    /// `{ path, title, seasons, versions, defaultVersion, episodes }`.
-    /// Franquia vem com `seasons` (cada uma se abre de novo por aqui); obra com
-    /// releases vem com `versions`; arquivos soltos vêm em `episodes`.
+    /// `{ path, title, seasons, span, versions, defaultVersion, episodes, chapters }`.
+    /// Franquia vem com `seasons` (cada obra se abre de novo por aqui) e `span`
+    /// (`Franquia · 2004–2019`); obra com releases vem com `versions`; arquivos
+    /// soltos vêm em `episodes` (vídeos) e `chapters` (mangá).
     pub async fn open(path: String) -> Result<JsonValue, String> {
         on_core(|c| async move {
             let listing = c.cloud().list(&path).await.map_err(|e| e.to_string())?;
@@ -39,14 +43,23 @@ impl Library {
             let names: Vec<&str> = dirs.iter().map(|d| d.name.as_str()).collect();
 
             if is_franchise(&names) {
+                let works: Vec<_> = names.iter().map(|n| parse_work_name(n)).collect();
+                let span = franchise_span(&works.iter().collect::<Vec<_>>());
                 let seasons: Vec<JsonValue> = dirs
                     .iter()
-                    .map(|d| {
-                        let work = parse_work_name(&d.name);
-                        json!({ "name": d.name, "path": join_path(&path, &d.name), "title": work.title, "year": work.year })
-                    })
+                    .zip(&works)
+                    .map(|(d, work)| json!({ "name": d.name, "path": join_path(&path, &d.name), "title": work.title, "year": work.year }))
                     .collect();
-                return Ok(json!({ "path": path, "title": title, "seasons": seasons, "versions": [], "defaultVersion": null, "episodes": [] }));
+                return Ok(json!({
+                    "path": path,
+                    "title": title,
+                    "seasons": seasons,
+                    "span": span,
+                    "versions": [],
+                    "defaultVersion": null,
+                    "episodes": [],
+                    "chapters": [],
+                }));
             }
 
             let versions: Vec<&FileEntry> = dirs.into_iter().filter(|d| !is_extra_folder(&d.name)).collect();
@@ -73,9 +86,33 @@ impl Library {
                 "versions": versions,
                 "defaultVersion": default,
                 "episodes": episodes_of(&c, &path, &listing.files),
+                "chapters": chapters_of(&c, &path, &listing.files),
             }))
         })
         .await
+    }
+
+    /// Capítulos de mangá (`.cbz`, `.zip`, `.cbr`, `.rar` em ordem natural) de uma
+    /// pasta, com o progresso de leitura:
+    /// `[{ name, path, size, label, page, total, read, unitName }]`.
+    pub async fn chapters(path: String) -> Result<JsonValue, String> {
+        on_core(|c| async move {
+            let listing = c.cloud().list(&path).await.map_err(|e| e.to_string())?;
+            Ok(JsonValue::Array(chapters_of(&c, &path, &listing.files)))
+        })
+        .await
+    }
+
+    /// As abas de uma franquia, como no desktop: cada obra pelo nome da pasta e
+    /// pelo formato do AniList (`null` enquanto não se sabe), na ordem de `names`.
+    /// `[{ id, label, works: [índice] }]`, só as abas com obras.
+    pub fn franchise_tabs(names: Vec<String>, formats: Vec<Option<String>>) -> JsonValue {
+        let works: Vec<_> = names.iter().map(|n| parse_work_name(n)).collect();
+        let input: Vec<_> = works.iter().enumerate().map(|(i, w)| (w, formats.get(i).and_then(|f| f.as_deref()))).collect();
+        franchise_tabs(&input)
+            .into_iter()
+            .map(|(tab, ix)| json!({ "id": tab.id(), "label": tab.label(ix.len()), "works": ix }))
+            .collect()
     }
 
     /// Episódios (vídeos em ordem natural) de uma pasta, com o progresso salvo:
@@ -150,6 +187,31 @@ fn default_version(versions: &[&FileEntry], remembered: Option<&str>, work_title
             _ => Some(v),
         })
         .map(|v| v.name.clone())
+}
+
+fn chapters_of(core: &Core, dir: &str, files: &[FileEntry]) -> Vec<JsonValue> {
+    let comics = comic_files(files);
+    if comics.is_empty() {
+        return Vec::new();
+    }
+    let reading = core.reader().store.data().progress;
+    comics
+        .iter()
+        .map(|f| {
+            let path = join_path(dir, &f.name);
+            let seen = reading.get(&path);
+            json!({
+                "name": f.name,
+                "path": path,
+                "size": f.size,
+                "label": label_text(&chapter_label(&f.name)),
+                "page": seen.map_or(0, |p| p.page),
+                "total": seen.map_or(0, |p| p.total),
+                "read": seen.is_some_and(|p| p.read),
+                "unitName": seen.and_then(|p| p.unit_name.clone()),
+            })
+        })
+        .collect()
 }
 
 fn episodes_of(core: &Core, dir: &str, files: &[FileEntry]) -> Vec<JsonValue> {

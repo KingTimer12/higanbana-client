@@ -2,15 +2,17 @@
 // chamam as funções; ninguém escreve o estado de outra tela.
 import { openUrl, signal } from "nsh";
 import { createNavStack } from "nsh/base";
-import { type AppUpdate, backend, type Media, type User } from "./lib/backend";
+import { type AppUpdate, backend, type Comic, type Media, type MediaKind, type ReadProgress, type User } from "./lib/backend";
 import { errorMessage, mediaCover } from "./lib/format";
 import { KeyedSignals } from "./lib/keyed";
 
 export type Route =
   | { name: "tabs" }
-  | { name: "search" }
-  | { name: "title"; path: string; media: Media | null }
-  | { name: "player"; dir: string; file: string; title: string; malId: number | null };
+  | { name: "search"; kind: MediaKind }
+  | { name: "title"; path: string; media: Media | null; kind: MediaKind }
+  | { name: "player"; dir: string; file: string; title: string; malId: number | null }
+  /** `file`: o capítulo aberto; `files`: os da pasta, para seguir ao próximo. */
+  | { name: "reader"; file: Comic; files: Comic[]; title: string };
 
 /** A pilha de telas: as abas embaixo, o que se abre a partir delas por cima. */
 export const nav = createNavStack<Route>([{ name: "tabs" }]);
@@ -202,22 +204,26 @@ export function dismissNotice(id: number) {
 // monta os cards perto da área visível), e os pedidos saem em lote. O estado
 // fica aqui, pela chave do item, nunca no card: a lista recicla os cards.
 
-/** Metadados por nome de pasta: `null` = sem correspondência no AniList; ausente = ainda não se sabe. */
+/** Metadados por seção e nome de pasta: `null` = sem correspondência no AniList; ausente = ainda não se sabe. */
 const lookups = new KeyedSignals<string, Media | null>();
-const lookupQueue: string[] = [];
+const lookupQueue: { kind: MediaKind; name: string }[] = [];
 const lookupAsked = new Set<string>();
 let lookupRunning = false;
 /** Nomes por pedido ao núcleo (ele casa e guarda em cache). */
 const LOOKUP_BATCH = 24;
 
-/** A mídia de uma pasta de obra: `undefined` enquanto não se sabe, `null` sem correspondência. */
-export const lookupOf = (name: string): Media | null | undefined => lookups.get(name);
+/** Um mesmo nome de pasta pode ser anime e mangá: a chave leva a seção. */
+const lookupKey = (name: string, kind: MediaKind) => `${kind}:${name}`;
 
-/** Pede os metadados de uma pasta (uma vez por nome). */
-export function wantLookup(name: string) {
-  if (lookupAsked.has(name)) return;
-  lookupAsked.add(name);
-  lookupQueue.push(name);
+/** A mídia de uma pasta de obra: `undefined` enquanto não se sabe, `null` sem correspondência. */
+export const lookupOf = (name: string, kind: MediaKind = "anime"): Media | null | undefined => lookups.get(lookupKey(name, kind));
+
+/** Pede os metadados de uma pasta (uma vez por nome e seção). */
+export function wantLookup(name: string, kind: MediaKind = "anime") {
+  const key = lookupKey(name, kind);
+  if (lookupAsked.has(key)) return;
+  lookupAsked.add(key);
+  lookupQueue.push({ kind, name });
   if (!lookupRunning) {
     lookupRunning = true;
     // Junta os cards que aparecem no mesmo quadro num pedido só.
@@ -227,14 +233,20 @@ export function wantLookup(name: string) {
 
 async function runLookups() {
   while (lookupQueue.length > 0) {
-    const batch = lookupQueue.splice(0, LOOKUP_BATCH);
+    // Um pedido por seção: os primeiros da fila decidem qual.
+    const kind = lookupQueue[0].kind;
+    const batch: string[] = [];
+    for (let i = 0; i < lookupQueue.length && batch.length < LOOKUP_BATCH; ) {
+      if (lookupQueue[i].kind === kind) batch.push(lookupQueue.splice(i, 1)[0].name);
+      else i++;
+    }
     try {
-      const found = await backend().lookup(batch);
-      lookups.setMany(batch.map((name, i): [string, Media | null] => [name, found[i] ?? null]));
+      const found = await backend().lookup(batch, kind);
+      lookups.setMany(batch.map((name, i): [string, Media | null] => [lookupKey(name, kind), found[i] ?? null]));
     } catch {
       // Sem rede: o card fica com a capa tipográfica e tenta de novo ao reaparecer.
-      lookups.setMany(batch.map((name): [string, Media | null] => [name, null]));
-      for (const name of batch) lookupAsked.delete(name);
+      lookups.setMany(batch.map((name): [string, Media | null] => [lookupKey(name, kind), null]));
+      for (const name of batch) lookupAsked.delete(lookupKey(name, kind));
     }
   }
   lookupRunning = false;
@@ -290,4 +302,21 @@ export const watchedOf = (path: string): Watched | undefined => progress.get(pat
 /** O player avisa onde parou, para as listas de episódios mostrarem sem recarregar. */
 export function recordWatched(path: string, watched: Watched) {
   progress.set(path, watched);
+}
+
+// --- Leitura nesta sessão ---
+
+/** No arquivo do capítulo: a página (ou, numa coletânea, o capítulo interno) e se terminou. */
+export interface Reading extends ReadProgress {
+  unitName: string | null;
+}
+
+const reading = new KeyedSignals<string, Reading>();
+
+/** O progresso mais recente de um arquivo de mangá, se ele foi lido desde que o app abriu. */
+export const readingOf = (path: string): Reading | undefined => reading.get(path);
+
+/** O leitor avisa onde parou, para a lista de capítulos mostrar sem recarregar. */
+export function recordReading(path: string, value: Reading) {
+  reading.set(path, value);
 }

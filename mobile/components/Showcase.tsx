@@ -15,7 +15,7 @@ const HIGHLIGHTS = 6;
 /** Pôsteres por lista do descobrir. */
 const DISCOVER = 12;
 
-const open = (item: Featured) => nav.push({ name: "title", path: item.path, media: item.media });
+const open = (item: Featured) => nav.push({ name: "title", path: item.path, media: item.media, kind: "anime" });
 
 /** Um destaque: o banner da obra (ou a capa) tingido pela cor dela, a capa e o essencial. */
 function HighlightCard(props: { item: Featured; rank: number }) {

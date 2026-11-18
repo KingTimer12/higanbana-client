@@ -127,7 +127,7 @@ export function Home() {
         title={user() ? `Olá, ${user()!.name}` : "Início"}
         trailing={
           <>
-            <IconButton icon="search" label="Buscar" onPress={() => nav.push({ name: "search" })} />
+            <IconButton icon="search" label="Buscar" onPress={() => nav.push({ name: "search", kind: "anime" })} />
             <If when={user()}>{(u) => <AccountMenu user={u()} />}</If>
           </>
         }

@@ -5,17 +5,21 @@ import { Notices } from "./components/Notices";
 import { Loading } from "./components/ui";
 import { Login } from "./pages/Login";
 import { Player } from "./pages/Player";
+import { Reader } from "./pages/Reader";
 import { Search } from "./pages/Search";
 import { Tabs } from "./pages/Tabs";
 import { Title } from "./pages/Title";
+import { sectionOf } from "./lib/sections";
 import { checkForUpdate, nav, restoreSession, type Route, sessionState } from "./store";
 
 function page(route: Route) {
   switch (route.name) {
     case "search":
-      return <Search />;
+      return <Search section={sectionOf(route.kind)} />;
     case "title":
-      return <Title path={route.path} media={route.media} />;
+      return <Title path={route.path} media={route.media} kind={route.kind} />;
+    case "reader":
+      return <Reader file={route.file} files={route.files} title={route.title} />;
     case "player":
       return <Player dir={route.dir} file={route.file} title={route.title} malId={route.malId} />;
     default:

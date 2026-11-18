@@ -10,6 +10,7 @@ pub mod api;
 pub mod logic;
 pub mod rar;
 pub mod store;
+#[cfg(feature = "rar")]
 pub mod unpack;
 pub mod zip;
 
@@ -54,6 +55,7 @@ pub struct Archive {
 
 impl Reader {
     pub fn new(cloud: Arc<Cloud>) -> Self {
+        #[cfg(feature = "rar")]
         unpack::clean_leftovers();
         Self {
             store: store::ReaderStore::open(cloud.paths.data.join("reader.json")),
@@ -215,7 +217,7 @@ async fn unpacked(&self, page: &PageRef, arc: &Archive) -> Result<Unpacked, Stri
         return Ok(hit);
     }
     let data = fetch_range(&self.cloud, &page.path, arc.base, arc.base + arc.len - 1).await?;
-    let files = tokio::task::spawn_blocking(move || unpack::unpack(&data)).await.map_err(|e| e.to_string())??;
+    let files = tokio::task::spawn_blocking(move || unpack_rar(&data)).await.map_err(|e| e.to_string())??;
     let files = Arc::new(files);
     let mut cache = state.unpacked.lock().unwrap();
     cache.push_front((key, files.clone()));
@@ -268,6 +270,17 @@ pub async fn page(&self, page: &PageRef) -> Result<(Vec<u8>, String), String> {
         }
     }
 }
+}
+
+#[cfg(feature = "rar")]
+fn unpack_rar(data: &[u8]) -> Result<HashMap<String, Vec<u8>>, String> {
+    unpack::unpack(data)
+}
+
+/// Sem a `unrar` (o app mobile), só os rars guardados sem compressão abrem.
+#[cfg(not(feature = "rar"))]
+fn unpack_rar(_data: &[u8]) -> Result<HashMap<String, Vec<u8>>, String> {
+    Err("Este .rar está compactado e não abre neste aparelho.".into())
 }
 
 pub fn mime_for(name: &str) -> &'static str {

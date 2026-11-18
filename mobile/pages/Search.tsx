@@ -4,14 +4,17 @@ import { POSTER_COLUMNS, POSTER_GRID, POSTER_HEIGHT, WorkPoster } from "../compo
 import { EmptyState, PageHeader, SYSTEM_HEADER } from "../components/ui";
 import { backend, type WorkEntry } from "../lib/backend";
 import { errorMessage } from "../lib/format";
+import type { Section } from "../lib/sections";
 import { nav } from "../store";
 import { PosterGridSkeleton, SearchField } from "./Catalog";
 
 /** Menor texto que vale uma busca na nuvem. */
 const MIN_QUERY = 2;
 
-/** Busca de animes na nuvem pelo nome, em pôsteres como o catálogo. */
-export function Search() {
+/** Busca de obras de uma seção na nuvem pelo nome, em pôsteres como o catálogo. */
+export function Search(props: { section: Section }) {
+  const kind = props.section.kind;
+  const noun = props.section.noun;
   const text = signal("");
   // A nuvem limita buscas seguidas: só procura depois de uma pausa na digitação.
   const query = signal("");
@@ -22,18 +25,18 @@ export function Search() {
   });
   const results = resource(
     () => (query().length >= MIN_QUERY ? query() : undefined),
-    (q) => backend().search(q),
+    (q) => backend().search(q, kind),
   );
 
   return (
     <NavPage title="Buscar" headerClass={SYSTEM_HEADER} header={<PageHeader title="Buscar" onBack={() => nav.pop()} />}>
       <View class="flex-1 bg-background">
         <View class="border-b border-border px-4 py-3">
-          <SearchField value={text()} onChange={(v) => text.set(v)} placeholder="Nome do anime" label="Buscar anime" autoFocus />
+          <SearchField value={text()} onChange={(v) => text.set(v)} placeholder={`Nome do ${noun}`} label={`Buscar ${noun}`} autoFocus />
         </View>
 
         <If when={results.state() === "unresolved"}>
-          <EmptyState title="Busque um anime pelo nome" detail="A busca procura nas pastas da nuvem." />
+          <EmptyState title={`Busque um ${noun} pelo nome`} detail="A busca procura nas pastas da nuvem." />
         </If>
         <If when={results.state() === "pending"}>
           <View class="pt-4">
@@ -52,9 +55,9 @@ export function Search() {
             keyboardDismissMode="on-drag"
             class="flex-1"
             contentClass={`${POSTER_GRID} px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+24px)]`}
-            empty={<EmptyState title="Nenhum anime encontrado" detail={`Nada na nuvem com “${query()}”.`} />}
+            empty={<EmptyState title={`Nenhum ${noun} encontrado`} detail={`Nada na nuvem com “${query()}”.`} />}
           >
-            {(work) => <WorkPoster work={work()} />}
+            {(work) => <WorkPoster work={work()} kind={kind} />}
           </List>
         </If>
       </View>
