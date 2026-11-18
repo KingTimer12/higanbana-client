@@ -16,6 +16,9 @@ export interface AppUpdate {
   size: number;
 }
 
+/** A seção do acervo: os animes (vídeo) ou os mangás (leitura). */
+export type MediaKind = "anime" | "manga";
+
 /** Resumo de uma mídia do AniList (campos que as telas usam). */
 export interface Media {
   id: number;
@@ -28,6 +31,9 @@ export interface Media {
   averageScore?: number | null;
   genres?: string[];
   episodes?: number | null;
+  /** Só nos mangás. */
+  chapters?: number | null;
+  volumes?: number | null;
   seasonYear?: number | null;
   description?: string | null;
   /** Só nas vitrines: as tags mais relevantes sem spoiler e o estúdio principal. */
@@ -88,14 +94,57 @@ export interface EpisodeInfo {
   vote: number | null;
 }
 
-/** Uma pasta de obra aberta: franquia (`seasons`), releases (`versions`) ou arquivos soltos (`episodes`). */
+/** Um capítulo de mangá (um arquivo `.cbz`, `.zip`, ...) com o progresso de quem lê. */
+export interface Comic {
+  name: string;
+  path: string;
+  size: number;
+  /** `Cap. 12`, `Vol. 3` ou o nome do arquivo. */
+  label: string;
+  /** Página onde parou (desde 0) e quantas o capítulo tem; `total` 0 se nunca abriu. */
+  page: number;
+  total: number;
+  read: boolean;
+  /** Numa coletânea, o capítulo interno onde parou. */
+  unitName: string | null;
+}
+
+/** Uma pasta de obra aberta: franquia (`seasons`), releases (`versions`) ou arquivos
+ * soltos (`episodes` de vídeo, `chapters` de mangá). */
 export interface Work {
   path: string;
   title: string;
   seasons: WorkEntry[];
+  /** Só na franquia: `Franquia · 2004–2019`. */
+  span?: string;
   versions: Version[];
   defaultVersion: string | null;
   episodes: Episode[];
+  chapters: Comic[];
+}
+
+/** Uma aba da franquia (`Séries TV · 3`), com as posições das obras em `seasons`. */
+export interface FranchiseTab {
+  id: string;
+  label: string;
+  works: number[];
+}
+
+/** Um capítulo dentro de um arquivo (coletâneas trazem vários). */
+export interface ReadUnit {
+  /** Chave do progresso: o caminho do arquivo, quando ele é um capítulo só. */
+  key: string;
+  name: string;
+  label: string;
+  inner: string | null;
+  group: string | null;
+}
+
+/** Onde parou num capítulo. */
+export interface ReadProgress {
+  page: number;
+  total: number;
+  read: boolean;
 }
 
 /** Uma faixa do arquivo, como o mpv lista. */
@@ -161,13 +210,16 @@ export interface Backend {
   /** URI do pôster local do fanart.tv, ou `null` (fica a capa do AniList). */
   cover(media: Media): Promise<string | null>;
   media(id: number): Promise<Media>;
-  lookup(names: string[]): Promise<(Media | null)[]>;
-  search(query: string): Promise<WorkEntry[]>;
+  lookup(names: string[], kind: MediaKind): Promise<(Media | null)[]>;
+  search(query: string, kind: MediaKind): Promise<WorkEntry[]>;
   letters(): string[];
-  letter(letter: string): Promise<WorkEntry[]>;
+  letter(letter: string, kind: MediaKind): Promise<WorkEntry[]>;
 
   open(path: string): Promise<Work>;
   episodes(path: string): Promise<Episode[]>;
+  chapters(path: string): Promise<Comic[]>;
+  /** As abas da franquia, como no desktop: obras pelo nome da pasta e pelo formato do AniList (`null` enquanto não se sabe). */
+  franchiseTabs(names: string[], formats: (string | null)[]): FranchiseTab[];
   /** Título e miniatura do TMDB de cada arquivo, na ordem de `files` (`null` onde não casa).
    * `media` é o detalhe do AniList; `folder`, o nome da pasta da obra (ou da temporada). */
   episodeInfo(media: Media, folder: string, files: string[]): Promise<(EpisodeInfo | null)[]>;
@@ -183,6 +235,18 @@ export interface Backend {
   skipTimes(chapters: Chapter[], duration: number, malId: number | null, episode: number | null): Promise<SkipTimes>;
   continueWatching(): Resume[];
   setPlaying(playing: boolean): void;
+
+  /** Os capítulos de um arquivo de mangá (um só, se ele não se divide). */
+  readerUnits(path: string, size: number): Promise<ReadUnit[]>;
+  /** As páginas de um capítulo, em ordem de leitura (o que `readerPage` recebe). */
+  readerPages(path: string, size: number, unit: ReadUnit): Promise<number[]>;
+  /** Uma página pronta para o `Image` (baixada para o cache). */
+  readerPage(path: string, size: number, unit: ReadUnit, index: number): Promise<string>;
+  /** Guarda a página onde parou num capítulo (`unit.key`). */
+  saveReading(key: string, page: number, total: number): void;
+  /** Numa coletânea: em qual capítulo interno (de `count`) parou, gravado no arquivo. */
+  saveReadingSummary(path: string, index: number, count: number, read: boolean, unit: ReadUnit): void;
+  readingOf(key: string): ReadProgress | null;
 
   /** A versão instalada (`0.1.0`). */
   version(): string;

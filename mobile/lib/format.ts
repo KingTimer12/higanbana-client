@@ -28,14 +28,19 @@ const FORMATS: Record<string, string> = {
   ONA: "ONA",
   SPECIAL: "Especial",
   MUSIC: "Música",
+  MANGA: "Mangá",
+  NOVEL: "Novel",
+  ONE_SHOT: "One-shot",
 };
 
-/** `2024 · TV · 12 episódios · 82%`, só com o que a mídia tem. */
+/** `2024 · TV · 12 episódios · 82%` (ou `· 120 capítulos`), só com o que a mídia tem. */
 export function mediaFacts(media: Media): string {
   const facts: string[] = [];
   if (media.seasonYear) facts.push(String(media.seasonYear));
   if (media.format) facts.push(FORMATS[media.format] ?? media.format);
   if (media.episodes) facts.push(media.episodes === 1 ? "1 episódio" : `${media.episodes} episódios`);
+  if (media.chapters) facts.push(media.chapters === 1 ? "1 capítulo" : `${media.chapters} capítulos`);
+  else if (media.volumes) facts.push(media.volumes === 1 ? "1 volume" : `${media.volumes} volumes`);
   if (media.averageScore) facts.push(`${media.averageScore}%`);
   return facts.join(" · ");
 }

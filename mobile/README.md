@@ -1,8 +1,9 @@
 # Higanbana mobile
 
 Porte mobile do higanbana em [Native Shell](https://nsh.dev/docs/) (NSH): telas em TSX sobre o
-`higanbana-core`, exposto por um crate Rust do próprio app. Por enquanto só animes: login, início,
-catálogo, busca, página da obra e player.
+`higanbana-core`, exposto por um crate Rust do próprio app: login, início, catálogo e busca de
+animes e mangás (a mesma tela para as duas seções, como no desktop), franquia com abas, página da
+obra, player e leitor de mangá.
 
 ```text
 App.tsx            entrada: núcleo de verdade (lib/native.ts) + Root
@@ -11,8 +12,8 @@ Root.tsx           casca: login ou a pilha de telas, e os avisos
 store.ts           sessão, navegação, avisos, progresso visto na sessão
 pages/             uma tela por arquivo
 components/        controles do app (ui.tsx), pôster e card de episódio do desktop, o vídeo
-lib/               contrato com o núcleo (backend.ts), formatação
-src/               crate Rust: `higanbana/native` (Account, Catalog, Library, Player)
+lib/               contrato com o núcleo (backend.ts), seções do acervo (sections.ts), formatação
+src/               crate Rust: `higanbana/native` (Account, Catalog, Library, Player, Reader)
 theme.json         tokens de cor e raios (os do tema escuro do desktop)
 android/           projeto Gradle do host Android: Java (NSH + libmpv), C++ (NDK) e o libnsh.so do Rust
 ```
@@ -110,6 +111,7 @@ instalado com a chave de debug precisa ser desinstalado uma vez antes da primeir
 ## O que falta
 
 - iOS: o `Video` do NSH (AVPlayer) não abre mkv; precisa do mesmo componente com libmpv/MPVKit.
-- Mangás, música e downloads ficaram fora desta etapa. Os episódios já trazem título e miniatura do TMDB (chaves `TMDB_TOKEN`/`TMDB_KEY` no `.env`, como no desktop).
+- Música, doramas e downloads ficaram fora desta etapa. Os episódios já trazem título e miniatura do TMDB (chaves `TMDB_TOKEN`/`TMDB_KEY` no `.env`, como no desktop).
+- Leitor: só a leitura vertical contínua (sem página dupla nem direita para esquerda). Abre `.cbz`/`.zip` e `.rar` guardado sem compressão; o `.rar` compactado precisa da `unrar` (C++, feature `rar` do núcleo), que fica fora do celular. Páginas em AVIF só aparecem onde o sistema decodifica AVIF (Android 12 ou mais novo).
 - Depois do login no navegador é preciso voltar ao app à mão.
 - iOS não se atualiza pelo app (lá a distribuição é pela loja ou TestFlight).

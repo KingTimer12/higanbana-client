@@ -54,8 +54,28 @@ test("o catálogo lista as obras da letra escolhida", async () => {
   await app.press("id:letter-S");
   await app.waitFor("Spy x Family");
   await app.press("Spy x Family");
-  await app.waitFor("Temporadas");
-  expect(app.texts()).toContain("Spy x Family Season 2 (2023)");
+  await app.waitFor("Franquia · 2022–2023");
+});
+
+test("a franquia separa as obras em abas, como no desktop", async () => {
+  const app = await open("./Fixture.tsx");
+  await app.press("id:tab-animes");
+  await app.press("id:letter-S");
+  await app.waitFor("Spy x Family");
+  await app.press("Spy x Family");
+  // O filme casa com um MOVIE do AniList e vai para a aba Filmes.
+  await app.waitFor("Séries TV · 2");
+  await app.waitFor("Filmes · 1");
+  expect(app.texts()).toContain("Spy x Family Season 2");
+  expect(app.texts()).not.toContain("Spy x Family Code White");
+
+  await app.press("id:franchise-movies");
+  await app.waitFor("Spy x Family Code White");
+  expect(app.texts()).not.toContain("Spy x Family Season 2");
+
+  // Cada obra abre como uma obra comum.
+  await app.press("id:work-[2023.1] Spy x Family Code White [FILME]");
+  await app.waitFor("Episódios");
 });
 
 test("o filtro do catálogo restringe a letra", async () => {
@@ -85,7 +105,7 @@ test("a barra de abas troca de seção e guarda o estado da aba", async () => {
   await app.waitFor("Spy x Family");
 
   await app.press("id:tab-mangas");
-  await app.waitFor("Mangás ainda não chegaram ao celular");
+  await app.waitFor("id:letter-C");
 
   // De volta aos animes, a letra escolhida continua lá.
   await app.press("id:tab-animes");
@@ -120,4 +140,52 @@ test("o aviso de versão nova pode ser fechado", async () => {
   await app.press("label:Agora não");
   await app.waitFor(highlightsHeading());
   expect(app.texts()).not.toContain("Versão 0.2.0 disponível");
+});
+
+test("os mangás usam o mesmo catálogo, com a busca da seção", async () => {
+  const app = await open("./Fixture.tsx");
+  await app.press("id:tab-mangas");
+  await app.press("id:letter-C");
+  await app.waitFor("Chainsaw Man");
+  // Só mangás: os animes da letra não aparecem aqui.
+  await app.press("id:letter-S");
+  await app.waitFor("Nenhuma obra nesta letra");
+
+  await app.press("label:Buscar mangá");
+  await app.type("label:Buscar mangá", "yotsuba");
+  await app.waitFor("Yotsuba to!");
+});
+
+test("do mangá aos capítulos e ao leitor, que guarda onde parou", async () => {
+  const app = await open("./Fixture.tsx");
+  await app.press("id:tab-mangas");
+  await app.press("id:letter-C");
+  await app.waitFor("Chainsaw Man");
+  await app.press("Chainsaw Man");
+  await app.waitFor("Capítulos");
+  await app.waitFor("Ler Cap. 1");
+  expect(app.texts().some((t) => t.includes("97 capítulos"))).toBe(true);
+
+  await app.press("id:chapter-Cap 01.cbz");
+  await app.waitFor("Próximo: Cap. 2");
+  await app.press("label:Próximo capítulo");
+  await app.waitFor("Próximo: Cap. 3");
+
+  await app.press("label:Fechar o leitor");
+  // Seguir adiante conta o capítulo como lido; o botão já oferece o seguinte.
+  await app.waitFor("Lido");
+  await app.waitFor("Ler Cap. 2");
+});
+
+test("a coletânea lê os capítulos de dentro do arquivo em sequência", async () => {
+  const app = await open("./Fixture.tsx");
+  await app.press("id:tab-mangas");
+  await app.press("id:letter-Y");
+  await app.waitFor("Yotsuba to!");
+  await app.press("Yotsuba to!");
+  await app.waitFor("Ler Caps. 1-3");
+  await app.press("Ler Caps. 1-3");
+  await app.waitFor("Cap. 1");
+  await app.press("label:Próximo capítulo");
+  await app.waitFor("Cap. 2");
 });

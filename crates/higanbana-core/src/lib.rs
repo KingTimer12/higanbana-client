@@ -17,6 +17,7 @@ mod cloud;
 mod core;
 pub mod events;
 pub mod fanart;
+pub mod franchise;
 pub mod http;
 pub mod library;
 #[cfg(feature = "music")]

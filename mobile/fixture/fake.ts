@@ -1,6 +1,6 @@
 // Um núcleo de mentira, com um acervo pequeno e fixo: para os testes das
 // telas e para olhar o app no desktop sem conta nem rede da nuvem.
-import type { AppUpdate, Backend, Episode, Media, User, Work } from "../lib/backend";
+import type { AppUpdate, Backend, Comic, Episode, FranchiseTab, Media, ReadProgress, User, Work, WorkEntry } from "../lib/backend";
 
 const USER: User = { name: "Aaron", avatar: null };
 const SAMPLE_VIDEO = "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
@@ -37,6 +37,67 @@ const PATHS: Record<number, string> = {
   6: "Animes/Letra B/Bocchi the Rock!",
 };
 
+const MANGAS: Media[] = [
+  media(101, "Chainsaw Man", { format: "MANGA", episodes: null, chapters: 97 }),
+  media(102, "Yotsuba to!", { format: "MANGA", episodes: null, volumes: 15 }),
+];
+
+const MANGA_PATHS: Record<number, string> = {
+  101: "Mangás/Séries Mangás/Letra C/Chainsaw Man",
+  102: "Mangás/Séries Mangás/Letra Y/Yotsuba to!",
+};
+
+/** `[2023.1] Título [FILME]` → ano, ordem e tipo, como o `parse_work_name` do núcleo. */
+function parseWork(name: string): { year: number | null; order: number; kind: string | null } {
+  const year = /^\[(\d{4})(?:\.(\d+))?\]/.exec(name);
+  const kind = /\[(TV|FILME|MOVIE|OVA|ONA|ESPECIAL)\]\s*$/i.exec(name);
+  return { year: year ? Number(year[1]) : null, order: year?.[2] ? Number(year[2]) : 0, kind: kind ? kind[1].toUpperCase() : null };
+}
+
+/** As abas da franquia como o núcleo as monta (`franchise.rs`), para o acervo de mentira. */
+function franchiseTabs(names: string[], formats: (string | null)[]): FranchiseTab[] {
+  const tabOf = (i: number) => {
+    const w = parseWork(names[i]);
+    if (w.year === null) return "others";
+    const f = formats[i];
+    const kind = f === "MOVIE" ? "FILME" : f === "OVA" ? "OVA" : f === "SPECIAL" || f === "MUSIC" ? "ESPECIAL" : f ? "TV" : w.kind;
+    return kind === "FILME" || kind === "MOVIE" ? "movies" : kind === "OVA" || kind === "ESPECIAL" ? "specials" : "tv";
+  };
+  const labels: Record<string, string> = { tv: "Séries TV", movies: "Filmes", specials: "Especiais", others: "Outros" };
+  return ["tv", "movies", "specials", "others"]
+    .map((id) => {
+      const works = names.map((_, i) => i).filter((i) => tabOf(i) === id);
+      works.sort((a, b) => (parseWork(names[a]).year ?? 0) - (parseWork(names[b]).year ?? 0) || parseWork(names[a]).order - parseWork(names[b]).order);
+      return { id, label: id === "others" ? "Outros" : `${labels[id]} · ${works.length}`, works };
+    })
+    .filter((t) => t.works.length > 0);
+}
+
+/** Uma obra da franquia de mentira. */
+function season(path: string, name: string): WorkEntry {
+  const w = parseWork(name);
+  return { name, path: `${path}/${name}`, title: name.replace(/^\[[^\]]*\]\s*/, "").replace(/\s*\[[^\]]*\]$/, ""), year: w.year };
+}
+
+function chaptersOf(dir: string, read: Record<string, ReadProgress>): Comic[] {
+  // Yotsuba vem numa coletânea: um arquivo com três capítulos dentro.
+  const names = dir.includes("Yotsuba") ? ["Caps. 1-3.zip"] : ["Cap 01.cbz", "Cap 02.cbz", "Cap 03.cbz"];
+  return names.map((name, i) => {
+    const path = `${dir}/${name}`;
+    const seen = read[path];
+    return {
+      name,
+      path,
+      size: 1,
+      label: name.startsWith("Caps") ? "Caps. 1-3" : `Cap. ${i + 1}`,
+      page: seen?.page ?? 0,
+      total: seen?.total ?? 0,
+      read: seen?.read ?? false,
+      unitName: null,
+    };
+  });
+}
+
 function episodesOf(dir: string, count = 3): Episode[] {
   return Array.from({ length: count }, (_, i) => {
     const name = `Ep ${String(i + 1).padStart(2, "0")} [1080p].mkv`;
@@ -54,7 +115,7 @@ function episodesOf(dir: string, count = 3): Episode[] {
   });
 }
 
-function work(path: string): Work {
+function work(path: string, read: Record<string, ReadProgress>): Work {
   const title = path.split("/").pop() ?? path;
   const version = (folder: string, resolution: string) => ({
     folder,
@@ -69,12 +130,15 @@ function work(path: string): Work {
       path,
       title,
       seasons: [
-        { name: "[2022] Spy x Family", path: `${path}/[2022] Spy x Family`, title: "Spy x Family", year: 2022 },
-        { name: "[2023] Spy x Family Season 2", path: `${path}/[2023] Spy x Family Season 2`, title: "Spy x Family Season 2", year: 2023 },
+        season(path, "[2022] Spy x Family [TV]"),
+        season(path, "[2023.1] Spy x Family Code White [FILME]"),
+        season(path, "[2023] Spy x Family Season 2 [TV]"),
       ],
+      span: "Franquia · 2022–2023",
       versions: [],
       defaultVersion: null,
       episodes: [],
+      chapters: [],
     };
   }
   if (path.includes("Frieren")) {
@@ -85,9 +149,13 @@ function work(path: string): Work {
       versions: [version("[Grupo] Frieren [BD 1080p]", "1080p"), version("[Grupo] Frieren [BD 720p]", "720p")],
       defaultVersion: "[Grupo] Frieren [BD 1080p]",
       episodes: [],
+      chapters: [],
     };
   }
-  return { path, title, seasons: [], versions: [], defaultVersion: null, episodes: episodesOf(path) };
+  if (path.startsWith("Mangás/")) {
+    return { path, title, seasons: [], versions: [], defaultVersion: null, episodes: [], chapters: chaptersOf(path, read) };
+  }
+  return { path, title, seasons: [], versions: [], defaultVersion: null, episodes: episodesOf(path), chapters: [] };
 }
 
 
@@ -99,6 +167,8 @@ export function fakeBackend(options: { signedIn: boolean; update?: boolean }): B
   let user: User | null = options.signedIn ? USER : null;
   let downloaded = 0;
   const saved: Record<string, { position: number; duration: number }> = {};
+  const read: Record<string, ReadProgress> = {};
+  const entry = (path: string): WorkEntry => ({ name: path.split("/").pop() ?? path, path, title: path.split("/").pop() ?? path, year: 2026 });
   return {
     user: async () => user,
     login: async () => (user = USER),
@@ -124,19 +194,29 @@ export function fakeBackend(options: { signedIn: boolean; update?: boolean }): B
       ...(SEASON.find((m) => m.id === id) ?? media(id, "Anime")),
       description: "Uma elfa maga e seus companheiros seguem viagem depois do fim da aventura.<br><br>O tempo passa diferente para ela.",
     }),
-    lookup: async (names) => names.map((name) => SEASON.find((m) => name.includes(m.title.userPreferred ?? "?")) ?? null),
-    search: async (query) =>
-      Object.values(PATHS)
+    // O filme da franquia casa com um MOVIE do AniList: vai para a aba Filmes.
+    lookup: async (names, kind) =>
+      names.map((name) =>
+        kind === "manga"
+          ? (MANGAS.find((m) => name.includes(m.title.userPreferred ?? "?")) ?? null)
+          : name.includes("Code White")
+            ? media(7, "Spy x Family Code: White", { format: "MOVIE", episodes: 1, seasonYear: 2023 })
+            : (SEASON.find((m) => name.includes(m.title.userPreferred ?? "?")) ?? null),
+      ),
+    search: async (query, kind) =>
+      Object.values(kind === "manga" ? MANGA_PATHS : PATHS)
         .filter((path) => path.toLowerCase().includes(query.toLowerCase()))
-        .map((path) => ({ name: path.split("/").pop() ?? path, path, title: path.split("/").pop() ?? path, year: 2026 })),
-    letters: () => ["0-9", "Letra A", "Letra B", "Letra D", "Letra K", "Letra S"],
-    letter: async (letter) =>
-      Object.values(PATHS)
-        .filter((path) => path.split("/")[1] === letter)
-        .map((path) => ({ name: path.split("/").pop() ?? path, path, title: path.split("/").pop() ?? path, year: 2026 })),
+        .map(entry),
+    letters: () => ["0-9", "Letra A", "Letra B", "Letra C", "Letra D", "Letra K", "Letra S", "Letra Y"],
+    letter: async (letter, kind) =>
+      Object.values(kind === "manga" ? MANGA_PATHS : PATHS)
+        .filter((path) => path.split("/").includes(letter))
+        .map(entry),
 
-    open: async (path) => work(path),
+    open: async (path) => work(path, read),
     episodes: async (path) => episodesOf(path),
+    chapters: async (path) => chaptersOf(path, read),
+    franchiseTabs,
     // O primeiro episódio casa com o TMDB; os outros ficam com o rótulo do arquivo.
     episodeInfo: async (_media, _folder, files) =>
       files.map((_, i) =>
@@ -174,6 +254,22 @@ export function fakeBackend(options: { signedIn: boolean; update?: boolean }): B
       },
     ],
     setPlaying: () => {},
+
+    readerUnits: async (path) =>
+      path.endsWith(".zip")
+        ? [1, 2, 3].map((n) => ({ key: `${path}::Cap ${n}.cbz`, name: `Cap ${n}.cbz`, label: `Cap. ${n}`, inner: `Cap ${n}.cbz`, group: null }))
+        : [{ key: path, name: path.split("/").pop() ?? path, label: "Cap.", inner: null, group: null }],
+    readerPages: async () => [0, 1, 2, 3],
+    // A semente só com letras e números: o picsum não aceita `/` codificada no caminho.
+    readerPage: async (_path, _size, unit, index) =>
+      `https://picsum.photos/seed/${`${unit.key}${index}`.replace(/[^A-Za-z0-9]/g, "")}/700/1000`,
+    saveReading: (key, page, total) => {
+      read[key] = { page, total, read: (read[key]?.read ?? false) || page + 1 >= total };
+    },
+    saveReadingSummary: (path, index, count, done) => {
+      read[path] = { page: index, total: count, read: (read[path]?.read ?? false) || (done && index + 1 >= count) };
+    },
+    readingOf: (key) => read[key] ?? null,
 
     version: () => "0.1.0",
     checkUpdate: async () => (options.update ? UPDATE : null),

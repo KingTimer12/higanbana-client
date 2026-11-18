@@ -6,6 +6,7 @@
 
 mod library;
 mod player;
+mod reader;
 mod updates;
 
 use std::{
@@ -30,6 +31,7 @@ use serde_json::json;
 
 pub use library::Library;
 pub use player::Player;
+pub use reader::Reader;
 pub use updates::Updates;
 
 /// O que `App.tsx` importa de `higanbana/native`.
@@ -40,6 +42,7 @@ fn native(registry: &mut Registry) {
         .module::<Catalog>()
         .module::<Library>()
         .module::<Player>()
+        .module::<Reader>()
         .module::<Updates>();
 }
 
@@ -175,7 +178,17 @@ impl Account {
     }
 }
 
-/// Descoberta de animes: vitrines do AniList, busca e índice A–Z da nuvem.
+/// A seção do acervo que a tela pede: `"anime"` ou `"manga"`.
+fn media_type(kind: &str) -> Result<MediaType, String> {
+    match kind {
+        "anime" => Ok(MediaType::Anime),
+        "manga" => Ok(MediaType::Manga),
+        other => Err(format!("seção desconhecida: {other}")),
+    }
+}
+
+/// Descoberta de obras: vitrines do AniList, busca e índice A–Z da nuvem,
+/// para os animes e os mangás (`kind`).
 #[module]
 pub struct Catalog;
 
@@ -208,9 +221,10 @@ impl Catalog {
     }
 
     /// Casa nomes de pasta com o AniList: um resumo (ou `null`) por nome, na mesma ordem.
-    pub async fn lookup(names: Vec<String>) -> Result<JsonValue, String> {
-        on_core(|c| async move {
-            let items: Vec<LookupRequest> = names.into_iter().map(|name| LookupRequest { name, media_type: MediaType::Anime }).collect();
+    pub async fn lookup(names: Vec<String>, kind: String) -> Result<JsonValue, String> {
+        let media_type = media_type(&kind)?;
+        on_core(move |c| async move {
+            let items: Vec<LookupRequest> = names.into_iter().map(|name| LookupRequest { name, media_type }).collect();
             let found = c.anilist().lookup(&items).await.map_err(|e| e.to_string())?;
             Ok(found
                 .into_iter()
@@ -223,11 +237,15 @@ impl Catalog {
         .await
     }
 
-    /// Busca animes na nuvem pelo nome: `[{ name, path, title, year }]`.
-    pub async fn search(query: String) -> Result<JsonValue, String> {
-        on_core(|c| async move {
+    /// Busca obras da seção na nuvem pelo nome: `[{ name, path, title, year }]`.
+    pub async fn search(query: String, kind: String) -> Result<JsonValue, String> {
+        let wanted = match media_type(&kind)? {
+            MediaType::Anime => SearchKind::Anime,
+            MediaType::Manga => SearchKind::Manga,
+        };
+        on_core(move |c| async move {
             let found = c.cloud().search(&query).await.map_err(|e| e.to_string())?;
-            Ok(found.results.into_iter().filter(|r| r.kind == SearchKind::Anime).map(|r| work_entry(&r.name, &r.path)).collect())
+            Ok(found.results.into_iter().filter(|r| r.kind == wanted).map(|r| work_entry(&r.name, &r.path)).collect())
         })
         .await
     }
@@ -257,10 +275,11 @@ impl Catalog {
         LETTERS.iter().map(|l| (*l).to_owned()).collect()
     }
 
-    /// Obras de uma letra: `[{ name, path, title, year }]`.
-    pub async fn letter(letter: String) -> Result<JsonValue, String> {
-        on_core(|c| async move {
-            let entries = c.anime_index().letter(c.cloud(), &letter).await?;
+    /// Obras de uma letra da seção: `[{ name, path, title, year }]`.
+    pub async fn letter(letter: String, kind: String) -> Result<JsonValue, String> {
+        let media_type = media_type(&kind)?;
+        on_core(move |c| async move {
+            let entries = c.section_index(media_type).letter(c.cloud(), &letter).await?;
             Ok(entries.iter().map(|e| work_entry(&e.name, &e.path)).collect())
         })
         .await

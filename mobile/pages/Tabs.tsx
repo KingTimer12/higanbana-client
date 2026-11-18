@@ -6,6 +6,7 @@ import { NavPage } from "nsh/base";
 import { BackHandler } from "nsh/mobile";
 import { TAB_BAR_CLEARANCE, TabBar } from "../components/TabBar";
 import { EmptyState, type IconName, Icon, TabHeader } from "../components/ui";
+import { ANIME, MANGA } from "../lib/sections";
 import { currentTab, nav, selectTab, type Tab } from "../store";
 import { Catalog } from "./Catalog";
 import { Home } from "./Home";
@@ -30,9 +31,9 @@ function NotYet(props: { title: string; icon: IconName; what: string }) {
 function content(tab: Tab) {
   switch (tab) {
     case "animes":
-      return <Catalog />;
+      return <Catalog section={ANIME} />;
     case "mangas":
-      return <NotYet title="Mangás" icon="book" what="leia mangás" />;
+      return <Catalog section={MANGA} />;
     case "doramas":
       return <NotYet title="Doramas" icon="drama" what="assista doramas" />;
     case "musicas":

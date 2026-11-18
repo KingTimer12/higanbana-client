@@ -14,7 +14,8 @@ use gpui_kit::component::{
 };
 use higanbana_core::{
     anilist::{MediaType, types::MediaSummary},
-    library::{WorkKind, WorkName, base_name, folder_title, join_path, natural_cmp, parse_work_name, raw_path},
+    franchise::{FranchiseTab, franchise_span, franchise_tabs},
+    library::{WorkName, base_name, folder_title, join_path, natural_cmp, parse_work_name, raw_path},
     nuvem::FileEntry,
 };
 
@@ -23,51 +24,6 @@ use crate::{
     interact::Button,
     state::{AppState, state},
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FranchiseTab {
-    Tv,
-    Movies,
-    Specials,
-    Others,
-}
-
-impl FranchiseTab {
-    fn label(self, count: usize) -> String {
-        match self {
-            FranchiseTab::Tv => format!("Séries TV · {count}"),
-            FranchiseTab::Movies => format!("Filmes · {count}"),
-            FranchiseTab::Specials => format!("Especiais · {count}"),
-            FranchiseTab::Others => "Outros".to_owned(),
-        }
-    }
-}
-
-/// Aba de uma obra. Sem ano → Outros; com ano, o formato do AniList/MAL vence
-/// a tag do nome, e obra sem formato conhecido conta como série.
-fn tab_of(name: &WorkName, meta: Option<&MediaSummary>) -> FranchiseTab {
-    if name.year.is_none() {
-        return FranchiseTab::Others;
-    }
-    match meta.and_then(|m| m.format.as_deref()).and_then(WorkKind::from_anilist).or(name.kind) {
-        Some(WorkKind::Movie) => FranchiseTab::Movies,
-        Some(WorkKind::Ova | WorkKind::Special) => FranchiseTab::Specials,
-        Some(WorkKind::Tv | WorkKind::Ona) | None => FranchiseTab::Tv,
-    }
-}
-
-/// Abas não vazias, na ordem Séries TV · Filmes · Especiais · Outros, com os
-/// índices das obras em ordem de `(ano, ordem)` (empate mantém a ordem de entrada).
-pub fn franchise_tabs<M: std::borrow::Borrow<MediaSummary>>(works: &[(String, WorkName, Option<M>)]) -> Vec<(FranchiseTab, Vec<usize>)> {
-    [FranchiseTab::Tv, FranchiseTab::Movies, FranchiseTab::Specials, FranchiseTab::Others]
-        .into_iter()
-        .filter_map(|tab| {
-            let mut ix: Vec<usize> = (0..works.len()).filter(|&i| tab_of(&works[i].1, works[i].2.as_ref().map(|m| m.borrow())) == tab).collect();
-            ix.sort_by_key(|&i| (works[i].1.year, works[i].1.order));
-            (!ix.is_empty()).then_some((tab, ix))
-        })
-        .collect()
-}
 
 pub struct FranchiseView {
     state: Entity<AppState>,
@@ -121,15 +77,11 @@ impl Render for FranchiseView {
             .zip(&looked)
             .map(|((name, parsed), m)| (name.clone(), parsed.clone(), m.clone().flatten()))
             .collect();
-        let tabs = franchise_tabs(&works);
+        let input: Vec<(&WorkName, Option<&str>)> = works.iter().map(|w| (&w.1, w.2.as_ref().and_then(|m| m.format.as_deref()))).collect();
+        let tabs = franchise_tabs(&input);
         let active_ix = self.tab.and_then(|t| tabs.iter().position(|(tab, _)| *tab == t)).unwrap_or(0);
 
-        let years: Vec<u32> = works.iter().filter_map(|w| w.1.year).collect();
-        let span = match (years.iter().min(), years.iter().max()) {
-            (Some(a), Some(b)) if a != b => format!("Franquia · {a}–{b}"),
-            (Some(a), _) => format!("Franquia · {a}"),
-            _ => "Franquia".to_owned(),
-        };
+        let span = franchise_span(&works.iter().map(|w| &w.1).collect::<Vec<_>>());
 
         let raw = raw_path(&self.title_path);
         let st_entity = self.state.clone();
@@ -204,41 +156,5 @@ impl Render for FranchiseView {
             .child(breadcrumbs(&self.title_path, cx))
             .child(hero)
             .child(v_flex().gap_6().children(tab_bar).child(grid))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn work(name: &str, meta: Option<serde_json::Value>) -> (String, WorkName, Option<MediaSummary>) {
-        (name.to_owned(), parse_work_name(name), meta.map(|v| serde_json::from_value(v).unwrap()))
-    }
-
-    #[test]
-    fn franchise_tabs_by_kind() {
-        let works = vec![
-            work("[2005.1] B [FILME]", None),
-            work("[2019.0] Star Twinkle Precure [FILME]", Some(json!({"id":1,"format":"TV"}))),
-            work("Extras sem ano", None),
-            work("[2004] A [TV]", None),
-        ];
-        let tabs = franchise_tabs(&works);
-        assert_eq!(tabs, vec![(FranchiseTab::Tv, vec![3, 1]), (FranchiseTab::Movies, vec![0]), (FranchiseTab::Others, vec![2])]);
-    }
-
-    #[test]
-    fn franchise_tabs_other_kinds_and_fallbacks() {
-        let works = vec![
-            work("[2008] Splash [OVA]", None),
-            work("[2009] Gala [ESPECIAL]", None),
-            work("[2010] Web [ONA]", None),
-            work("[2011] Sem tag", None),
-            work("[2012] Filme [FILME]", Some(json!({"id":2,"format":"FORMATO_NOVO"}))),
-            work("[2013] Curta [TV]", Some(json!({"id":3,"format":"OVA"}))),
-        ];
-        let tabs = franchise_tabs(&works);
-        assert_eq!(tabs, vec![(FranchiseTab::Tv, vec![2, 3]), (FranchiseTab::Movies, vec![4]), (FranchiseTab::Specials, vec![0, 1, 5])]);
     }
 }

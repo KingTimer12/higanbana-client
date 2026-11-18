@@ -4,6 +4,7 @@ import { POSTER_COLUMNS, POSTER_GRID, POSTER_HEIGHT, WorkPoster } from "../compo
 import { TAB_BAR_CLEARANCE } from "../components/TabBar";
 import { Chip, EmptyState, Icon, IconButton, Skeleton, TabHeader } from "../components/ui";
 import { backend, type WorkEntry } from "../lib/backend";
+import type { Section } from "../lib/sections";
 import { errorMessage, letterLabel } from "../lib/format";
 import { nav } from "../store";
 
@@ -49,11 +50,13 @@ export function SearchField(props: { value: string; onChange: (value: string) =>
   );
 }
 
-/** A aba Animes: o catálogo da nuvem, o índice A–Z e a grade de pôsteres da letra. */
-export function Catalog() {
+/** O catálogo de uma seção (Animes, Mangás): o índice A–Z da nuvem e a grade de
+ * pôsteres da letra. A mesma tela para todas as obras, como no desktop. */
+export function Catalog(props: { section: Section }) {
+  const kind = props.section.kind;
   const letters = backend().letters();
   const letter = signal(letters[1] ?? letters[0] ?? "");
-  const works = resource(letter, (l) => backend().letter(l));
+  const works = resource(letter, (l) => backend().letter(l, kind));
   const filter = signal("");
   const shown = () => {
     const q = filter().trim().toLowerCase();
@@ -83,8 +86,8 @@ export function Catalog() {
   return (
     <View class="flex-1 bg-background">
       <TabHeader
-        title="Animes"
-        trailing={<IconButton icon="search" label="Buscar anime" onPress={() => nav.push({ name: "search" })} />}
+        title={props.section.title}
+        trailing={<IconButton icon="search" label={`Buscar ${props.section.noun}`} onPress={() => nav.push({ name: "search", kind })} />}
       />
       <View class="border-b border-border">
         <Scroll horizontal scrollbar={false} contentClass="flex-row gap-2 px-4 py-3">
@@ -126,7 +129,7 @@ export function Catalog() {
             />
           }
         >
-          {(work) => <WorkPoster work={work()} />}
+          {(work) => <WorkPoster work={work()} kind={kind} />}
         </List>
       </If>
     </View>
