@@ -3,12 +3,14 @@
 //! O peso de cada entrada é o tamanho decodificado (largura × altura × 4),
 //! que é o que realmente ocupa memória depois que o gpui decodifica a imagem.
 
-use std::{cell::Cell, io::Cursor};
+use std::{cell::Cell, io::Cursor, sync::Arc};
+
+use gpui_kit::RenderImage;
 
 use rustc_hash::FxHashMap;
 
 /// Teto do cache de imagens decodificadas.
-pub const IMAGE_BUDGET: u64 = 384 * 1024 * 1024;
+pub const IMAGE_BUDGET: u64 = 64 * 1024 * 1024;
 
 struct Entry<V> {
     value: V,
@@ -81,14 +83,38 @@ impl<V: Clone> ImageCache<V> {
     }
 }
 
-/// largura × altura × 4 lidos do cabeçalho; sem cabeçalho legível, bytes.len() × 4.
-pub fn decoded_weight(bytes: &[u8]) -> u64 {
-    image::ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .ok()
-        .and_then(|r| r.into_dimensions().ok())
-        .map(|(w, h)| w as u64 * h as u64 * 4)
-        .unwrap_or(bytes.len() as u64 * 4)
+/// Maior lado de imagens da interface: capas em pé até `PORTRAIT_MAX` de altura,
+/// banners/stills até `LANDSCAPE_MAX` de largura. Fanart e TMDB chegam bem maiores
+/// do que o card mostra, e decodificado cada pixel custa 4 bytes.
+pub const PORTRAIT_MAX: u32 = 640;
+pub const LANDSCAPE_MAX: u32 = 1600;
+/// Páginas do leitor: precisam de nitidez em tela cheia.
+pub const PAGE_MAX: u32 = 2400;
+
+/// Decodifica já reduzida ao teto e em BGRA (formato do gpui), sem guardar os bytes
+/// originais. Devolve a imagem e o peso em memória. Chamar fora da thread da UI.
+pub fn decode(bytes: &[u8], portrait_max: u32, landscape_max: u32) -> Option<(Arc<RenderImage>, u64)> {
+    use image::{AnimationDecoder as _, Frame, codecs::gif::GifDecoder, imageops::FilterType};
+    let mut frames: Vec<Frame> = if bytes.starts_with(b"GIF") {
+        GifDecoder::new(Cursor::new(bytes)).ok()?.into_frames().collect_frames().ok()?
+    } else {
+        let mut img = image::load_from_memory(bytes).ok()?;
+        let (w, h) = (img.width(), img.height());
+        let (mw, mh) = if h > w { (u32::MAX, portrait_max) } else { (landscape_max, u32::MAX) };
+        if w > mw || h > mh {
+            img = img.resize(mw.min(w), mh.min(h), FilterType::Triangle);
+        }
+        vec![Frame::new(img.into_rgba8())]
+    };
+    let mut weight = 0;
+    for f in &mut frames {
+        let buf = f.buffer_mut();
+        weight += buf.len() as u64;
+        for px in buf.chunks_exact_mut(4) {
+            px.swap(0, 2);
+        }
+    }
+    Some((Arc::new(RenderImage::new(frames)), weight))
 }
 
 #[cfg(test)]
@@ -150,12 +176,29 @@ mod tests {
         assert_eq!(c.get("a"), Some(2));
     }
 
+    fn png(w: u32, h: u32) -> Vec<u8> {
+        let mut out = Vec::new();
+        image::DynamicImage::new_rgba8(w, h).write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png).unwrap();
+        out
+    }
+
     #[test]
-    fn weight_from_header() {
-        let mut png = Vec::new();
-        image::DynamicImage::new_rgba8(10, 20)
-            .write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)
-            .unwrap();
-        assert_eq!(decoded_weight(&png), 800);
+    fn decode_keeps_small_images() {
+        let (img, weight) = decode(&png(10, 20), 640, 1600).unwrap();
+        assert_eq!(weight, 800);
+        assert_eq!((img.size(0).width.0, img.size(0).height.0), (10, 20));
+    }
+
+    #[test]
+    fn decode_shrinks_to_the_cap() {
+        let (tall, _) = decode(&png(1000, 1426), 640, 1600).unwrap();
+        assert_eq!(tall.size(0).height.0, 640);
+        let (wide, _) = decode(&png(3840, 2160), 640, 1600).unwrap();
+        assert_eq!((wide.size(0).width.0, wide.size(0).height.0), (1600, 900));
+    }
+
+    #[test]
+    fn decode_rejects_garbage() {
+        assert!(decode(b"nope", 640, 1600).is_none());
     }
 }
