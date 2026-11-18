@@ -275,6 +275,7 @@ impl AniListClient {
         };
 
         self.state.lock().unwrap().record_send(Instant::now());
+        let started = Instant::now();
         let resp = self
             .http
             .post(ENDPOINT)
@@ -284,6 +285,11 @@ impl AniListClient {
             .send()
             .await?;
         let status = resp.status();
+        if status == StatusCode::TOO_MANY_REQUESTS {
+            tracing::warn!("anilist: limite de requisições (429)");
+        } else {
+            tracing::debug!(status = status.as_u16(), ms = started.elapsed().as_millis() as u64, "anilist");
+        }
         let limits = parse_rate_headers(resp.headers(), epoch_now());
         self.state.lock().unwrap().absorb(&limits, Instant::now(), status == StatusCode::TOO_MANY_REQUESTS);
         let text = resp.text().await?;

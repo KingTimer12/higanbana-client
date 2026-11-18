@@ -161,7 +161,13 @@ impl Core {
         if !url.starts_with("https://") {
             return Err("endereço não permitido".into());
         }
-        let resp = self.web.get(url).send().await.map_err(|e| e.to_string())?;
+        let shown = url.split('?').next().unwrap_or(url);
+        let resp = self.web.get(url).send().await.map_err(|e| {
+            let e = e.without_url();
+            tracing::warn!(url = shown, error = %e, "download público falhou");
+            e.to_string()
+        })?;
+        tracing::debug!(url = shown, status = resp.status().as_u16(), "download público");
         if !resp.status().is_success() {
             return Err(format!("HTTP {}", resp.status().as_u16()));
         }

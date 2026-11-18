@@ -109,6 +109,7 @@ pub async fn check(web: &Client) -> Result<Option<Release>, UpdateError> {
 }
 
 /// Consulta a última release estável que traz o arquivo de `target`.
+#[tracing::instrument(skip(web), err(Display))]
 pub async fn check_for(web: &Client, target: Target) -> Result<Option<Release>, UpdateError> {
     let resp = web
         .get(format!("https://api.github.com/repos/{REPO}/releases/latest"))

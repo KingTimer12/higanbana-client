@@ -320,6 +320,7 @@ async fn fetch_map(http: &reqwest::Client, url: &str) -> FanartResult<AnimeMap> 
         .send()
         .await
         .map_err(|e| FanartError::Http(e.to_string()))?;
+    tracing::debug!(status = resp.status().as_u16(), "fanart: mapa de ids");
     if !resp.status().is_success() {
         return Err(FanartError::Http(format!("HTTP {}", resp.status())));
     }

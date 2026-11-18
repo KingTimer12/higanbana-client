@@ -94,11 +94,26 @@ pub const PAGE_MAX: u32 = 2400;
 /// Decodifica já reduzida ao teto e em BGRA (formato do gpui), sem guardar os bytes
 /// originais. Devolve a imagem e o peso em memória. Chamar fora da thread da UI.
 pub fn decode(bytes: &[u8], portrait_max: u32, landscape_max: u32) -> Option<(Arc<RenderImage>, u64)> {
+    match try_decode(bytes, portrait_max, landscape_max) {
+        Ok(r) => Some(r),
+        Err(e) => {
+            let head: String = bytes.iter().take(16).map(|b| format!("{b:02x}")).collect();
+            tracing::warn!(error = %e, len = bytes.len(), head, "decodificação falhou");
+            None
+        }
+    }
+}
+
+fn try_decode(bytes: &[u8], portrait_max: u32, landscape_max: u32) -> Result<(Arc<RenderImage>, u64), String> {
     use image::{AnimationDecoder as _, Frame, codecs::gif::GifDecoder, imageops::FilterType};
     let mut frames: Vec<Frame> = if bytes.starts_with(b"GIF") {
-        GifDecoder::new(Cursor::new(bytes)).ok()?.into_frames().collect_frames().ok()?
+        GifDecoder::new(Cursor::new(bytes)).and_then(|d| d.into_frames().collect_frames()).map_err(|e| e.to_string())?
     } else {
-        let mut img = image::load_from_memory(bytes).ok()?;
+        let mut img = if crate::avif::is_avif(bytes) {
+            image::DynamicImage::ImageRgba8(crate::avif::decode(bytes)?)
+        } else {
+            image::load_from_memory(bytes).map_err(|e| e.to_string())?
+        };
         let (w, h) = (img.width(), img.height());
         let (mw, mh) = if h > w { (u32::MAX, portrait_max) } else { (landscape_max, u32::MAX) };
         if w > mw || h > mh {
@@ -114,7 +129,7 @@ pub fn decode(bytes: &[u8], portrait_max: u32, landscape_max: u32) -> Option<(Ar
             px.swap(0, 2);
         }
     }
-    Some((Arc::new(RenderImage::new(frames)), weight))
+    Ok((Arc::new(RenderImage::new(frames)), weight))
 }
 
 #[cfg(test)]

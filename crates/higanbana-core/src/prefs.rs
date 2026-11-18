@@ -34,7 +34,7 @@ impl Prefs {
         let mut versions = self.versions.lock().unwrap();
         versions.insert(work_path.to_string(), folder.to_string());
         if let Err(e) = self.save(&versions) {
-            eprintln!("preferências: não salvou {}: {e}", self.file.display());
+            tracing::error!(file = %self.file.display(), error = %e, "preferências: não salvou");
         }
     }
 }

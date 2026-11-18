@@ -69,10 +69,11 @@ impl AnitsuHttp {
     where
         F: Fn(RequestBuilder) -> RequestBuilder,
     {
-        let resp = self.send_raw(auth, method, path, build).await?;
+        let resp = self.send_raw(auth, method.clone(), path, build).await?;
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
+            tracing::warn!(%method, path, status = status.as_u16(), "resposta com erro");
             return Err(HttpError::Status { status: status.as_u16(), body });
         }
         Ok(resp)
@@ -109,6 +110,7 @@ impl AnitsuHttp {
     where
         F: Fn(RequestBuilder) -> RequestBuilder,
     {
+        let started = std::time::Instant::now();
         let mut req = self.client.request(method.clone(), url.clone());
         req = match self.auth_style {
             AuthStyle::Cookie => match auth.cookie_header().await? {
@@ -121,7 +123,18 @@ impl AnitsuHttp {
                     .bearer_auth(token.as_deref().unwrap_or(&CONFIG.supabase_anon_key))
             }
         };
-        Ok(build(req).send().await?)
+        // Só host e caminho: a query pode carregar dados da sessão.
+        match build(req).send().await {
+            Ok(resp) => {
+                tracing::debug!(%method, host = url.host_str().unwrap_or(""), path = url.path(), status = resp.status().as_u16(), ms = started.elapsed().as_millis() as u64, "http");
+                Ok(resp)
+            }
+            Err(e) => {
+                let e = e.without_url();
+                tracing::warn!(%method, host = url.host_str().unwrap_or(""), path = url.path(), error = %e, "http falhou");
+                Err(e.into())
+            }
+        }
     }
 
     /// GET com query string, resposta em JSON tipado.

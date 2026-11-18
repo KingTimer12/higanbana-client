@@ -379,7 +379,17 @@ impl ReaderView {
         let task = self.core.spawn(async move { core.reader().page(&page).await });
         let state = self.state.clone();
         cx.spawn(async move |this, cx| {
-            let r = task.await.ok().and_then(Result::ok);
+            let r = match task.await {
+                Ok(Ok(r)) => Some(r),
+                Ok(Err(e)) => {
+                    tracing::warn!(page = %key, error = %e, "leitor: página não carregou");
+                    None
+                }
+                Err(e) => {
+                    tracing::error!(page = %key, error = %e, "leitor: tarefa da página perdida");
+                    None
+                }
+            };
             let ratio = r.as_ref().and_then(|(b, _)| {
                 let (w, h) = image::ImageReader::new(std::io::Cursor::new(b)).with_guessed_format().ok()?.into_dimensions().ok()?;
                 (h > 0).then(|| w as f32 / h as f32)

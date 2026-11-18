@@ -329,7 +329,7 @@ impl CatalogView {
             let results = match task.await {
                 Ok(Ok(r)) => Some(r.results),
                 Ok(Err(e)) => {
-                    eprintln!("busca na nuvem por {q:?}: {e}");
+                    tracing::warn!(query = %q, error = %e, "busca na nuvem falhou");
                     None
                 }
                 Err(e) => {
