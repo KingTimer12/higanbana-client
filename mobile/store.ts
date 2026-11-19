@@ -2,7 +2,7 @@
 // chamam as funções; ninguém escreve o estado de outra tela.
 import { openUrl, signal } from "nsh";
 import { createNavStack } from "nsh/base";
-import { type AppUpdate, backend, type Comic, type Media, type MediaKind, type ReadProgress, type User } from "./lib/backend";
+import { type AppUpdate, backend, type Comic, type Media, type MediaKind, type OfflineItem, type OfflineRequest, type ReadProgress, type User } from "./lib/backend";
 import { errorMessage, mediaCover } from "./lib/format";
 import { KeyedSignals } from "./lib/keyed";
 
@@ -12,7 +12,8 @@ export type Route =
   | { name: "title"; path: string; media: Media | null; kind: MediaKind }
   | { name: "player"; dir: string; file: string; title: string; malId: number | null }
   /** `file`: o capítulo aberto; `files`: os da pasta, para seguir ao próximo. */
-  | { name: "reader"; file: Comic; files: Comic[]; title: string };
+  | { name: "reader"; file: Comic; files: Comic[]; title: string }
+  | { name: "downloads" };
 
 /** A pilha de telas: as abas embaixo, o que se abre a partir delas por cima. */
 export const nav = createNavStack<Route>([{ name: "tabs" }]);
@@ -196,6 +197,60 @@ export function notify(text: string) {
 
 export function dismissNotice(id: number) {
   notices.update((list) => list.filter((n) => n.id !== id));
+}
+
+// --- Baixados para ver sem internet ---
+//
+// O núcleo baixa e guarda o estado; daqui se relê a lista a cada segundo
+// enquanto algo baixa, e cada linha lê o próprio arquivo pela chave.
+
+const offline = signal<OfflineItem[]>([]);
+const offlineByPath = new KeyedSignals<string, OfflineItem>();
+/** Intervalo entre releituras enquanto há download em andamento. */
+const OFFLINE_POLL_MS = 1000;
+let offlinePolling = false;
+
+/** Relê os baixados; segue relendo enquanto algum está na fila ou baixando. */
+export function refreshOffline() {
+  let items: OfflineItem[];
+  try {
+    items = backend().offlineList();
+  } catch {
+    return;
+  }
+  const gone = new Set(offline().map((i) => i.path));
+  for (const item of items) {
+    gone.delete(item.path);
+    const before = offlineByPath.get(item.path);
+    if (!before || before.status !== item.status || before.downloaded !== item.downloaded) offlineByPath.set(item.path, item);
+  }
+  for (const path of gone) offlineByPath.delete(path);
+  offline.set(items);
+  const busy = items.some((i) => i.status === "queued" || i.status === "downloading");
+  if (busy && !offlinePolling) {
+    offlinePolling = true;
+    setTimeout(() => {
+      offlinePolling = false;
+      refreshOffline();
+    }, OFFLINE_POLL_MS);
+  }
+}
+
+/** Todos os baixados (e os na fila), do mais recente. */
+export const offlineItems = () => offline();
+/** O estado de um arquivo da nuvem nos baixados; `undefined` se nunca foi pedido. */
+export const offlineOf = (path: string) => offlineByPath.get(path);
+
+/** Baixa um episódio ou capítulo para ver sem internet. */
+export function downloadOffline(item: OfflineRequest) {
+  backend().offlineDownload(item);
+  refreshOffline();
+}
+
+/** Apaga a cópia (ou interrompe o download). */
+export function removeOffline(path: string) {
+  backend().offlineRemove(path);
+  refreshOffline();
 }
 
 // --- O que se sabe de cada card, pedido quando ele aparece ---

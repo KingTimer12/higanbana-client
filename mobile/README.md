@@ -108,10 +108,16 @@ O Android só instala por cima um APK assinado com a mesma chave: as releases sa
 (`.github/workflows/release.yml`, job `android`) com a keystore dos secrets `ANDROID_KEYSTORE_*`. Um APK
 instalado com a chave de debug precisa ser desinstalado uma vez antes da primeira versão do CI.
 
+## Baixados (sem internet)
+
+O botão ao lado de cada episódio e capítulo baixa o arquivo para a pasta de dados do app (`offline/`, no núcleo: `higanbana_core::offline`). O player toca a cópia (`file://`) e o leitor lê as faixas do `.cbz` dela, então os dois abrem sem rede; a tela "Baixados" (ícone no início) lista por obra, abre, apaga e tenta de novo o que falhou. Sem rede, a sessão guardada continua valendo para chegar até lá.
+
+Limites: dois downloads por vez; o download só anda com o app aberto (fechar o app interrompe, e o arquivo volta como "falhou" para tentar de novo).
+
 ## O que falta
 
 - iOS: o `Video` do NSH (AVPlayer) não abre mkv; precisa do mesmo componente com libmpv/MPVKit.
-- Música, doramas e downloads ficaram fora desta etapa. Os episódios já trazem título e miniatura do TMDB (chaves `TMDB_TOKEN`/`TMDB_KEY` no `.env`, como no desktop).
+- Música e doramas ficaram fora desta etapa. Os episódios já trazem título e miniatura do TMDB (chaves `TMDB_TOKEN`/`TMDB_KEY` no `.env`, como no desktop).
 - Leitor: só a leitura vertical contínua (sem página dupla nem direita para esquerda). Abre `.cbz`/`.zip` e `.rar` guardado sem compressão; o `.rar` compactado precisa da `unrar` (C++, feature `rar` do núcleo), que fica fora do celular. Páginas em AVIF só aparecem onde o sistema decodifica AVIF (Android 12 ou mais novo).
 - Depois do login no navegador é preciso voltar ao app à mão.
 - iOS não se atualiza pelo app (lá a distribuição é pela loja ou TestFlight).

@@ -4,7 +4,7 @@
 import { effect, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import type { Media, MediaKind, WorkEntry } from "../lib/backend";
-import { mediaTitle, posterMeta } from "../lib/format";
+import { mediaTitle, posterMeta, scoreLabel } from "../lib/format";
 import { coverOf, lookupOf, nav, wantCover, wantLookup } from "../store";
 import { Cover, Icon, Skeleton } from "./ui";
 
@@ -38,7 +38,7 @@ function ScoreMark(props: { score: number }) {
   return (
     <View class="absolute top-2 right-2 flex-row items-center gap-1 rounded-(--radius) bg-scrim/70 px-1.5 py-0.5">
       <Icon name="star" class="size-3 tint-score" />
-      <Text class="text-xs font-semibold tabular-nums text-on-video">{props.score}</Text>
+      <Text class="text-xs font-semibold tabular-nums text-on-video">{scoreLabel(props.score)}</Text>
     </View>
   );
 }

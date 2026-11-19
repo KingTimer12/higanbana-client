@@ -30,9 +30,14 @@ pub struct Player;
 
 #[module]
 impl Player {
-    /// URL que o player abre para um arquivo da nuvem (proxy local com a sessão).
+    /// URL que o player abre para um arquivo da nuvem (proxy local com a sessão);
+    /// baixado, o `file://` da cópia, que toca sem internet.
     pub fn stream_url(path: String, size: f64) -> Result<String, String> {
-        Ok(core()?.player().stream_url(&path, size as u64))
+        let c = core()?;
+        if let Some(local) = c.offline().local(&path) {
+            return Ok(crate::file_uri(&local));
+        }
+        Ok(c.player().stream_url(&path, size as u64))
     }
 
     /// Preferências do player: `{ autoNext, countdownSec, showSkipIntro, subLang, audioLang }`.

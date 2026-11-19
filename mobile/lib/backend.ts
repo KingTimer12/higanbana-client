@@ -195,6 +195,31 @@ export interface TrackPick {
   audio: number | null;
 }
 
+/** Um arquivo baixado para ver sem internet (ou na fila). */
+export interface OfflineItem {
+  path: string;
+  name: string;
+  size: number;
+  kind: MediaKind;
+  workPath: string;
+  workTitle: string;
+  /** `Ep. 3`, `Cap. 12`. */
+  label: string;
+  status: "queued" | "downloading" | "done" | "failed";
+  error: string | null;
+  /** Bytes já baixados. */
+  downloaded: number;
+}
+
+/** O que a tela manda baixar: o arquivo e o que a lista de baixados mostra sem rede. */
+export type OfflineRequest = Pick<OfflineItem, "path" | "name" | "size" | "kind" | "workPath" | "workTitle" | "label">;
+
+/** Uma página do leitor no cache do app. */
+export interface ReaderPage {
+  uri: string;
+  ratio: number | null;
+}
+
 export interface Backend {
   user(): Promise<User | null>;
   /** Resolve quando o navegador volta do login; a página a abrir sai em `loginUrl`. */
@@ -203,8 +228,9 @@ export interface Backend {
   cancelLogin(): Promise<void>;
   logout(): Promise<void>;
 
-  /** Até `n` animes de um ranking do AniList que estão no acervo, na ordem do ranking. */
-  discover(ranking: Ranking, n: number): Promise<Featured[]>;
+  /** Até `n` animes de um ranking do AniList que estão no acervo, na ordem do ranking.
+   * `onProgress` recebe a lista parcial a cada obra confirmada; a promessa, a final. */
+  discover(ranking: Ranking, n: number, onProgress?: (found: Featured[]) => void): Promise<Featured[]>;
   /** Caminho da obra na nuvem, ou `null` se não está no acervo. */
   find(media: Media): Promise<string | null>;
   /** URI do pôster local do fanart.tv, ou `null` (fica a capa do AniList). */
@@ -240,8 +266,16 @@ export interface Backend {
   readerUnits(path: string, size: number): Promise<ReadUnit[]>;
   /** As páginas de um capítulo, em ordem de leitura (o que `readerPage` recebe). */
   readerPages(path: string, size: number, unit: ReadUnit): Promise<number[]>;
-  /** Uma página pronta para o `Image` (baixada para o cache). */
-  readerPage(path: string, size: number, unit: ReadUnit, index: number): Promise<string>;
+  /** Uma página pronta para o `Image` (baixada para o cache), com a largura/altura
+   * dela quando o cabeçalho diz (`null` em formatos que o núcleo não lê, como AVIF). */
+  readerPage(path: string, size: number, unit: ReadUnit, index: number): Promise<ReaderPage>;
+  /** Baixa um arquivo para ver sem internet; o player e o leitor passam a usar a cópia. */
+  offlineDownload(item: OfflineRequest): void;
+  /** Os baixados (e os na fila), do mais recente. */
+  offlineList(): OfflineItem[];
+  /** Interrompe, apaga a cópia e tira da lista. */
+  offlineRemove(path: string): void;
+
   /** Guarda a página onde parou num capítulo (`unit.key`). */
   saveReading(key: string, page: number, total: number): void;
   /** Numa coletânea: em qual capítulo interno (de `count`) parou, gravado no arquivo. */

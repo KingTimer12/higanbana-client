@@ -7,7 +7,7 @@
 // dentro (coletâneas): eles se leem em sequência, e depois vem o próximo arquivo.
 import { cleanup, effect, Image, List, resource, signal, Text, untracked, View } from "nsh";
 import { Button, NavPage } from "nsh/base";
-import { EmptyState, IconButton, Loading, OutlineButton, PrimaryButton, Skeleton } from "../components/ui";
+import { EmptyState, IconButton, Loading, OutlineButton, PrimaryButton } from "../components/ui";
 import { backend, type Comic, type ReadUnit } from "../lib/backend";
 import { errorMessage } from "../lib/format";
 import { KeyedSignals } from "../lib/keyed";
@@ -15,8 +15,8 @@ import { nav, readingOf, recordReading } from "../store";
 
 /** Largura/altura de uma página antes de ela carregar (a de um mangá comum). */
 const PAGE_RATIO = 0.7;
-/** Páginas pedidas adiante da última visível. */
-const AHEAD = 3;
+/** Páginas pedidas adiante da última visível: chegam antes de o dedo alcançá-las. */
+const AHEAD = 6;
 /** Espera depois da última rolagem antes de gravar onde parou. */
 const SAVE_DELAY = 800;
 
@@ -57,7 +57,11 @@ export function Reader(props: { file: Comic; files: Comic[]; title: string }) {
     backend()
       .readerPage(f.path, f.size, u, index)
       .then(
-        (uri) => loaded.set(key, { uri }),
+        (page) => {
+          // A proporção antes da imagem: a célula já nasce na altura certa e não pula.
+          if (page.ratio) ratios.set(key, page.ratio);
+          loaded.set(key, { uri: page.uri });
+        },
         (error) => {
           asked.delete(key);
           loaded.set(key, { error: errorMessage(error) });
@@ -195,7 +199,11 @@ export function Reader(props: { file: Comic; files: Comic[]; title: string }) {
                   ratio={ratios.get(pageKey(u(), index())) ?? PAGE_RATIO}
                   label={`Página ${pageList().indexOf(index()) + 1}`}
                   onShow={() => want(u(), index())}
-                  onSize={(ratio) => ratios.set(pageKey(u(), index()), ratio)}
+                  onSize={(ratio) => {
+                    // Só quando o núcleo não soube (AVIF): mudar a altura à toa faz a lista pular.
+                    const key = pageKey(u(), index());
+                    if (Math.abs((ratios.get(key) ?? 0) - ratio) > 0.01) ratios.set(key, ratio);
+                  }}
                   onFail={(message) => {
                     // O arquivo do cache não abriu (formato que o sistema não lê, como AVIF em Android antigo).
                     asked.delete(pageKey(u(), index()));
@@ -269,8 +277,8 @@ function PageView(props: {
           />
         )}
       </If>
+      {/* Fundo parado, sem o pulso do esqueleto: rolando, várias páginas piscariam juntas. */}
       <If when={!props.state}>
-        <Skeleton class="absolute inset-0 bg-video" />
         <View class="absolute inset-0 items-center justify-center">
           <Text class="text-sm text-on-video-muted">{props.label}</Text>
         </View>

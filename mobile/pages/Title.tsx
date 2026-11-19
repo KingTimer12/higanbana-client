@@ -1,9 +1,10 @@
 import { computed, effect, Image, List, resource, Scroll, signal, Text, token, View } from "nsh";
 import { Button, NavPage } from "nsh/base";
 import { CHAPTER_HEIGHT, ChapterRow, inProgress, whereStopped } from "../components/Chapter";
+import { DownloadButton } from "../components/Download";
 import { EPISODE_HEIGHT, EpisodeCard } from "../components/Episode";
 import { Chip, Cover, EmptyState, Loading, PageHeader, PrimaryButton, SectionTitle, SYSTEM_HEADER } from "../components/ui";
-import { backend, type Comic, type Episode, type EpisodeInfo, type Media, type MediaKind, type Version, type Work } from "../lib/backend";
+import { backend, type Comic, type Episode, type EpisodeInfo, type Media, type MediaKind, type OfflineRequest, type Version, type Work } from "../lib/backend";
 import { baseName, errorMessage, mediaCover, mediaFacts, mediaTitle, plainText } from "../lib/format";
 import { coverOf, nav, readingOf, watchedOf, wantCover } from "../store";
 import { Franchise } from "./Franchise";
@@ -147,6 +148,16 @@ function WorkBody(props: { work: Work; media: Media | null; kind: MediaKind }) {
   const play = (episode: Episode) =>
     nav.push({ name: "player", dir: episodesDir(), file: episode.name, title: title(), malId: media()?.idMal ?? null });
   const read = (chapter: Comic) => nav.push({ name: "reader", file: chapter, files: chapterFiles(), title: title() });
+  /** O que baixar de um arquivo, com o que a tela de baixados mostra sem rede. */
+  const offlineRequest = (file: { path: string; name: string; size: number }, label: string): OfflineRequest => ({
+    path: file.path,
+    name: file.name,
+    size: file.size,
+    kind: props.kind,
+    workPath: work().path,
+    workTitle: title(),
+    label,
+  });
   const chooseVersion = (v: Version) => {
     chosenVersion.set(v.folder);
     backend().rememberVersion(work().path, v.folder);
@@ -274,7 +285,14 @@ function WorkBody(props: { work: Work; media: Media | null; kind: MediaKind }) {
       header={header}
       empty={empty("Nenhum capítulo nesta pasta")}
     >
-      {(chapter) => <ChapterRow chapter={withReading(chapter())} onPress={() => read(chapter())} />}
+      {(chapter) => (
+        <View class="flex-row items-center gap-1">
+          <View class="flex-1">
+            <ChapterRow chapter={withReading(chapter())} onPress={() => read(chapter())} />
+          </View>
+          <DownloadButton item={offlineRequest(chapter(), chapter().label)} />
+        </View>
+      )}
     </List>
   ) : (
     <List<Episode>
@@ -286,7 +304,14 @@ function WorkBody(props: { work: Work; media: Media | null; kind: MediaKind }) {
       header={header}
       empty={empty("Nenhum episódio nesta pasta")}
     >
-      {(episode) => <EpisodeCard episode={withProgress(episode())} info={infoOf(episode().name)} onPress={() => play(episode())} />}
+      {(episode) => (
+        <View class="flex-row items-center gap-1">
+          <View class="flex-1">
+            <EpisodeCard episode={withProgress(episode())} info={infoOf(episode().name)} onPress={() => play(episode())} />
+          </View>
+          <DownloadButton item={offlineRequest(episode(), episode().number !== null ? `Ep. ${episode().number}` : episode().label)} />
+        </View>
+      )}
     </List>
   );
 }

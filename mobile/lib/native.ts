@@ -2,7 +2,7 @@
 // nuvem, o AniList e guarda sessão e progresso.
 import process from "process";
 import { openUrl, platform } from "nsh";
-import { Account, Catalog, Library, Player, Reader, Updates } from "higanbana/native";
+import { Account, Catalog, Library, Offline, Player, Reader, Updates } from "higanbana/native";
 import type {
   AppUpdate,
   Backend,
@@ -18,12 +18,17 @@ import type {
   ReadUnit,
   Resume,
   SkipTimes,
+  OfflineItem,
+  ReaderPage,
   Track,
   TrackPick,
   User,
   Work,
   WorkEntry,
 } from "./backend";
+
+/** Intervalo entre as perguntas à conferência de uma vitrine. */
+const DISCOVER_POLL_MS = 250;
 
 /** Inicia o núcleo e devolve o backend nativo. */
 export function nativeBackend(): Backend {
@@ -40,7 +45,20 @@ export function nativeBackend(): Backend {
     cancelLogin: () => Account.cancelLogin(),
     logout: () => Account.logout(),
 
-    discover: (ranking, n) => Catalog.discover(ranking, n) as Promise<Featured[]>,
+    discover: async (ranking, n, onProgress) => {
+      // A conferência roda no núcleo; daqui se pergunta o que ela já achou.
+      const id = Catalog.discoverStart(ranking, n);
+      let shown = 0;
+      for (;;) {
+        const { items, done } = Catalog.discoverPoll(id) as { items: Featured[]; done: boolean };
+        if (items.length > shown) {
+          shown = items.length;
+          onProgress?.(items);
+        }
+        if (done) return items;
+        await new Promise((resolve) => setTimeout(resolve, DISCOVER_POLL_MS));
+      }
+    },
     find: (media) => Catalog.find(media),
     cover: (media) => Catalog.cover(media),
     media: (id) => Catalog.media(id) as Promise<Media>,
@@ -71,7 +89,10 @@ export function nativeBackend(): Backend {
 
     readerUnits: (path, size) => Reader.units(path, size) as Promise<ReadUnit[]>,
     readerPages: (path, size, unit) => Reader.pages(path, size, unit.inner, unit.group),
-    readerPage: (path, size, unit, index) => Reader.page(path, size, unit.inner, index),
+    offlineDownload: (item) => Offline.download(item),
+    offlineList: () => Offline.list() as OfflineItem[],
+    offlineRemove: (path) => Offline.remove(path),
+    readerPage: (path, size, unit, index) => Reader.page(path, size, unit.inner, index) as Promise<ReaderPage>,
     saveReading: (key, page, total) => Reader.saveProgress(key, page, total),
     saveReadingSummary: (path, index, count, read, unit) => Reader.saveSummary(path, index, count, read, unit.key, unit.name),
     readingOf: (key) => Reader.progress(key) as ReadProgress | null,

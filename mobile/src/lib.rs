@@ -5,13 +5,18 @@
 //! A sessão nunca chega ao TSX: daqui saem só nomes, caminhos e estados.
 
 mod library;
+mod offline;
 mod player;
 mod reader;
 mod updates;
 
 use std::{
+    collections::HashMap,
     future::Future,
-    sync::{Arc, OnceLock},
+    sync::{
+        Arc, Mutex, MutexGuard, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use higanbana_core::{
@@ -21,7 +26,7 @@ use higanbana_core::{
         types::{MediaSummary, RankedMedia},
     },
     anime_index::LETTERS,
-    auth::Session,
+    auth::{AuthError, Session},
     events,
     library::{folder_year, parse_work_name},
     nuvem::SearchKind,
@@ -30,6 +35,7 @@ use nsh_core::{JsonValue, prelude::*};
 use serde_json::json;
 
 pub use library::Library;
+pub use offline::Offline;
 pub use player::Player;
 pub use reader::Reader;
 pub use updates::Updates;
@@ -41,6 +47,7 @@ fn native(registry: &mut Registry) {
         .module::<Account>()
         .module::<Catalog>()
         .module::<Library>()
+        .module::<Offline>()
         .module::<Player>()
         .module::<Reader>()
         .module::<Updates>();
@@ -142,7 +149,12 @@ impl Account {
     /// Quem está logado (`{ name, avatar }`), ou `null`.
     pub async fn user() -> Result<JsonValue, String> {
         on_core(|c| async move {
-            let session = c.auth().session().await.map_err(|e| e.to_string())?;
+            let session = match c.auth().session().await {
+                Ok(session) => session,
+                // Sem rede, a renovação não sai: quem estava logado continua, e os baixados abrem.
+                Err(AuthError::Unreachable(_) | AuthError::Network(_)) => c.auth().stored().await,
+                Err(e) => return Err(e.to_string()),
+            };
             Ok(session.as_ref().map_or(JsonValue::Null, user_of))
         })
         .await
@@ -250,10 +262,12 @@ impl Catalog {
         .await
     }
 
-    /// Vitrine do início, como no desktop: um ranking de animes do AniList (`"popular"`,
-    /// `"topRated"` ou `"trending"`) só com o que está no acervo, até `n` obras, na ordem
-    /// do ranking: `[{ media, path }]`. Volta quando a conferência termina.
-    pub async fn discover(ranking: String, n: f64) -> Result<JsonValue, String> {
+    /// Começa uma vitrine do início, como no desktop: um ranking de animes do AniList
+    /// (`"popular"`, `"topRated"` ou `"trending"`) só com o que está no acervo, até `n`
+    /// obras, na ordem do ranking. Devolve o número da conferência para
+    /// [`Catalog::discover_poll`]: cada obra aparece lá assim que é confirmada,
+    /// sem esperar a lista inteira (a conferência de uma obra leva quase um segundo).
+    pub fn discover_start(ranking: String, n: f64) -> Result<f64, String> {
         let ranking = match ranking.as_str() {
             "popular" => Ranking::Popular,
             "topRated" => Ranking::TopRated,
@@ -261,13 +275,34 @@ impl Catalog {
             other => return Err(format!("ranking desconhecido: {other}")),
         };
         let n = n.clamp(1.0, 24.0) as usize;
-        on_core(move |c| async move {
-            let mut found = Vec::with_capacity(n);
-            c.discover(MediaType::Anime, ranking, n, c.home_budget(), |m, path| found.push(json!({ "media": ranked_json(&m), "path": path })))
-                .await;
-            Ok(JsonValue::Array(found))
-        })
-        .await
+        let c = core()?;
+        let id = NEXT_DISCOVERY.fetch_add(1, Ordering::Relaxed);
+        let found = Arc::new(Mutex::new(Discovery::default()));
+        discoveries().insert(id, found.clone());
+        let task = c.clone();
+        c.spawn(async move {
+            let into = found.clone();
+            task.discover(MediaType::Anime, ranking, n, task.home_budget(), move |m, path| {
+                into.lock().unwrap().items.push(json!({ "media": ranked_json(&m), "path": path }));
+            })
+            .await;
+            found.lock().unwrap().done = true;
+        });
+        Ok(id as f64)
+    }
+
+    /// O que a conferência `id` já achou: `{ items, done }`. Depois de `done`, esquece a conferência.
+    pub fn discover_poll(id: f64) -> Result<JsonValue, String> {
+        let id = id as u64;
+        let mut all = discoveries();
+        let Some(found) = all.get(&id).cloned() else {
+            return Err("conferência desconhecida".to_owned());
+        };
+        let found = found.lock().unwrap();
+        if found.done {
+            all.remove(&id);
+        }
+        Ok(json!({ "items": found.items, "done": found.done }))
     }
 
     /// As pastas de letra do catálogo (`0-9`, `Letra A`, ...).
@@ -284,6 +319,20 @@ impl Catalog {
         })
         .await
     }
+}
+
+/// Uma vitrine em conferência: as obras já confirmadas e se terminou.
+#[derive(Default)]
+struct Discovery {
+    items: Vec<JsonValue>,
+    done: bool,
+}
+
+static NEXT_DISCOVERY: AtomicU64 = AtomicU64::new(1);
+
+fn discoveries() -> MutexGuard<'static, HashMap<u64, Arc<Mutex<Discovery>>>> {
+    static ALL: OnceLock<Mutex<HashMap<u64, Arc<Mutex<Discovery>>>>> = OnceLock::new();
+    ALL.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Uma obra de ranking no formato `Media` das telas (os campos do AniList em camelCase),

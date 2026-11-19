@@ -1,6 +1,6 @@
 // Um núcleo de mentira, com um acervo pequeno e fixo: para os testes das
 // telas e para olhar o app no desktop sem conta nem rede da nuvem.
-import type { AppUpdate, Backend, Comic, Episode, FranchiseTab, Media, ReadProgress, User, Work, WorkEntry } from "../lib/backend";
+import type { AppUpdate, Backend, Comic, Episode, FranchiseTab, Media, OfflineItem, ReadProgress, User, Work, WorkEntry } from "../lib/backend";
 
 const USER: User = { name: "Aaron", avatar: null };
 const SAMPLE_VIDEO = "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4";
@@ -166,6 +166,7 @@ const UPDATE: AppUpdate = { version: "0.2.0", notes: "- Mangás no celular", siz
 export function fakeBackend(options: { signedIn: boolean; update?: boolean }): Backend {
   let user: User | null = options.signedIn ? USER : null;
   let downloaded = 0;
+  let offline: OfflineItem[] = [];
   const saved: Record<string, { position: number; duration: number }> = {};
   const read: Record<string, ReadProgress> = {};
   const entry = (path: string): WorkEntry => ({ name: path.split("/").pop() ?? path, path, title: path.split("/").pop() ?? path, year: 2026 });
@@ -179,12 +180,15 @@ export function fakeBackend(options: { signedIn: boolean; update?: boolean }): B
     },
 
     // As vitrines só trazem o que está no acervo; cada ranking em outra ordem.
-    discover: async (ranking, n) => {
+    discover: async (ranking, n, onProgress) => {
       const order = { popular: [1, 2, 3, 5, 6], topRated: [3, 1, 6, 2, 5], trending: [5, 6, 2] }[ranking];
-      return order.slice(0, n).map((id) => ({
+      const all = order.slice(0, n).map((id) => ({
         media: { ...SEASON.find((m) => m.id === id)!, tags: ["Magia", "Jornada"], studio: "Madhouse" },
         path: PATHS[id],
       }));
+      // Como o núcleo: a primeira obra chega antes do resto.
+      onProgress?.(all.slice(0, 1));
+      return all;
     },
     find: async (m) => PATHS[m.id] ?? null,
     cover: async (m) => {
@@ -261,8 +265,18 @@ export function fakeBackend(options: { signedIn: boolean; update?: boolean }): B
         : [{ key: path, name: path.split("/").pop() ?? path, label: "Cap.", inner: null, group: null }],
     readerPages: async () => [0, 1, 2, 3],
     // A semente só com letras e números: o picsum não aceita `/` codificada no caminho.
-    readerPage: async (_path, _size, unit, index) =>
-      `https://picsum.photos/seed/${`${unit.key}${index}`.replace(/[^A-Za-z0-9]/g, "")}/700/1000`,
+    // Baixar termina na hora: a tela de baixados já mostra o arquivo pronto.
+    offlineDownload: (item) => {
+      offline = [{ ...item, status: "done", error: null, downloaded: item.size }, ...offline.filter((o) => o.path !== item.path)];
+    },
+    offlineList: () => offline,
+    offlineRemove: (path) => {
+      offline = offline.filter((o) => o.path !== path);
+    },
+    readerPage: async (_path, _size, unit, index) => ({
+      uri: `https://picsum.photos/seed/${`${unit.key}${index}`.replace(/[^A-Za-z0-9]/g, "")}/700/1000`,
+      ratio: 0.7,
+    }),
     saveReading: (key, page, total) => {
       read[key] = { page, total, read: (read[key]?.read ?? false) || page + 1 >= total };
     },

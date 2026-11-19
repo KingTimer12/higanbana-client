@@ -3,7 +3,14 @@
 
 use std::{collections::HashSet, future::Future};
 
+use futures_util::{StreamExt, stream};
+
 use crate::anilist::types::RankedMedia;
+
+/// Candidatas conferidas ao mesmo tempo. A ordem do ranking se mantém: cada
+/// achada só sai depois das que vêm antes dela. O catálogo limita as listagens
+/// da nuvem por conta própria; aqui é só para não esperar uma de cada vez.
+pub const AHEAD: usize = 4;
 
 /// Confere candidatas em ordem (um ano de cada vez) até achar `n` no acervo.
 /// Cada achada sai por `on_found` assim que é confirmada. Devolve quantas achou.
@@ -26,16 +33,21 @@ where
         if found >= n {
             break;
         }
-        for m in fetch(year).await {
-            if found >= n {
-                break;
-            }
-            if !seen.insert(m.summary.id) {
-                continue;
-            }
-            if let Some(path) = check(&m).await {
+        let fresh: Vec<RankedMedia> = fetch(year).await.into_iter().filter(|m| seen.insert(m.summary.id)).collect();
+        let mut checks = stream::iter(fresh)
+            .map(|m| {
+                let pending = check(&m);
+                async move { (m, pending.await) }
+            })
+            .buffered(AHEAD);
+        while let Some((m, path)) = checks.next().await {
+            if let Some(path) = path {
                 found += 1;
                 on_found(m, path);
+                if found >= n {
+                    // As conferências adiantadas que sobraram são canceladas aqui.
+                    break;
+                }
             }
         }
     }
@@ -78,9 +90,10 @@ mod tests {
 
     #[tokio::test]
     async fn skips_not_in_library_and_stops_at_n() {
-        let (found, checked) = run(2, &[Some(2026)], vec![(Some(2026), vec![1, 2, 3, 4, 5, 6])], |id| id % 2 == 0).await;
+        let (found, checked) = run(2, &[Some(2026)], vec![(Some(2026), (1..=20).collect())], |id| id % 2 == 0).await;
         assert_eq!(found, vec![2, 4]);
-        assert!(!checked.contains(&5) && !checked.contains(&6));
+        // Só as adiantadas além da última achada; o resto da lista nem começa.
+        assert!(checked.len() <= 4 + AHEAD, "{checked:?}");
     }
 
     #[tokio::test]

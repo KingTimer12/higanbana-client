@@ -209,7 +209,7 @@ impl Hero {
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme.foreground)
                     .child(Icon::new(IconName::Star).small().text_color(theme.yellow))
-                    .child(format!("{score}%"))
+                    .child(higanbana_core::ratings::anilist_score(score))
             }))
             .when(!meta.is_empty(), |d| d.child(meta.join(" · ")))
             .into_any_element();

@@ -15,7 +15,7 @@ use higanbana_core::{
     nuvem::FileEntry,
     reader::{
         PageRef,
-        logic::{chapter_label, expand_units, label_text, pages_of_group, sort_pages},
+        logic::{chapter_label, expand_units, label_text, page_ratio, pages_of_group, sort_pages},
     },
 };
 use nsh_core::{JsonValue, prelude::*};
@@ -79,19 +79,23 @@ impl Reader {
         .await
     }
 
-    /// Uma página como `file://` do cache; baixa só se ainda não está lá.
-    pub async fn page(path: String, size: f64, inner: Option<String>, index: f64) -> Result<String, String> {
+    /// Uma página do cache: `{ uri, ratio }`, o `file://` e a largura/altura (ou
+    /// `null`). Baixa só se ainda não está lá. Com a proporção, a tela reserva a
+    /// altura da página antes de desenhá-la, e a lista não pula ao rolar.
+    pub async fn page(path: String, size: f64, inner: Option<String>, index: f64) -> Result<JsonValue, String> {
         on_core(move |c| async move {
             let dir = c.paths().cache.join(DIR);
             let stem = page_stem(&path, inner.as_deref(), index as usize);
             if let Some(hit) = cached(&dir, &stem) {
-                return Ok(file_uri(&hit));
+                let ratio = std::fs::File::open(&hit).ok().and_then(|f| page_ratio(std::io::BufReader::new(f)));
+                return Ok(json!({ "uri": file_uri(&hit), "ratio": ratio }));
             }
             let page = PageRef { size: size as u64, index: index as usize, inner, path };
             let (bytes, name) = c.reader().page(&page).await?;
+            let ratio = page_ratio(std::io::Cursor::new(&bytes));
             let file = dir.join(format!("{stem}.{}", extension(&name)));
             write_page(&dir, &file, &bytes).map_err(|e| format!("não foi possível guardar a página: {e}"))?;
-            Ok(file_uri(&file))
+            Ok(json!({ "uri": file_uri(&file), "ratio": ratio }))
         })
         .await
     }

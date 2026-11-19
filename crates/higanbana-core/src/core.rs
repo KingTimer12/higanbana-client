@@ -31,6 +31,8 @@ pub struct Core {
     #[cfg(feature = "reader")]
     reader: Reader,
     player: Player,
+    /// Cópias locais para ver sem internet.
+    offline: Arc<crate::offline::Offline>,
     #[cfg(feature = "music")]
     music: Music,
 }
@@ -51,6 +53,7 @@ impl Core {
         #[cfg(feature = "reader")]
         let reader = Reader::new(cloud.clone());
         let player = rt.block_on(Player::start(cloud.clone()))?;
+        let offline = Arc::new(crate::offline::Offline::open(&paths.data));
         #[cfg(feature = "music")]
         let music = Music::start(rt.handle().clone(), cloud.clone(), events);
         #[cfg(not(feature = "music"))]
@@ -71,6 +74,7 @@ impl Core {
             #[cfg(feature = "reader")]
             reader,
             player,
+            offline,
             #[cfg(feature = "music")]
             music,
         })
@@ -234,6 +238,15 @@ impl Core {
 
     pub fn player(&self) -> &Player {
         &self.player
+    }
+
+    pub fn offline(&self) -> &crate::offline::Offline {
+        &self.offline
+    }
+
+    /// Baixa um arquivo da nuvem para ver sem internet (ver [`crate::offline`]).
+    pub fn download_offline(&self, item: crate::offline::OfflineItem) {
+        self.offline.start(self.rt.handle(), self.cloud.clone(), item);
     }
 
     #[cfg(feature = "music")]

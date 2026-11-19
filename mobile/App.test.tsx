@@ -1,6 +1,6 @@
 // As telas, de ponta a ponta, sobre o acervo de mentira (`fixture/fake.ts`).
 import { expect, open, test } from "nsh/test";
-import { highlightsHeading } from "./lib/format";
+import { highlightsHeading, scoreLabel } from "./lib/format";
 
 test("quem não tem sessão entra pelo Discord e chega ao início", async () => {
   const app = await open("./FixtureSignedOut.tsx");
@@ -188,4 +188,40 @@ test("a coletânea lê os capítulos de dentro do arquivo em sequência", async 
   await app.waitFor("Cap. 1");
   await app.press("label:Próximo capítulo");
   await app.waitFor("Cap. 2");
+});
+
+test("a nota do AniList aparece em decimal, de 0 a 10", async () => {
+  expect(scoreLabel(80)).toBe("8");
+  expect(scoreLabel(79)).toBe("7.9");
+  expect(scoreLabel(100)).toBe("10");
+});
+
+test("um episódio baixado aparece nos baixados e abre o player", async () => {
+  const app = await open("./Fixture.tsx");
+  await app.waitFor("id:highlight-1");
+  await app.press("id:highlight-1");
+  await app.waitFor("Episódio 2");
+  await app.press("label:Baixar Ep. 2");
+  await app.waitFor("label:Ep. 2 baixado");
+
+  await app.press("label:Voltar");
+  await app.waitFor("label:Baixados");
+  await app.press("label:Baixados");
+  await app.waitFor("Ep. 2");
+  await app.press("label:Abrir Ep. 2");
+  await app.waitFor("label:Pausar");
+});
+
+test("apagar um baixado o tira da lista", async () => {
+  const app = await open("./Fixture.tsx");
+  await app.waitFor("id:highlight-1");
+  await app.press("id:highlight-1");
+  await app.waitFor("Episódio 2");
+  await app.press("label:Baixar Ep. 2");
+  await app.waitFor("label:Ep. 2 baixado");
+  await app.press("label:Voltar");
+  await app.press("label:Baixados");
+  await app.waitFor("label:Apagar Ep. 2 do aparelho");
+  await app.press("label:Apagar Ep. 2 do aparelho");
+  await app.waitFor("Nada baixado ainda");
 });

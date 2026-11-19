@@ -1,7 +1,7 @@
-import { Image, resource, Scroll, signal, Text, View } from "nsh";
+import { Image, Scroll, signal, Text, View } from "nsh";
 import { Button, Menu, MenuItem } from "nsh/base";
 import { EpisodeFrame } from "../components/Episode";
-import { Discover, Highlights } from "../components/Showcase";
+import { Discover, Highlights, liveDiscover } from "../components/Showcase";
 import { TAB_BAR_CLEARANCE } from "../components/TabBar";
 import { UpdateBanner } from "../components/UpdateBanner";
 import { IconButton, SectionTitle, TabHeader } from "../components/ui";
@@ -113,7 +113,8 @@ function ContinueRow() {
 
 /** A aba Início, na ordem do desktop: destaques do ano, o que continuar e o descobrir. */
 export function Home() {
-  const highlights = resource(() => backend().discover("popular", 6));
+  // Cada destaque aparece assim que o núcleo o confirma no acervo.
+  const highlights = liveDiscover(() => "popular", 6);
   refreshResume();
 
   const user = () => {
@@ -127,6 +128,7 @@ export function Home() {
         title={user() ? `Olá, ${user()!.name}` : "Início"}
         trailing={
           <>
+            <IconButton icon="download" label="Baixados" onPress={() => nav.push({ name: "downloads" })} />
             <IconButton icon="search" label="Buscar" onPress={() => nav.push({ name: "search", kind: "anime" })} />
             <If when={user()}>{(u) => <AccountMenu user={u()} />}</If>
           </>
@@ -134,10 +136,10 @@ export function Home() {
       />
       <Scroll class="flex-1" contentClass={`gap-8 pt-2 ${TAB_BAR_CLEARANCE}`} testID="home">
         <UpdateBanner />
-        <Highlights list={highlights()} state={highlights.state()} error={highlights.error()} onRetry={highlights.refetch} />
+        <Highlights live={highlights} />
         <ContinueRow />
         {/* As listas do descobrir esperam os destaques: dividem o saldo de listagens da nuvem. */}
-        <Discover ready={highlights.state() !== "pending" && highlights.state() !== "unresolved"} />
+        <Discover ready={highlights.state() === "ready" || highlights.state() === "errored"} />
       </Scroll>
     </View>
   );

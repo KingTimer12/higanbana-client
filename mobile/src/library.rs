@@ -9,16 +9,35 @@ use higanbana_core::{
     reader::logic::{chapter_label, comic_files, label_text},
     tmdb::{matching::work_query, still_url},
     library::{
-        base_name, folder_title, is_extra_folder, is_franchise, join_path, natural_cmp, parse_episode,
+        base_name, folder_title, is_extra_folder, parent_path, is_franchise, join_path, natural_cmp, parse_episode,
         parse_work_name, resolution_rank, version_label,
     },
     nuvem::FileEntry,
+    offline::OfflineStatus,
     player::logic::{episode_number, video_files},
 };
 use nsh_core::{JsonValue, prelude::*};
 use serde_json::json;
 
 use crate::on_core;
+
+/// Os arquivos de uma pasta da nuvem; sem rede, os baixados dela (o player e o
+/// leitor seguem para o próximo baixado). Sem nenhum baixado, o erro da nuvem.
+async fn listing_or_offline(c: &Core, path: &str) -> Result<Vec<FileEntry>, String> {
+    match c.cloud().list(path).await {
+        Ok(listing) => Ok(listing.files),
+        Err(e) => {
+            let saved: Vec<FileEntry> = c
+                .offline()
+                .list()
+                .into_iter()
+                .filter(|i| i.status == OfflineStatus::Done && parent_path(&i.path) == path)
+                .map(|i| FileEntry { name: i.name, is_directory: false, size: i.size, modified: String::new(), extension: None })
+                .collect();
+            if saved.is_empty() { Err(e.to_string()) } else { Ok(saved) }
+        }
+    }
+}
 
 /// Tamanho do still pedido ao TMDB, o mesmo da grade do desktop.
 const STILL_SIZE: &str = "w300";
@@ -97,8 +116,8 @@ impl Library {
     /// `[{ name, path, size, label, page, total, read, unitName }]`.
     pub async fn chapters(path: String) -> Result<JsonValue, String> {
         on_core(|c| async move {
-            let listing = c.cloud().list(&path).await.map_err(|e| e.to_string())?;
-            Ok(JsonValue::Array(chapters_of(&c, &path, &listing.files)))
+            let files = listing_or_offline(&c, &path).await?;
+            Ok(JsonValue::Array(chapters_of(&c, &path, &files)))
         })
         .await
     }
@@ -119,8 +138,8 @@ impl Library {
     /// `[{ name, path, size, number, label, quality, position, duration, watched }]`.
     pub async fn episodes(path: String) -> Result<JsonValue, String> {
         on_core(|c| async move {
-            let listing = c.cloud().list(&path).await.map_err(|e| e.to_string())?;
-            Ok(JsonValue::Array(episodes_of(&c, &path, &listing.files)))
+            let files = listing_or_offline(&c, &path).await?;
+            Ok(JsonValue::Array(episodes_of(&c, &path, &files)))
         })
         .await
     }

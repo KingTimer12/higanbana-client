@@ -390,10 +390,7 @@ impl ReaderView {
                     None
                 }
             };
-            let ratio = r.as_ref().and_then(|(b, _)| {
-                let (w, h) = image::ImageReader::new(std::io::Cursor::new(b)).with_guessed_format().ok()?.into_dimensions().ok()?;
-                (h > 0).then(|| w as f32 / h as f32)
-            });
+            let ratio = r.as_ref().and_then(|(b, _)| higanbana_core::reader::logic::page_ratio(std::io::Cursor::new(b)));
             state.update(cx, |s, cx| match r {
                 Some((bytes, _)) => s.put_image(key.clone(), bytes, cx),
                 None => s.fail_image(&key, cx),
@@ -687,11 +684,19 @@ impl ReaderView {
         let theme = cx.theme().clone();
         let key = page_key(u, pg);
         let found = self.state.read(cx).cached_image(&key);
-        let ratio = self.ratios.get(&key).copied().unwrap_or(0.7);
+        let ratio = self.ratios.get(&key).copied();
         match found {
             Some(Img::Ready(image)) => {
                 let i = img(image).object_fit(ObjectFit::Contain);
-                if fit_height { i.h_full().max_w_full().into_any_element() } else { i.w_full().into_any_element() }
+                if fit_height {
+                    i.h_full().max_w_full().into_any_element()
+                } else {
+                    // Mesma caixa do marcador: a troca marcador → imagem não muda a altura.
+                    match ratio {
+                        Some(r) => div().w_full().aspect_ratio(r).child(i.size_full()).into_any_element(),
+                        None => i.w_full().into_any_element(),
+                    }
+                }
             }
             Some(Img::Failed) => {
                 let k = key.clone();
@@ -714,12 +719,14 @@ impl ReaderView {
                     )))
                     .into_any_element()
             }
+            // Marcador parado (sem o pulso do esqueleto): rolando, várias páginas piscariam juntas.
             _ => {
+                let mark = div().bg(theme.muted.opacity(0.35));
                 if fit_height {
-                    Skeleton::new().h_full().w(rems(25.)).into_any_element()
+                    mark.h_full().w(rems(25.)).into_any_element()
                 } else {
-                    // A altura vem da proporção da página, não de uma medida fixa.
-                    Skeleton::new().w_full().h(px(800. / ratio)).into_any_element()
+                    // A altura vem da proporção sobre a largura real da coluna, como a da imagem.
+                    mark.w_full().aspect_ratio(ratio.unwrap_or(0.7)).into_any_element()
                 }
             }
         }

@@ -3,6 +3,7 @@ import { View } from "nsh";
 import { NavStack } from "nsh/base";
 import { Notices } from "./components/Notices";
 import { Loading } from "./components/ui";
+import { Downloads } from "./pages/Downloads";
 import { Login } from "./pages/Login";
 import { Player } from "./pages/Player";
 import { Reader } from "./pages/Reader";
@@ -20,6 +21,8 @@ function page(route: Route) {
       return <Title path={route.path} media={route.media} kind={route.kind} />;
     case "reader":
       return <Reader file={route.file} files={route.files} title={route.title} />;
+    case "downloads":
+      return <Downloads />;
     case "player":
       return <Player dir={route.dir} file={route.file} title={route.title} malId={route.malId} />;
     default:

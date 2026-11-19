@@ -166,7 +166,7 @@ fn score_mark(score: i64, cx: &App) -> Div {
                 .xsmall()
                 .text_color(cx.theme().yellow),
         )
-        .child(score.to_string())
+        .child(higanbana_core::ratings::anilist_score(score))
 }
 
 pub struct PosterProps {

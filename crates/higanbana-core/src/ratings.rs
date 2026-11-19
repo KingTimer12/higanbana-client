@@ -15,10 +15,20 @@ pub struct Score {
 }
 
 impl Score {
-    /// "8,5": vírgula decimal e uma casa.
+    /// "8.5", "8": uma casa decimal, sem o ".0".
     pub fn label(&self) -> String {
-        format!("{:.1}", self.value).replace('.', ",")
+        decimal_label(self.value)
     }
+}
+
+/// Nota do AniList (0–100) na escala 0–10: 80 vira "8", 79 vira "7.9".
+pub fn anilist_score(score: i64) -> String {
+    decimal_label(score as f32 / 10.0)
+}
+
+fn decimal_label(value: f32) -> String {
+    let text = format!("{value:.1}");
+    text.strip_suffix(".0").map(str::to_owned).unwrap_or(text)
 }
 
 pub trait RatingSource: Send + Sync {
@@ -94,15 +104,23 @@ mod tests {
         let media: MediaSummary = serde_json::from_str(r#"{"id":1,"averageScore":85}"#).unwrap();
         let score = source(RatingProvider::AniList).work(Some(&media), None).unwrap();
         assert_eq!(score.value, 8.5);
-        assert_eq!(score.label(), "8,5");
+        assert_eq!(score.label(), "8.5");
         assert!(source(RatingProvider::AniList).work(None, None).is_none());
+    }
+
+    #[test]
+    fn anilist_score_em_decimal() {
+        assert_eq!(anilist_score(80), "8");
+        assert_eq!(anilist_score(79), "7.9");
+        assert_eq!(anilist_score(100), "10");
+        assert_eq!(anilist_score(5), "0.5");
     }
 
     #[test]
     fn tmdb_episode_needs_votes() {
         let tmdb = source(RatingProvider::Tmdb);
         assert!(tmdb.episode(&episode(9.0, 0)).is_none());
-        assert_eq!(tmdb.episode(&episode(7.94, 68)).unwrap().label(), "7,9");
-        assert_eq!(source(RatingProvider::AniList).episode(&episode(7.94, 68)).unwrap().label(), "7,9");
+        assert_eq!(tmdb.episode(&episode(7.94, 68)).unwrap().label(), "7.9");
+        assert_eq!(source(RatingProvider::AniList).episode(&episode(7.94, 68)).unwrap().label(), "7.9");
     }
 }

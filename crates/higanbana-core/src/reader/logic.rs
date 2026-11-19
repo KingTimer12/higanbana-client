@@ -242,9 +242,25 @@ pub fn compare_names(a: &str, b: &str) -> Ordering {
     natural_cmp(a, b)
 }
 
+/// Largura/altura de uma página pelo cabeçalho da imagem (sem decodificar):
+/// a tela reserva a altura certa antes de a imagem chegar. `None` se o formato
+/// não é conhecido (AVIF, por exemplo) ou a imagem não tem altura.
+pub fn page_ratio<R: std::io::BufRead + std::io::Seek>(image: R) -> Option<f32> {
+    let (w, h) = image::ImageReader::new(image).with_guessed_format().ok()?.into_dimensions().ok()?;
+    (w > 0 && h > 0).then(|| w as f32 / h as f32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proporcao_pelo_cabecalho() {
+        let mut png = Vec::new();
+        image::RgbImage::new(70, 100).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        assert_eq!(page_ratio(std::io::Cursor::new(&png)), Some(0.7));
+        assert_eq!(page_ratio(std::io::Cursor::new(b"nada")), None);
+    }
 
     fn label(s: &str) -> String {
         label_text(&chapter_label(s))

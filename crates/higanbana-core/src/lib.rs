@@ -23,6 +23,7 @@ pub mod library;
 #[cfg(feature = "music")]
 pub mod music;
 pub mod nuvem;
+pub mod offline;
 pub mod paths;
 pub mod player;
 pub mod prefs;

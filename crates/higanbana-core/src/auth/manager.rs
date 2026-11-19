@@ -64,6 +64,12 @@ impl AuthManager {
         Ok(Some(cookie::encode_session(&CONFIG.session_cookie, &session)?))
     }
 
+    /// A sessão guardada, sem renovar: sem rede, ainda diz quem está logado
+    /// (o app abre os baixados). As chamadas à nuvem renovam quando voltar a rede.
+    pub async fn stored(&self) -> Option<Session> {
+        self.session.lock().await.clone()
+    }
+
     pub async fn is_logged_in(&self) -> bool {
         self.session.lock().await.is_some()
     }

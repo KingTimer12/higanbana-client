@@ -2,7 +2,7 @@
 // feitas para o polegar: o destaque é um carrossel que passa de página em página
 // com o dedo, sem trocar sozinho; o descobrir é uma fileira de pôsteres que rola
 // de lado, com a lista escolhida acima. Só entra o que está no acervo.
-import { effect, Image, type Resource, resource, Scroll, signal, Text, token, View, windowSize } from "nsh";
+import { effect, Image, Scroll, signal, Text, token, untracked, View, windowSize } from "nsh";
 import { Button } from "nsh/base";
 import { backend, type Featured, type Ranking } from "../lib/backend";
 import { errorMessage, highlightsHeading, mediaFacts, mediaTitle } from "../lib/format";
@@ -14,6 +14,61 @@ import { Chip, Cover, EmptyState, SectionTitle, Skeleton } from "./ui";
 const HIGHLIGHTS = 6;
 /** Pôsteres por lista do descobrir. */
 const DISCOVER = 12;
+
+/** Uma vitrine que se preenche aos poucos: cada obra aparece assim que o núcleo a confirma. */
+export interface LiveList {
+  list: () => Featured[];
+  /** `idle` antes de começar; `pending` até a primeira obra ou o fim. */
+  state: () => "idle" | "pending" | "partial" | "ready" | "errored";
+  error: () => unknown;
+  refetch: () => void;
+}
+
+/** Confere o ranking que `ranking` der (nada enquanto der `undefined`); trocar recomeça. */
+export function liveDiscover(ranking: () => Ranking | undefined, n: number): LiveList {
+  const list = signal<Featured[]>([]);
+  const state = signal<ReturnType<LiveList["state"]>>("idle");
+  const error = signal<unknown>(null);
+  // Só a conferência mais recente escreve: uma antiga que termina depois não volta a lista.
+  let generation = 0;
+  const run = (r: Ranking) => {
+    const mine = ++generation;
+    list.set([]);
+    error.set(null);
+    state.set("pending");
+    backend()
+      .discover(r, n, (found) => {
+        if (mine !== generation) return;
+        list.set(found);
+        state.set("partial");
+      })
+      .then(
+        (found) => {
+          if (mine !== generation) return;
+          list.set(found);
+          state.set("ready");
+        },
+        (e) => {
+          if (mine !== generation) return;
+          error.set(e);
+          state.set("errored");
+        },
+      );
+  };
+  effect(() => {
+    const r = ranking();
+    if (r) untracked(() => run(r));
+  });
+  return {
+    list,
+    state,
+    error,
+    refetch: () => {
+      const r = untracked(ranking);
+      if (r) run(r);
+    },
+  };
+}
 
 const open = (item: Featured) => nav.push({ name: "title", path: item.path, media: item.media, kind: "anime" });
 
@@ -78,7 +133,7 @@ function PageDots(props: { count: number; current: number }) {
 }
 
 /** Destaques do ano: os mais populares do ano que estão no acervo, uma página por obra. */
-export function Highlights(props: { list: Featured[] | undefined; state: string; error: unknown; onRetry: () => void }) {
+export function Highlights(props: { live: LiveList }) {
   const page = signal(0);
   // Cada página ocupa a largura da janela; o cartão leva a margem da tela dentro dela.
   const width = () => windowSize().width;
@@ -87,22 +142,27 @@ export function Highlights(props: { list: Featured[] | undefined; state: string;
       <View class="px-4">
         <SectionTitle>{highlightsHeading()}</SectionTitle>
       </View>
-      <If when={props.state === "pending"}>
+      <If when={props.live.state() === "pending"}>
         <View class="px-4">
           <Skeleton class="h-64 rounded-(--radius-lg)" />
         </View>
       </If>
-      <If when={props.state === "errored"}>
+      <If when={props.live.state() === "errored"}>
         <View class="h-48">
-          <EmptyState title="Não foi possível carregar os destaques" detail={errorMessage(props.error)} action="Tentar de novo" onAction={props.onRetry} />
+          <EmptyState
+            title="Não foi possível carregar os destaques"
+            detail={errorMessage(props.live.error())}
+            action="Tentar de novo"
+            onAction={props.live.refetch}
+          />
         </View>
       </If>
-      <If when={(props.state === "ready" || props.state === "refreshing") && (props.list ?? []).length === 0}>
+      <If when={props.live.state() === "ready" && props.live.list().length === 0}>
         <View class="h-32">
           <EmptyState title="Nenhum destaque do ano no acervo ainda" detail="As obras chegam ao acervo na temporada seguinte." />
         </View>
       </If>
-      <If when={(props.list ?? []).length > 0}>
+      <If when={props.live.list().length > 0}>
         <Scroll
           horizontal
           pagingEnabled
@@ -111,7 +171,7 @@ export function Highlights(props: { list: Featured[] | undefined; state: string;
           onScrollEnd={({ offset }) => page.set(Math.round(offset.x / Math.max(width(), 1)))}
         >
           <View class="flex-row">
-            <Each of={props.list ?? []} key={(item) => item.path}>
+            <Each of={props.live.list()} key={(item) => item.path}>
               {(item, index) => (
                 <View class="px-4" style={{ width: width() }}>
                   <HighlightCard item={item()} rank={index() + 1} />
@@ -120,7 +180,7 @@ export function Highlights(props: { list: Featured[] | undefined; state: string;
             </Each>
           </View>
         </Scroll>
-        <PageDots count={(props.list ?? []).length} current={page()} />
+        <PageDots count={props.live.list().length} current={page()} />
       </If>
     </View>
   );
@@ -157,16 +217,11 @@ export function Discover(props: { ready: boolean }) {
     if (props.ready && !opened().has(current())) opened.set(new Set([...opened(), current()]));
   });
   const lists = Object.fromEntries(
-    LISTS.map(({ ranking }) => [
-      ranking,
-      resource(
-        () => (opened().has(ranking) ? ranking : undefined),
-        (r) => backend().discover(r, DISCOVER),
-      ),
-    ]),
-  ) as Record<Ranking, Resource<Featured[]>>;
+    LISTS.map(({ ranking }) => [ranking, liveDiscover(() => (opened().has(ranking) ? ranking : undefined), DISCOVER)]),
+  ) as Record<Ranking, LiveList>;
   const list = () => lists[current()];
-  const waiting = () => !props.ready || list().state() === "pending" || list().state() === "unresolved";
+  // A fileira aparece com a primeira obra; o esqueleto só enquanto não há nenhuma.
+  const waiting = () => !props.ready || list().state() === "pending" || list().state() === "idle";
 
   return (
     <View class="gap-3">
@@ -185,17 +240,17 @@ export function Discover(props: { ready: boolean }) {
       </If>
       <If when={!waiting() && list().state() === "errored"}>
         <View class="h-40">
-          <EmptyState title="Não foi possível carregar esta lista" detail={errorMessage(list().error())} action="Tentar de novo" onAction={list().refetch} />
+          <EmptyState title="Não foi possível carregar esta lista" detail={errorMessage(list().error())} action="Tentar de novo" onAction={() => list().refetch()} />
         </View>
       </If>
-      <If when={!waiting() && list().state() !== "errored" && (list()() ?? []).length === 0}>
+      <If when={list().state() === "ready" && list().list().length === 0}>
         <View class="h-40">
           <EmptyState title="Nada desta lista no acervo" detail="Tente outra lista." />
         </View>
       </If>
-      <If when={!waiting() && (list()() ?? []).length > 0}>
+      <If when={!waiting() && list().list().length > 0}>
         <Scroll horizontal scrollbar={false} contentClass="flex-row gap-3 px-4">
-          <Each of={list()() ?? []} key={(item) => item.path}>
+          <Each of={list().list()} key={(item) => item.path}>
             {(item) => (
               <View class="w-32">
                 <Poster title={mediaTitle(item().media)} media={item().media} onPress={() => open(item())} />

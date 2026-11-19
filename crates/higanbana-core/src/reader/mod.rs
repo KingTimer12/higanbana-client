@@ -68,8 +68,12 @@ impl Reader {
     }
 }
 
-/// Bytes `[start, end]` (inclusivo) de um arquivo da nuvem.
+/// Bytes `[start, end]` (inclusivo) de um arquivo da nuvem. Com a cópia baixada
+/// para ver sem internet, lê dela e nem vai à rede.
 pub async fn fetch_range(cloud: &Cloud, path: &str, start: u64, end: u64) -> Result<Vec<u8>, String> {
+    if let Some(local) = crate::offline::copy_of(&cloud.paths.data, path) {
+        return read_local(local, start, end).await;
+    }
     let resp = cloud
         .apis
         .nuvem
@@ -91,6 +95,25 @@ pub async fn fetch_range(cloud: &Cloud, path: &str, start: u64, end: u64) -> Res
     }
     // Sem cópia quando o `Bytes` é o único dono do buffer (o caso de `resp.bytes()`).
     Ok(Vec::from(body))
+}
+
+async fn read_local(file: std::path::PathBuf, start: u64, end: u64) -> Result<Vec<u8>, String> {
+    tokio::task::spawn_blocking(move || {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut f = std::fs::File::open(&file)?;
+        let len = f.metadata()?.len();
+        let end = end.min(len.saturating_sub(1));
+        if start > end {
+            return Ok(Vec::new());
+        }
+        f.seek(SeekFrom::Start(start))?;
+        let mut buf = vec![0; (end - start + 1) as usize];
+        f.read_exact(&mut buf)?;
+        Ok::<_, std::io::Error>(buf)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("cópia local ilegível: {e}"))
 }
 
 fn cache_key(path: &str, inner: Option<&str>) -> String {

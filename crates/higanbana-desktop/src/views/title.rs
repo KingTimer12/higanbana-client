@@ -1013,7 +1013,7 @@ fn facts(d: &MediaDetail, cx: &gpui_kit::App) -> gpui_kit::Div {
         (
             site,
             vec![
-                ("Nota média", m.average_score.map(|s| format!("{s}%"))),
+                ("Nota média", m.average_score.map(higanbana_core::ratings::anilist_score)),
                 ("Popularidade", m.popularity.map(|p| format!("{} pessoas", text::number(p)))),
                 ("Outros nomes", Some(m.synonyms.iter().take(4).cloned().collect::<Vec<_>>().join("; ")).filter(|s| !s.is_empty())),
             ],

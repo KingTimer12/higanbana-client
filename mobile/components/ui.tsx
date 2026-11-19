@@ -22,6 +22,7 @@ import rewind from "../assets/icons/rewind.svg";
 import search from "../assets/icons/search.svg";
 import star from "../assets/icons/star.svg";
 import subtitles from "../assets/icons/subtitles.svg";
+import trash from "../assets/icons/trash.svg";
 import tv from "../assets/icons/tv.svg";
 
 const ICONS = {
@@ -45,6 +46,7 @@ const ICONS = {
   search,
   star,
   subtitles,
+  trash,
   tv,
 } satisfies Record<string, ImageAsset>;
 

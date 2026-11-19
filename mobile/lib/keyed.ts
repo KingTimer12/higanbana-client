@@ -16,6 +16,11 @@ export class KeyedSignals<K, V> {
     this.slot(key).set(value);
   }
 
+  /** Volta a chave para "nada escrito" (quem lê vê `undefined`). */
+  delete(key: K): void {
+    this.slots.get(key)?.set(undefined);
+  }
+
   /** Várias chaves de uma vez: quem lê mais de uma reavalia uma vez só. */
   setMany(entries: Iterable<[K, V]>): void {
     batch(() => {

@@ -20,6 +20,11 @@ export function mediaCover(media: Media | null | undefined): string | null {
   return media?.coverImage?.large ?? media?.coverImage?.extraLarge ?? null;
 }
 
+/** Nota do AniList (0–100) na escala 0–10: `80` → `8`, `79` → `7.9`. */
+export function scoreLabel(score: number): string {
+  return (Math.round(score) / 10).toFixed(1).replace(/\.0$/, "");
+}
+
 const FORMATS: Record<string, string> = {
   TV: "TV",
   TV_SHORT: "TV curto",
@@ -33,7 +38,7 @@ const FORMATS: Record<string, string> = {
   ONE_SHOT: "One-shot",
 };
 
-/** `2024 · TV · 12 episódios · 82%` (ou `· 120 capítulos`), só com o que a mídia tem. */
+/** `2024 · TV · 12 episódios · nota 8.2` (ou `· 120 capítulos`), só com o que a mídia tem. */
 export function mediaFacts(media: Media): string {
   const facts: string[] = [];
   if (media.seasonYear) facts.push(String(media.seasonYear));
@@ -41,7 +46,7 @@ export function mediaFacts(media: Media): string {
   if (media.episodes) facts.push(media.episodes === 1 ? "1 episódio" : `${media.episodes} episódios`);
   if (media.chapters) facts.push(media.chapters === 1 ? "1 capítulo" : `${media.chapters} capítulos`);
   else if (media.volumes) facts.push(media.volumes === 1 ? "1 volume" : `${media.volumes} volumes`);
-  if (media.averageScore) facts.push(`${media.averageScore}%`);
+  if (media.averageScore) facts.push(`nota ${scoreLabel(media.averageScore)}`);
   return facts.join(" · ");
 }
 
