@@ -470,9 +470,7 @@ impl AppState {
                 }
                 None => {
                     self.covers.insert(m.id, None);
-                    let core = self.core.clone();
-                    let media = m.clone();
-                    let task = self.core.spawn(async move { core.fanart().cover(&media).await });
+                    let task = self.core.spawn(crate::profiling::fanart_cover(self.core.clone(), m.clone()));
                     let id = m.id;
                     cx.spawn(async move |this, cx| {
                         let res = task.await.ok();
@@ -653,9 +651,8 @@ impl AppState {
         if !self.lookup_queue.is_empty() || !self.lookup_background.is_empty() {
             self.schedule_flush(LOOKUP_DELAY, cx);
         }
-        let core = self.core.clone();
         let items: Vec<LookupRequest> = batch.iter().map(|(m, n)| LookupRequest { name: n.clone(), media_type: *m }).collect();
-        let task = self.core.spawn(async move { core.anilist().lookup_with(&items, priority).await });
+        let task = self.core.spawn(crate::profiling::anilist_lookup(self.core.clone(), items, priority));
         self.lookups_inflight += 1;
         cx.spawn(async move |this, cx| {
             let result = task.await.ok().and_then(Result::ok);

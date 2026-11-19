@@ -136,11 +136,7 @@ impl AppState {
             let look = |core: &higanbana_core::Core| (core.section_index(media).progress(), core.cloud().backing_off_until().is_some());
             let mut shown = look(&core);
             loop {
-                let c = core.clone();
-                let task = core.spawn(async move {
-                    c.section_index(media).root(c.cloud()).await?;
-                    c.section_index(media).fill_all(c.cloud()).await
-                });
+                let task = core.spawn(crate::profiling::scan_library(core.clone(), media));
                 while !task.is_finished() {
                     cx.background_executor().timer(PROGRESS_EVERY).await;
                     let now = look(&core);
@@ -193,10 +189,8 @@ impl AppState {
         let name = letter.to_owned();
         let key = name.clone();
         let task = cx.spawn(async move |this, cx| {
-            let c = core.clone();
-            let n = name.clone();
-            let result = match core.spawn(async move { c.section_index(media).letter(c.cloud(), &n).await }).await {
-                Ok(r) => r.map(|_| ()),
+            let result = match core.spawn(crate::profiling::index_letter(core.clone(), media, name.clone())).await {
+                Ok(r) => r,
                 Err(e) => Err(e.to_string()),
             };
             let _ = this.update(cx, |s, cx| {

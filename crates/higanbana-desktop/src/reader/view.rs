@@ -249,9 +249,7 @@ impl ReaderView {
         if self.opened.contains_key(&key) || !self.loading.insert(key.clone()) {
             return;
         }
-        let core = self.core.clone();
-        let (path, size, inner) = (u.path.clone(), u.file.size, u.inner.clone());
-        let task = self.core.spawn(async move { core.reader().open(&path, size, inner.as_deref()).await });
+        let task = self.core.spawn(crate::profiling::reader_open(self.core.clone(), u.path.clone(), u.file.size, u.inner.clone()));
         cx.spawn(async move |this, cx| {
             let r = task.await.map_err(|e| e.to_string()).and_then(|r| r);
             let _ = this.update(cx, |v, cx| {
@@ -374,9 +372,8 @@ impl ReaderView {
         self.pages_loading.insert(key.clone());
         self.page_keys.push(key.clone());
         self.state.update(cx, |s, _| s.mark_image_loading(&key));
-        let core = self.core.clone();
         let page = PageRef { size: u.file.size, index, inner: u.inner.clone(), path: u.path.clone() };
-        let task = self.core.spawn(async move { core.reader().page(&page).await });
+        let task = self.core.spawn(crate::profiling::reader_page(self.core.clone(), page));
         let state = self.state.clone();
         cx.spawn(async move |this, cx| {
             let r = match task.await {
@@ -680,6 +677,7 @@ fn kbd(key: &'static str) -> Kbd {
 }
 
 impl ReaderView {
+    #[hotpath::measure]
     fn page_image(&self, u: &Unit, pg: usize, fit_height: bool, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let key = page_key(u, pg);
@@ -1068,6 +1066,7 @@ impl ReaderView {
     }
 }
 
+#[hotpath::measure_all]
 impl Render for ReaderView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();

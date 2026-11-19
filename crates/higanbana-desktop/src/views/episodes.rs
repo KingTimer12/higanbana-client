@@ -137,6 +137,7 @@ struct Item {
 /// colunas da grade, medido por quem chama. `on_read` vai para a lista
 /// compacta dos outros arquivos (quadrinhos soltos na pasta).
 #[allow(clippy::too_many_arguments)]
+#[hotpath::measure]
 pub fn episode_list(
     dir: &str,
     files: &[FileEntry],

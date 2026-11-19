@@ -93,6 +93,7 @@ pub const PAGE_MAX: u32 = 2400;
 
 /// Decodifica já reduzida ao teto e em BGRA (formato do gpui), sem guardar os bytes
 /// originais. Devolve a imagem e o peso em memória. Chamar fora da thread da UI.
+#[hotpath::measure]
 pub fn decode(bytes: &[u8], portrait_max: u32, landscape_max: u32) -> Option<(Arc<RenderImage>, u64)> {
     match try_decode(bytes, portrait_max, landscape_max) {
         Ok(r) => Some(r),
