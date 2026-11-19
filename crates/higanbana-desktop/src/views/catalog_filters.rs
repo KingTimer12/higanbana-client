@@ -197,6 +197,7 @@ pub struct Work<'a> {
 
 /// Obras que passam nos filtros (as sem resposta ainda ficam de fora), na ordem pedida.
 /// A–Z mantém a ordem do índice; Ano e Nota vão do maior ao menor, e o empate fica em A–Z.
+#[hotpath::measure]
 pub fn filtered_works(works: &[Work], f: &Filters, sort: Sort) -> Vec<IndexEntry> {
     let mut found: Vec<&Work> = works.iter().filter(|w| judge(&w.entry.name, w.meta, &w.inner, f) == Verdict::Pass).collect();
     // A franquia vale pela melhor das obras conhecidas (a própria pasta ou as de dentro).
@@ -433,6 +434,7 @@ impl FilterBar {
     }
 }
 
+#[hotpath::measure_all]
 impl Render for FilterBar {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();

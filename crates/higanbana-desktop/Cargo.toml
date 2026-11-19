@@ -27,6 +27,13 @@ serde.workspace = true
 tokio.workspace = true
 # Hash rápido para mapas internos (chaves não adversárias); já vem pelo gpui.
 rustc-hash = "2"
+# Perfilador: sem a feature `hotpath`, as macros viram no-op (custo zero).
+hotpath.workspace = true
+
+[features]
+# Liga o perfilador hotpath no app; o relatório sai ao fechar o app.
+# `cargo run -p higanbana-desktop --release --features hotpath`
+hotpath = ["hotpath/hotpath"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

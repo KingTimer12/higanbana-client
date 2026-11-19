@@ -238,6 +238,7 @@ impl HomeView {
     }
 }
 
+#[hotpath::measure_all]
 impl Render for HomeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();

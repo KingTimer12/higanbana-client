@@ -25,6 +25,7 @@ pub fn is_avif(bytes: &[u8]) -> bool {
 }
 
 /// Decodifica um AVIF estático para RGBA (com alfa, se houver).
+#[hotpath::measure]
 pub fn decode(bytes: &[u8]) -> Result<RgbaImage, String> {
     let data = avif_parse::read_avif(&mut &bytes[..]).map_err(|e| format!("avif: {e}"))?;
     let color = Picture::decode(&data.primary_item)?;

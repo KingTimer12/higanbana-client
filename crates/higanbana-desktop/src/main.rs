@@ -11,6 +11,7 @@ mod interact;
 mod logging;
 mod motion;
 mod music;
+mod profiling;
 mod reader;
 mod series;
 mod state;
@@ -28,6 +29,8 @@ use higanbana_core::{Core, Event, Paths};
 
 fn main() {
     let paths = Paths::system().expect("pastas do app");
+    // Perfilador (feature `hotpath`; sem ela, não faz nada). Antes do núcleo, para medir a abertura.
+    let profiler = profiling::start(&paths.cache);
     let _log = logging::init(&paths.cache);
     tracing::info!(version = higanbana_core::version::current(), data = %paths.data.display(), cache = %paths.cache.display(), "higanbana abrindo");
     let (tx, rx) = mpsc::unbounded::<Event>();
@@ -39,6 +42,7 @@ fn main() {
 
     gpui_kit::application().with_assets(ui::Assets).run(move |cx: &mut App| {
         gpui_kit::init(cx);
+        profiling::report_on_quit(profiler, cx);
         theme::install(cx);
         motion::sync_system_preference(cx);
         app::bind_keys(cx);

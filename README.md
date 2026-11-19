@@ -78,6 +78,19 @@ cargo test -p higanbana-core                # testes do núcleo
 
 O frontend web antigo (SolidJS, em `src/`) fica no repositório como base para as telas do app GPUI; ele não é mais compilado com o app.
 
+### Perfilar (hotpath)
+
+Para descobrir o que mais pesa, o app tem o perfilador [hotpath](https://hotpath.rs) atrás da feature `hotpath`. Sem ela, as marcações não geram código (custo zero no build normal).
+
+```sh
+cargo run -p higanbana-desktop --release --features hotpath
+```
+
+Use o app normalmente e feche a janela: ao sair, o relatório sai no terminal, com uma tabela por função medida (chamadas, P50/P95/P99, tempo total e % do tempo de vida do app). Estão medidos o `render` das telas (início, catálogo, título, episódios, franquia, estante, pasta) e do leitor de mangá, a decodificação de imagens (capas, páginas, AVIF), o filtro do catálogo e as chamadas pesadas ao núcleo (varredura do acervo, índice por letra, buscas no AniList, capas do fanart.tv, abertura de capítulo e páginas do leitor). As marcações ficam no `higanbana-desktop`; o núcleo fica sem a dependência, porque o app mobile também o usa.
+
+- `HOTPATH_OUTPUT_PATH=hotpath.txt` grava o relatório num arquivo. No Windows em release (sem console), ele vai por padrão para `hotpath.txt` na pasta de cache do app.
+- `HOTPATH_FUNCTIONS_LIMIT=0` mostra todas as funções (o padrão é 40); `HOTPATH_REPORT=functions-timing` mostra só a tabela de tempos.
+
 ## Como funciona
 
 Dois crates num workspace Cargo:

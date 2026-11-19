@@ -209,6 +209,7 @@ impl Workspace {
     }
 }
 
+#[hotpath::measure_all]
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.page(window, cx);
@@ -230,6 +231,7 @@ impl Render for Workspace {
     }
 }
 
+#[hotpath::measure_all]
 impl Render for AppView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let root = div()

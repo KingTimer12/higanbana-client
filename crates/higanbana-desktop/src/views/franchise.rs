@@ -57,6 +57,7 @@ impl FranchiseView {
     }
 }
 
+#[hotpath::measure_all]
 impl Render for FranchiseView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();

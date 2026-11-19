@@ -319,6 +319,7 @@ impl ContinueRow {
     }
 }
 
+#[hotpath::measure_all]
 impl Render for ContinueRow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let rem = f32::from(window.rem_size());

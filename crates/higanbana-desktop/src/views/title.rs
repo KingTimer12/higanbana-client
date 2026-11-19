@@ -476,6 +476,7 @@ impl TitleView {
     }
 }
 
+#[hotpath::measure_all]
 impl Render for TitleView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Some(view) = self.franchise.clone().filter(|_| self.shows_franchise()) {

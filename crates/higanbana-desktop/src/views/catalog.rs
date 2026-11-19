@@ -349,6 +349,7 @@ impl CatalogView {
     }
 
     /// Obras de todas as letras indexadas que passam nos filtros, na ordem pedida.
+    #[hotpath::measure]
     fn flat_works(&mut self, query: &str, resolved: usize, cx: &App) -> Arc<[IndexEntry]> {
         let st = self.state.read(cx);
         let bar = self.bar.read(cx);
@@ -376,6 +377,7 @@ impl CatalogView {
     }
 
     /// Seções da tela: as letras em sequência ou, com busca, as que têm resultado.
+    #[hotpath::measure]
     fn sections(&mut self, query: &str, cx: &App) -> Vec<Section> {
         let st = self.state.read(cx);
         if query.is_empty() {
@@ -427,6 +429,7 @@ impl CatalogView {
         });
     }
 
+    #[hotpath::measure]
     fn render_section(&self, section: Section, width: f32, cols: usize, card_w: Pixels, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let theme = cx.theme().clone();
         let grid = || div().grid().grid_cols(cols as u16).gap_x_5().gap_y_8();
@@ -496,6 +499,7 @@ impl CatalogView {
     }
 }
 
+#[hotpath::measure_all]
 impl Render for CatalogView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
