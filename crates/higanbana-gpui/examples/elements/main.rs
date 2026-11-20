@@ -1,11 +1,17 @@
 //! Tela de exemplo dos elementos base: cabeçalho, barra lateral rolável, cards com
-//! imagem e texto, contador clicável, troca de backend e de tema em tempo real.
+//! imagem e texto, contador clicável, troca de backend e de tema em tempo real,
+//! campo de texto, tooltip e diálogo modal (`HGUI_DEMO_OPEN=1` abre os dois).
+mod extras;
+
 use higanbana_gpui::prelude::*;
 
 struct Showcase {
     count: u32,
     selected: usize,
     covers: Vec<ImageSource>,
+    search: TextInputState,
+    tip: bool,
+    dialog: bool,
 }
 
 const TITLES: [&str; 6] = ["Frieren", "Dandadan", "Kusuriya", "Mushishi", "Odd Taxi", "Ping Pong"];
@@ -97,8 +103,10 @@ impl Showcase {
             )
     }
 
-    fn counter(&self, theme: &Theme) -> Element<Self> {
+    fn counter(&self, cx: &RenderCx<'_, Self>) -> Element<Self> {
+        let theme = cx.theme();
         div()
+            .flex_wrap()
             .p(16.0)
             .gap(16.0)
             .items_center()
@@ -111,28 +119,42 @@ impl Showcase {
                 cx.notify();
             }))
             .child(text(format!("Selecionado: episódio {:02}", self.selected + 1)).text_color(theme.muted_foreground))
+            .child(extras::form(self, cx))
     }
 }
 
 impl View for Showcase {
     fn render(&mut self, cx: &mut RenderCx<'_, Self>) -> Element<Self> {
         let theme = cx.theme();
-        let cards = (0..TITLES.len()).map(|i| self.card(i, theme));
+        let cards: Vec<_> = (0..TITLES.len()).map(|i| self.card(i, theme)).collect();
+        let counter = self.counter(cx);
+        let sidebar = self.sidebar(theme);
+        let (bg, fg) = (theme.background, theme.foreground);
+        let dialog = extras::dialog(self, cx);
         div()
             .flex_col()
-            .bg(theme.background)
-            .text_color(theme.foreground)
+            .bg(bg)
+            .text_color(fg)
             .child(self.header(cx))
             .child(
-                div().flex_1().child(self.sidebar(theme)).child(
-                    scroll("main").flex_1().p(20.0).gap(16.0).child(self.counter(theme)).child(div().flex_wrap().gap(16.0).children(cards)),
+                div().flex_1().child(sidebar).child(
+                    scroll("main").flex_1().p(20.0).gap(16.0).child(counter).child(div().flex_wrap().gap(16.0).children(cards)),
                 ),
             )
+            .children(dialog)
     }
 }
 
 fn main() {
-    let view = Showcase { count: 0, selected: 0, covers: (0..TITLES.len() as u32).map(cover).collect() };
+    let demo = std::env::var("HGUI_DEMO_OPEN").is_ok_and(|v| v == "1");
+    let view = Showcase {
+        count: 0,
+        selected: 0,
+        covers: (0..TITLES.len() as u32).map(cover).collect(),
+        search: TextInputState::with_text(if demo { "葬送のフリーレン 😀" } else { "" }).placeholder("Buscar anime…"),
+        tip: demo,
+        dialog: demo,
+    };
     let opts = WindowOptions { title: "higanbana-gpui · elementos".into(), size: size(1100.0, 720.0), resizable: true };
     if let Err(e) = App::new().show_stats(true).run(opts, view) {
         eprintln!("erro: {e}");
