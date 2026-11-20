@@ -36,12 +36,15 @@ impl<V> Tree<V> {
     }
 
     /// Cursor a mostrar: o do elemento capturado (arraste) ou o mais profundo sob o mouse.
+    /// Elemento desabilitado com cursor próprio mostra `NotAllowed`.
     pub fn cursor(&self) -> CursorStyle {
         let start = self.captured.and_then(|k| self.resolve(k)).or(self.hovered.map(|h| h as usize));
         start
             .and_then(|i| self.nearest(i, |n| n.style.cursor.is_some()))
-            .filter(|&i| !self.nodes[i].disabled)
-            .and_then(|i| self.nodes[i].style.cursor)
+            .and_then(|i| {
+                let n = &self.nodes[i];
+                if n.disabled { Some(CursorStyle::NotAllowed) } else { n.style.cursor }
+            })
             .unwrap_or_default()
     }
 }
