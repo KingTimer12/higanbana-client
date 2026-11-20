@@ -6,7 +6,7 @@ use crate::paint::Canvas;
 use crate::style::TextStyle;
 use crate::theme::Theme;
 
-const W: f32 = 260.0;
+const W: f32 = 320.0;
 const H: f32 = 22.0;
 
 pub(super) fn paint(canvas: &mut dyn Canvas, ctx: &Context, theme: &Theme, viewport: Size) {

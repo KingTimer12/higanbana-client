@@ -95,6 +95,11 @@ impl<V> Element<V> {
         self
     }
 
+    /// Aplica `f` só quando `cond` é verdadeiro (encadeamento condicional).
+    pub fn when(self, cond: bool, f: impl FnOnce(Self) -> Self) -> Self {
+        if cond { f(self) } else { self }
+    }
+
     pub fn style(&self) -> &Style {
         &self.style
     }
