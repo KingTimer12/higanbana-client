@@ -30,6 +30,7 @@ fn compile_core(core: &Path) {
         .files(&sources)
         .include(core.join("include"))
         .include(core.join("src"))
+        .include(core.join("src/atlas"))
         .flag_if_supported("/std:c11")
         .warnings(true);
     build.compile("hgui");
@@ -37,7 +38,8 @@ fn compile_core(core: &Path) {
 
 fn generate_bindings(core: &Path, out: &Path) {
     bindgen::Builder::default()
-        .header(core.join("include/hgui.h").to_string_lossy())
+        .header("wrapper.h")
+        .clang_arg(format!("-I{}", core.join("include").display()))
         .allowlist_function("hg_.*")
         .allowlist_type("hg_.*")
         .allowlist_var("HG_.*")

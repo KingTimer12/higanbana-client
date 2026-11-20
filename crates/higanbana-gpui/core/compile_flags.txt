@@ -2,3 +2,4 @@
 -Iinclude
 -Isrc
 -DWIN32_LEAN_AND_MEAN
+-Isrc/atlas
