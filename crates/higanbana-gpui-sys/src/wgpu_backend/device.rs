@@ -3,6 +3,7 @@
 
 use super::buffers::GrowBuffer;
 use super::glyphs::Glyphs;
+use super::images::Images;
 use super::pipeline::Pipelines;
 use super::{fail, Res};
 use crate::*;
@@ -22,6 +23,7 @@ pub struct Gpu {
     /// Rascunho reaproveitado para juntar os quads da draw list antes do upload.
     pub quad_scratch: Vec<hg_quad>,
     pub glyphs: Glyphs,
+    pub images: Images,
     pub readback: wgpu::Buffer,
 }
 
@@ -29,11 +31,20 @@ pub struct Gpu {
 /// compartilha estado entre instâncias e destruir uma enquanto outra thread
 /// apresenta derruba o processo (mesma correção de `vk_instance.c`).
 fn instance() -> wgpu::Instance {
-    static INSTANCE: std::sync::OnceLock<wgpu::Instance> = std::sync::OnceLock::new();
+    static INSTANCE: std::sync::OnceLock<SharedInstance> = std::sync::OnceLock::new();
     INSTANCE
-        .get_or_init(|| wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle()))
+        .get_or_init(|| SharedInstance(wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle())))
+        .0
         .clone()
 }
+
+/// `wgpu::Instance` é Send + Sync em nativo (documentado), mas o rustc estoura o limite
+/// de recursão provando o auto-trait no `Global` interno do wgpu
+/// (`recursion_depth_exceeding_limit`). O newtype declara o Sync explicitamente.
+struct SharedInstance(wgpu::Instance);
+// SAFETY: wgpu nativo garante Instance: Send + Sync (feature `fragile-send-sync-non-atomic-wasm` não se aplica).
+unsafe impl Send for SharedInstance {}
+unsafe impl Sync for SharedInstance {}
 
 fn request_adapter(instance: &wgpu::Instance) -> Option<wgpu::Adapter> {
     let opts = wgpu::RequestAdapterOptions {
@@ -89,12 +100,14 @@ impl Gpu {
             quads: GrowBuffer::new("quads"),
             quad_scratch: Vec::new(),
             glyphs: Glyphs::new()?,
+            images: Images::new(),
             readback,
         })
     }
 
-    /// Memória de GPU estimada: buffers de instância + atlas (superfícies não contam).
+    /// Memória de GPU estimada: buffers de instância + atlas + texturas de imagem
+    /// (superfícies não contam).
     pub fn gpu_bytes(&self) -> u64 {
-        self.quads.capacity() + self.glyphs.gpu_bytes()
+        self.quads.capacity() + self.glyphs.gpu_bytes() + self.images.gpu_bytes()
     }
 }

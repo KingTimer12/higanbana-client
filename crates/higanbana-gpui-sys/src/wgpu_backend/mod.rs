@@ -9,6 +9,7 @@ mod buffers;
 mod device;
 mod ffi;
 mod glyphs;
+mod images;
 mod pipeline;
 mod readback;
 mod render;
@@ -55,8 +56,8 @@ static VTBL: SyncVtbl = SyncVtbl(hg_backend_vtbl {
     begin_frame: Some(ffi::begin_frame),
     submit: Some(ffi::submit),
     end_frame: Some(ffi::end_frame),
-    texture_create: None, // imagens: fase 3 (agente do WGPU)
-    texture_destroy: None,
+    texture_create: Some(ffi::texture_create),
+    texture_destroy: Some(ffi::texture_destroy),
     read_pixel: Some(ffi::read_pixel),
 });
 
