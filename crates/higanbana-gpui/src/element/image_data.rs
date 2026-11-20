@@ -1,0 +1,44 @@
+//! Pixels de imagem pertencentes à view, enviados à GPU sob demanda.
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Imagem da view. Os pixels saem da RAM do Rust assim que vão para o core
+/// (o core guarda a própria cópia para a troca de backend).
+pub struct ImageData {
+    id: u64,
+    width: u32,
+    height: u32,
+    pixels: RefCell<Option<Vec<u8>>>,
+}
+
+/// Referência compartilhada e barata de clonar para usar em `img()`.
+pub type ImageSource = Rc<ImageData>;
+
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+impl ImageData {
+    /// RGBA8 com alfa reto, `width * height * 4` bytes.
+    pub fn from_rgba8(width: u32, height: u32, pixels: Vec<u8>) -> ImageSource {
+        assert_eq!(pixels.len(), width as usize * height as usize * 4, "tamanho do buffer RGBA8");
+        Rc::new(ImageData {
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            width,
+            height,
+            pixels: RefCell::new(Some(pixels)),
+        })
+    }
+
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    pub fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
+    /// Entrega os pixels para envio; depois disso a cópia Rust não existe mais.
+    pub(crate) fn take_pixels(&self) -> Option<Vec<u8>> {
+        self.pixels.borrow_mut().take()
+    }
+}
