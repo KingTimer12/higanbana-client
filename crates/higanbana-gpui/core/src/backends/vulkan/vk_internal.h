@@ -81,6 +81,9 @@ typedef struct vk_surface {
     VkClearValue   clear;
 } vk_surface;
 
+/* vk_instance.c — instância única do processo (nunca destruída; ver arquivo). 0 se indisponível. */
+int       vk_shared_instance(vk_api* api, VkInstance* out);
+
 /* vk_device.c — instância, escolha de GPU e device lógico. */
 hg_result vk_instance_create(vk_api* api, VkInstance* out);
 /* Prefere GPU discreta com fila gráfica que apresenta em Win32. 0 se nenhuma. */

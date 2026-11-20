@@ -72,9 +72,9 @@ static hg_result create_logical(vk_device* d) {
 
 hg_result vk_device_create(vk_device* d, hg_backend_info* info) {
     memset(d, 0, sizeof *d);
-    if (!vk_api_open(&d->api)) return hg__fail(HG_ERR_UNAVAILABLE, "vulkan: vulkan-1.dll ausente");
-    hg_result r = vk_instance_create(&d->api, &d->instance);
-    if (r == HG_OK && !vk_pick_physical(&d->api, d->instance, &d->phys, &d->family,
+    if (!vk_shared_instance(&d->api, &d->instance)) return hg__fail(HG_ERR_UNAVAILABLE, "vulkan: instância indisponível");
+    hg_result r = HG_OK;
+    if (!vk_pick_physical(&d->api, d->instance, &d->phys, &d->family,
                                         info ? info->adapter : NULL, info ? sizeof info->adapter : 0))
         r = hg__fail(HG_ERR_UNAVAILABLE, "vulkan: nenhuma GPU com apresentação Win32");
     if (r == HG_OK) {
@@ -97,7 +97,6 @@ void vk_device_release(vk_device* d) {
         d->api.vkDestroyDevice(d->dev, NULL);
         d->dev = NULL;
     }
-    if (d->instance) d->api.vkDestroyInstance(d->instance, NULL);
+    /* Instância e DLL são do processo (vk_instance.c): não destruir aqui. */
     d->instance = NULL;
-    vk_api_close(&d->api);
 }

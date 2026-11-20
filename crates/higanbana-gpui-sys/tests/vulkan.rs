@@ -148,3 +148,32 @@ fn switch_d3d11_vulkan_d3d11() {
     assert_eq!(rs, [OK; 4], "{}", err());
     assert_eq!(px & 0x00ff_ffff, 0x00ff_0000, "pixel {px:08x}");
 }
+
+/// Regressão: contextos independentes em threads diferentes criando, desenhando e
+/// destruindo ao mesmo tempo. Antes, cada contexto tinha sua VkInstance e
+/// vkDestroyInstance concorrente derrubava o driver AMD (AV em amdxc64.dll).
+#[test]
+fn concurrent_contexts_on_many_threads() {
+    if !vulkan_available() {
+        return;
+    }
+    let threads: Vec<_> = (0..8)
+        .map(|t| {
+            std::thread::spawn(move || {
+                for round in 0..4 {
+                    let f = vulkan_fixture().unwrap();
+                    unsafe { assert_eq!(hg_draw_quad(f.dl, &red_quad(0.0, 0.0)), OK) };
+                    for _ in 0..(1 + (t + round) % 4) {
+                        assert_eq!(f.frame(), [OK; 3], "{}", err());
+                    }
+                    let (rs, px) = draw_and_read(&f, (10, 10));
+                    assert_eq!(rs, [OK; 4], "{}", err());
+                    assert_eq!(px & 0x00ff_ffff, 0x00ff_0000, "pixel {px:08x}");
+                }
+            })
+        })
+        .collect();
+    for t in threads {
+        t.join().expect("thread falhou");
+    }
+}

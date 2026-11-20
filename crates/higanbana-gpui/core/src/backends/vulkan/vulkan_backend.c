@@ -6,18 +6,14 @@
 static vk_device* device_of(hg_context* ctx) { return ctx->backend_data; }
 static vk_surface* surface_of(hg_window* win) { return win->surface; }
 
-/* Instância de teste com surface Win32 + GPU que apresenta; nada fica vivo. */
+/* Usa a instância do processo (vk_instance.c), que fica viva depois do probe. */
 static int vulkan_probe(hg_backend_info* info) {
     vk_api api;
-    if (!vk_api_open(&api)) return 0;
-    VkInstance inst = NULL;
+    VkInstance inst;
     VkPhysicalDevice phys;
     uint32_t family;
-    int ok = vk_instance_create(&api, &inst) == HG_OK &&
-             vk_pick_physical(&api, inst, &phys, &family, info ? info->adapter : NULL, info ? sizeof info->adapter : 0);
-    if (inst) api.vkDestroyInstance(inst, NULL);
-    vk_api_close(&api);
-    return ok;
+    return vk_shared_instance(&api, &inst) &&
+           vk_pick_physical(&api, inst, &phys, &family, info ? info->adapter : NULL, info ? sizeof info->adapter : 0);
 }
 
 static hg_result vulkan_create(hg_context* ctx) {
