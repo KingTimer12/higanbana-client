@@ -7,14 +7,17 @@ use std::path::{Path, PathBuf};
 /// no PATH e em instalações comuns do LLVM, para `cargo build` funcionar sem setup.
 fn locate_libclang() {
     println!("cargo:rerun-if-env-changed=LIBCLANG_PATH");
-    if std::env::var_os("LIBCLANG_PATH").is_some() {
+    let has_dll = |dir: &Path| dir.join("libclang.dll").is_file() || dir.join("clang.dll").is_file();
+    // Valor existente só vale se aponta para uma pasta com a DLL (vazio/errado é ignorado).
+    let current = std::env::var_os("LIBCLANG_PATH").map(PathBuf::from);
+    if current.as_deref().is_some_and(has_dll) {
         return;
     }
     let path = std::env::var_os("PATH").unwrap_or_default();
     let common = [r"C:\Program Files\LLVM\bin", r"C:\Program Files (x86)\LLVM\bin"];
     let found = std::env::split_paths(&path)
         .chain(common.iter().map(PathBuf::from))
-        .find(|dir| dir.join("libclang.dll").is_file() || dir.join("clang.dll").is_file());
+        .find(|dir| has_dll(dir));
     match found {
         // SAFETY: build script de thread única; bindgen lê a variável logo em seguida.
         Some(dir) => unsafe { std::env::set_var("LIBCLANG_PATH", dir) },
