@@ -6,7 +6,9 @@
 #include "glyph_frame.h"
 #include <string.h>
 
-static hg_result create_atlas(ID3D12Device* dev, d3d12_glyphs* g) {
+static hg_result create_atlas(d3d12_device* d) {
+    ID3D12Device* dev = d->dev;
+    d3d12_glyphs* g = &d->glyphs;
     D3D12_HEAP_PROPERTIES heap = { D3D12_HEAP_TYPE_DEFAULT, 0, 0, 1, 1 };
     D3D12_RESOURCE_DESC rd = { 0 };
     rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -14,20 +16,14 @@ static hg_result create_atlas(ID3D12Device* dev, d3d12_glyphs* g) {
     rd.DepthOrArraySize = rd.MipLevels = 1;
     rd.Format = DXGI_FORMAT_R8_UNORM;
     rd.SampleDesc.Count = 1;
-    D3D12_DESCRIPTOR_HEAP_DESC hd = { D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1,
-                                      D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 0 };
     HRESULT hr = ID3D12Device_CreateCommittedResource(dev, &heap, D3D12_HEAP_FLAG_NONE, &rd,
                                                       D3D12_RESOURCE_STATE_COPY_DEST, NULL, &IID_ID3D12Resource,
                                                       (void**)&g->atlas);
-    if (SUCCEEDED(hr))
-        hr = ID3D12Device_CreateDescriptorHeap(dev, &hd, &IID_ID3D12DescriptorHeap, (void**)&g->srv_heap);
     if (FAILED(hr)) {
         d3d12_glyphs_release(g);
         return hg__fail(HG_ERR_OOM, "d3d12: textura do atlas falhou");
     }
-    D3D12_CPU_DESCRIPTOR_HANDLE h;
-    ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(g->srv_heap, &h);
-    ID3D12Device_CreateShaderResourceView(dev, g->atlas, NULL, h);
+    ID3D12Device_CreateShaderResourceView(dev, g->atlas, NULL, d3d12_srv_cpu(&d->srvs, 0));
     g->copying = 1;
     return HG_OK;
 }
@@ -58,7 +54,7 @@ hg_result d3d12_glyphs_prepare(d3d12_device* d, hg_context* ctx, const hg_draw_l
     d3d12_glyphs* g = &d->glyphs;
     g->frame.count = 0;
     if (!hg__draw_list_has_text(dl)) return HG_OK;
-    hg_result r = g->atlas ? HG_OK : create_atlas(d->dev, g);
+    hg_result r = g->atlas ? HG_OK : create_atlas(d);
     if (r == HG_OK) r = hg__glyph_frame_collect(&g->frame, ctx, dl, upload_r8, d);
     if (g->copying) {
         d3d12_barrier(d->list, g->atlas, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -80,16 +76,12 @@ void d3d12_glyphs_bind(d3d12_device* d) {
     ID3D12GraphicsCommandList* l = d->list;
     D3D12_VERTEX_BUFFER_VIEW vb = { g->instances, g->frame.count * (UINT)sizeof(hg_glyph_instance),
                                     sizeof(hg_glyph_instance) };
-    D3D12_GPU_DESCRIPTOR_HANDLE srv;
-    ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(g->srv_heap, &srv);
     ID3D12GraphicsCommandList_SetPipelineState(l, d->pipeline.glyph);
-    ID3D12GraphicsCommandList_SetDescriptorHeaps(l, 1, &g->srv_heap);
-    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(l, 1, srv);
+    ID3D12GraphicsCommandList_SetGraphicsRootDescriptorTable(l, 1, d3d12_srv_gpu(&d->srvs, 0));
     ID3D12GraphicsCommandList_IASetVertexBuffers(l, 0, 1, &vb);
 }
 
 void d3d12_glyphs_release(d3d12_glyphs* g) {
-    D3D12_RELEASE(g->srv_heap);
     D3D12_RELEASE(g->atlas);
     g->copying = 0;
     hg__glyph_frame_free(&g->frame);
@@ -99,5 +91,6 @@ uint64_t d3d12_gpu_bytes(const d3d12_device* d) {
     uint64_t bytes = 0;
     for (int i = 0; i < D3D12_FRAMES; i++) bytes += d->uploads[i].capacity;
     if (d->glyphs.atlas) bytes += (uint64_t)HG_GLYPH_ATLAS_SIZE * HG_GLYPH_ATLAS_SIZE; /* R8 */
+    bytes += d->images.texture_bytes;
     return bytes;
 }

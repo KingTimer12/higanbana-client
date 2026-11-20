@@ -16,6 +16,7 @@ void d3d12_wait_idle(d3d12_device* d) {
 hg_result d3d12_list_open(d3d12_device* d) {
     wait_for(d, d->slot_values[d->slot]);
     d3d12_upload_reset(d3d12_ring(d));
+    d3d12_textures_collect(d, 0);
     ID3D12CommandAllocator* a = d->allocators[d->slot];
     if (FAILED(ID3D12CommandAllocator_Reset(a)) || FAILED(ID3D12GraphicsCommandList_Reset(d->list, a, NULL)))
         return hg__fail(HG_ERR_DEVICE, "d3d12: reset da lista de comandos falhou");

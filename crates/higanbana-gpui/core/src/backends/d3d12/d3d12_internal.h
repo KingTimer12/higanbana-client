@@ -51,19 +51,59 @@ typedef struct d3d12_pipeline {
     ID3D12RootSignature* root;
     ID3D12PipelineState* quad;
     ID3D12PipelineState* glyph;
+    ID3D12RootSignature* image_root; /* igual a root, mas com sampler linear */
+    ID3D12PipelineState* image;
 } d3d12_pipeline;
 
 hg_result d3d12_pipeline_create(ID3D12Device* dev, const d3d12_loader* l, d3d12_pipeline* p);
 void      d3d12_pipeline_release(d3d12_pipeline* p);
 
-/* ---- glyphs: atlas R8 (heap DEFAULT) + SRV ---------------------------- */
+/* ---- descritores: heap SRV visível ao shader, slot 0 = atlas -------- */
+#define D3D12_SRV_MAX 1024 /* limite de texturas vivas (atlas + imagens, incl. aposentadas) */
+typedef struct d3d12_srv_heap {
+    ID3D12DescriptorHeap* heap;
+    UINT                  stride;
+    UINT                  free_list[D3D12_SRV_MAX];
+    UINT                  free_count;
+} d3d12_srv_heap;
+
+hg_result d3d12_srv_create(ID3D12Device* dev, d3d12_srv_heap* h);
+void      d3d12_srv_release(d3d12_srv_heap* h);
+hg_result d3d12_srv_alloc(d3d12_srv_heap* h, UINT* index);
+void      d3d12_srv_free(d3d12_srv_heap* h, UINT index);
+D3D12_CPU_DESCRIPTOR_HANDLE d3d12_srv_cpu(const d3d12_srv_heap* h, UINT index);
+D3D12_GPU_DESCRIPTOR_HANDLE d3d12_srv_gpu(const d3d12_srv_heap* h, UINT index);
+
+/* ---- glyphs: atlas R8 (heap DEFAULT) + SRV no slot 0 ------------------ */
 typedef struct d3d12_glyphs {
     ID3D12Resource*       atlas;
-    ID3D12DescriptorHeap* srv_heap;
     int                   copying; /* atlas em COPY_DEST neste frame */
     hg_glyph_frame        frame;
     D3D12_GPU_VIRTUAL_ADDRESS instances; /* instâncias do frame no anel */
 } d3d12_glyphs;
+
+/* ---- imagens: texturas em hg_image.gpu; solturas adiadas até a fence -- */
+typedef struct d3d12_retired_tex {
+    ID3D12Resource* tex;
+    UINT            srv;
+    UINT64          fence; /* livre quando a fence passar deste valor */
+} d3d12_retired_tex;
+
+typedef struct d3d12_texture { /* hg_image.gpu */
+    ID3D12Resource* tex;
+    UINT            srv; /* índice no heap de descritores */
+} d3d12_texture;
+
+typedef struct d3d12_images {
+    d3d12_retired_tex* retired;
+    UINT               retired_count, retired_cap;
+    uint64_t           texture_bytes;
+    D3D12_GPU_VIRTUAL_ADDRESS instances; /* instâncias do frame no anel */
+    UINT               instance_bytes;
+} d3d12_images;
+
+struct hg_image;
+struct hg_batch;
 
 /* ---- device: um por contexto ------------------------------------------ */
 typedef struct d3d12_device {
@@ -81,6 +121,9 @@ typedef struct d3d12_device {
     d3d12_upload               uploads[D3D12_FRAMES];
     d3d12_pipeline             pipeline;
     d3d12_glyphs               glyphs;
+    d3d12_srv_heap             srvs;
+    d3d12_images               images;
+    float                      globals[4]; /* constantes b0 do submit atual */
 } d3d12_device;
 
 hg_result d3d12_device_create(d3d12_device* d, hg_backend_info* info);
@@ -121,6 +164,17 @@ void      d3d12_frame_bind_target(d3d12_device* d, d3d12_surface* s);
 hg_result d3d12_glyphs_prepare(d3d12_device* d, hg_context* ctx, const hg_draw_list* dl);
 void      d3d12_glyphs_bind(d3d12_device* d);
 void      d3d12_glyphs_release(d3d12_glyphs* g);
+/* Volta à root signature principal (reaplica constantes e heap). */
+void      d3d12_use_root(d3d12_device* d, ID3D12RootSignature* root);
+
+/* ---- imagens ---------------------------------------------------------- */
+hg_result d3d12_texture_create(d3d12_device* d, struct hg_image* img);
+void      d3d12_texture_destroy(d3d12_device* d, struct hg_image* img);
+/* Solta texturas aposentadas cuja fence já passou (all = todas; GPU ociosa). */
+void      d3d12_textures_collect(d3d12_device* d, int all);
+hg_result d3d12_images_prepare(d3d12_device* d, const hg_draw_list* dl);
+UINT      d3d12_images_draw(d3d12_device* d, const struct hg_batch* b, UINT start);
+void      d3d12_images_release(d3d12_device* d);
 uint64_t  d3d12_gpu_bytes(const d3d12_device* d);
 hg_result d3d12_render_draw_list(d3d12_device* d, hg_context* ctx, d3d12_surface* s, const hg_draw_list* dl);
 

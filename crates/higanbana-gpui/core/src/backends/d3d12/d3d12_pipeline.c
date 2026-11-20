@@ -9,10 +9,15 @@
 #define hg_quad_ps hg_d3d12_quad_ps
 #define hg_glyph_vs hg_d3d12_glyph_vs
 #define hg_glyph_ps hg_d3d12_glyph_ps
+#define hg_image_vs hg_d3d12_image_vs
+#define hg_image_ps hg_d3d12_image_ps
 #include "quad_vs.h"
 #include "quad_ps.h"
 #include "glyph_vs.h"
 #include "glyph_ps.h"
+#include "image_vs.h"
+#include "image_ps.h"
+#include "draw_list.h"
 
 #define F4 DXGI_FORMAT_R32G32B32A32_FLOAT
 #define INST(name, fmt, type, field) \
@@ -32,7 +37,13 @@ static const D3D12_INPUT_ELEMENT_DESC k_glyph_layout[] = {
     INST("COLOR", F4, hg_glyph_instance, color),
 };
 
-static HRESULT create_root(ID3D12Device* dev, const d3d12_loader* l, d3d12_pipeline* p) {
+static const D3D12_INPUT_ELEMENT_DESC k_image_layout[] = {
+    INST("RECT", F4, hg_image_draw, rect), INST("UV", F4, hg_image_draw, uv),
+    INST("TINT", F4, hg_image_draw, tint), INST("RADIUS", F4, hg_image_draw, radius),
+};
+
+/* Mesma assinatura para todos; só o sampler estático s0 muda (ponto: atlas, linear: imagens). */
+static HRESULT create_root(ID3D12Device* dev, const d3d12_loader* l, D3D12_FILTER filter, ID3D12RootSignature** out) {
     D3D12_DESCRIPTOR_RANGE range = { D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, 0 };
     D3D12_ROOT_PARAMETER params[2] = { 0 };
     params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
@@ -43,7 +54,7 @@ static HRESULT create_root(ID3D12Device* dev, const d3d12_loader* l, d3d12_pipel
     params[1].DescriptorTable.pDescriptorRanges = &range;
     params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     D3D12_STATIC_SAMPLER_DESC sampler = { 0 };
-    sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler.Filter = filter;
     sampler.AddressU = sampler.AddressV = sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
     sampler.MaxLOD = D3D12_FLOAT32_MAX;
     sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
@@ -53,7 +64,7 @@ static HRESULT create_root(ID3D12Device* dev, const d3d12_loader* l, d3d12_pipel
     HRESULT hr = l->serialize_root_signature(&desc, D3D_ROOT_SIGNATURE_VERSION_1, &blob, NULL);
     if (SUCCEEDED(hr))
         hr = ID3D12Device_CreateRootSignature(dev, 0, ID3D10Blob_GetBufferPointer(blob), ID3D10Blob_GetBufferSize(blob),
-                                              &IID_ID3D12RootSignature, (void**)&p->root);
+                                              &IID_ID3D12RootSignature, (void**)out);
     D3D12_RELEASE(blob);
     return hr;
 }
@@ -88,13 +99,17 @@ static HRESULT create_pso(ID3D12Device* dev, ID3D12RootSignature* root, D3D12_SH
 #define BYTECODE(a) ((D3D12_SHADER_BYTECODE){ a, sizeof a })
 
 hg_result d3d12_pipeline_create(ID3D12Device* dev, const d3d12_loader* l, d3d12_pipeline* p) {
-    HRESULT hr = create_root(dev, l, p);
+    HRESULT hr = create_root(dev, l, D3D12_FILTER_MIN_MAG_MIP_POINT, &p->root);
+    if (SUCCEEDED(hr)) hr = create_root(dev, l, D3D12_FILTER_MIN_MAG_MIP_LINEAR, &p->image_root);
     if (SUCCEEDED(hr))
         hr = create_pso(dev, p->root, BYTECODE(hg_quad_vs), BYTECODE(hg_quad_ps), k_quad_layout,
                         ARRAYSIZE(k_quad_layout), &p->quad);
     if (SUCCEEDED(hr))
         hr = create_pso(dev, p->root, BYTECODE(hg_glyph_vs), BYTECODE(hg_glyph_ps), k_glyph_layout,
                         ARRAYSIZE(k_glyph_layout), &p->glyph);
+    if (SUCCEEDED(hr))
+        hr = create_pso(dev, p->image_root, BYTECODE(hg_image_vs), BYTECODE(hg_image_ps), k_image_layout,
+                        ARRAYSIZE(k_image_layout), &p->image);
     if (FAILED(hr)) {
         d3d12_pipeline_release(p);
         return hg__fail(HG_ERR_DEVICE, "d3d12: falha ao criar pipeline");
@@ -103,6 +118,8 @@ hg_result d3d12_pipeline_create(ID3D12Device* dev, const d3d12_loader* l, d3d12_
 }
 
 void d3d12_pipeline_release(d3d12_pipeline* p) {
+    D3D12_RELEASE(p->image);
+    D3D12_RELEASE(p->image_root);
     D3D12_RELEASE(p->glyph);
     D3D12_RELEASE(p->quad);
     D3D12_RELEASE(p->root);
