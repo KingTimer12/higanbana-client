@@ -4,15 +4,14 @@
 #ifndef HG_GLYPH_FRAME_H
 #define HG_GLYPH_FRAME_H
 #include "text.h"
+#include "hgui_backend.h" /* typedefs hg_glyph_frame / hg_glyph_upload_fn */
 
-typedef struct hg_glyph_frame {
+struct hg_glyph_frame {
     hg_glyph_instance* instances;    /* rascunho reaproveitado entre frames */
     uint32_t           count, capacity;
     uint32_t*          batch_counts; /* glyphs por lote da draw list */
     uint32_t           batch_capacity;
-} hg_glyph_frame;
-
-typedef hg_result (*hg_glyph_upload_fn)(void* user, hg_rect at, const uint8_t* r8, uint32_t pitch);
+};
 
 /* Rasteriza o texto de `dl`. count = 0 se não há texto (e nada é exigido do backend). */
 hg_result hg__glyph_frame_collect(hg_glyph_frame* g, hg_context* ctx, const hg_draw_list* dl,

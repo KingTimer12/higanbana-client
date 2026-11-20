@@ -1,4 +1,5 @@
-//! Gera `bindings.rs` a partir de `hgui.h` + `hgui_internal.h` (via wrapper.h).
+//! Gera `bindings.rs` a partir de `hgui.h`, `hgui_internal.h`, `hgui_backend.h` e
+//! `backend.h` (vtable para backends externos), via wrapper.h.
 
 use std::path::Path;
 
@@ -6,6 +7,7 @@ pub fn generate(core: &Path, out: &Path) {
     bindgen::Builder::default()
         .header("wrapper.h")
         .clang_arg(format!("-I{}", core.join("include").display()))
+        .clang_arg(format!("-I{}", core.join("src").display()))
         .allowlist_function("hg_.*")
         .allowlist_type("hg_.*")
         .allowlist_var("HG_.*")
