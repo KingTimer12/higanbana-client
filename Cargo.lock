@@ -3143,6 +3143,7 @@ name = "higanbana-gpui"
 version = "0.1.0"
 dependencies = [
  "higanbana-gpui-sys",
+ "taffy",
 ]
 
 [[package]]
