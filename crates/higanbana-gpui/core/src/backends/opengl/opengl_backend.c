@@ -76,6 +76,14 @@ static hg_result opengl_read_pixel(hg_window* win, uint32_t x, uint32_t y, uint3
     return gl_surface_read_pixel(device_of(win->ctx), surface_of(win), x, y, out);
 }
 
+static hg_result opengl_tex_create(hg_context* ctx, struct hg_image* img) {
+    return gl_texture_create(device_of(ctx), img);
+}
+
+static void opengl_tex_destroy(hg_context* ctx, struct hg_image* img) {
+    gl_texture_destroy(device_of(ctx), img);
+}
+
 const hg_backend_vtbl hg__opengl_backend = {
     .kind = HG_BACKEND_OPENGL,
     .name = "OpenGL",
@@ -88,5 +96,7 @@ const hg_backend_vtbl hg__opengl_backend = {
     .begin_frame = opengl_begin_frame,
     .submit = opengl_submit,
     .end_frame = opengl_end_frame,
+    .texture_create = opengl_tex_create,
+    .texture_destroy = opengl_tex_destroy,
     .read_pixel = opengl_read_pixel,
 };

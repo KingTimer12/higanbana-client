@@ -59,13 +59,34 @@ typedef struct gl_glyphs {
     hg_glyph_frame frame;
 } gl_glyphs;
 
+/* ---- imagens: programa/VAO sob demanda + instâncias do frame ---------- */
+typedef struct gl_images {
+    GLuint    prog, vao;
+    GLint     viewport;
+    gl_buffer instances;
+    uint64_t  texture_bytes; /* soma das texturas RGBA8 vivas */
+} gl_images;
+
+extern const char* const hg__gl_image_vs;
+extern const char* const hg__gl_image_fs;
+
 /* ---- device: um por contexto ------------------------------------------ */
 typedef struct gl_device {
     gl_wgl_context ctx;
     gl_pipeline    pipeline;
     gl_buffer      quads;
     gl_glyphs      glyphs;
+    gl_images      images;
 } gl_device;
+
+struct hg_image;
+struct hg_batch;
+/* Textura da imagem (img->gpu = GLuint*); tornam o contexto corrente se preciso. */
+hg_result gl_texture_create(gl_device* d, struct hg_image* img);
+void      gl_texture_destroy(gl_device* d, struct hg_image* img);
+/* Garante texturas e sobe as instâncias de imagem do frame. */
+hg_result gl_images_prepare(gl_device* d, const hg_draw_list* dl);
+void      gl_images_release(const gl_api* gl, gl_images* p);
 
 hg_result gl_device_create(gl_device* d, hg_backend_info* info);
 void      gl_device_release(gl_device* d);
@@ -87,6 +108,9 @@ void      gl_surface_release(gl_device* d, gl_surface* s);
 hg_result gl_surface_begin(gl_device* d, gl_surface* s, uint32_t w, uint32_t h, hg_color clear);
 hg_result gl_surface_present(gl_device* d, gl_surface* s, int vsync);
 hg_result gl_surface_read_pixel(gl_device* d, gl_surface* s, uint32_t x, uint32_t y, uint32_t* out);
+
+/* Desenha as imagens do lote a partir da instância `start`; devolve nº de draws. */
+uint32_t gl_images_draw(gl_device* d, const gl_surface* s, const struct hg_batch* b, uint32_t start);
 
 /* ---- render: envia draw list ------------------------------------------ */
 hg_result gl_render_draw_list(gl_device* d, hg_context* ctx, gl_surface* s, const hg_draw_list* dl);

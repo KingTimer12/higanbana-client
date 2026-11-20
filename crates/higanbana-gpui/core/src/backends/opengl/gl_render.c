@@ -46,6 +46,7 @@ static void bind_common(gl_device* d, const gl_surface* s) {
 hg_result gl_render_draw_list(gl_device* d, hg_context* ctx, gl_surface* s, const hg_draw_list* dl) {
     hg_result r = gl_context_bind(&d->ctx, s->dc);
     if (r == HG_OK) r = gl_glyphs_prepare(d, ctx, dl);
+    if (r == HG_OK) r = gl_images_prepare(d, dl);
     if (r != HG_OK) return r;
     if (dl->quad_count > 0) upload_quads(d, dl);
     const gl_api* gl = &d->ctx.gl;
@@ -53,10 +54,11 @@ hg_result gl_render_draw_list(gl_device* d, hg_context* ctx, gl_surface* s, cons
     bind_common(d, s);
     ctx->stats.draw_calls = 0;
 
-    uint32_t quad_start = 0, glyph_start = 0, i = 0;
+    /* Por lote: quads, imagens, texto por cima. */
+    uint32_t quad_start = 0, image_start = 0, glyph_start = 0, i = 0;
     for (const hg_batch* b = dl->first; b; b = b->next, i++) {
         uint32_t glyphs = d->glyphs.frame.count ? d->glyphs.frame.batch_counts[i] : 0;
-        if (b->quad_count == 0 && glyphs == 0) continue;
+        if (b->quad_count == 0 && b->image_count == 0 && glyphs == 0) continue;
         set_scissor(gl, b, s);
         if (b->quad_count) {
             gl->UseProgram(p->quad_prog);
@@ -64,6 +66,10 @@ hg_result gl_render_draw_list(gl_device* d, hg_context* ctx, gl_surface* s, cons
             gl->DrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, (GLsizei)b->quad_count);
             ctx->stats.draw_calls++;
             quad_start += b->quad_count;
+        }
+        if (b->image_count) {
+            ctx->stats.draw_calls += gl_images_draw(d, s, b, image_start);
+            image_start += b->image_count;
         }
         if (glyphs) {
             gl->UseProgram(p->glyph_prog);

@@ -20,6 +20,7 @@ void gl_buffer_release(const gl_api* gl, gl_buffer* b) {
 
 uint64_t gl_gpu_bytes(const gl_device* d) {
     uint64_t bytes = (uint64_t)d->quads.capacity + d->glyphs.instances.capacity;
+    bytes += (uint64_t)d->images.instances.capacity + d->images.texture_bytes;
     if (d->glyphs.atlas) bytes += (uint64_t)HG_GLYPH_ATLAS_SIZE * HG_GLYPH_ATLAS_SIZE; /* R8 */
     return bytes;
 }

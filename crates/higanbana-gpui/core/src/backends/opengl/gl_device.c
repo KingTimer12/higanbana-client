@@ -17,6 +17,7 @@ void gl_device_release(gl_device* d) {
         const gl_api* gl = &d->ctx.gl;
         gl_glyphs_release(gl, &d->glyphs);
         gl_buffer_release(gl, &d->quads);
+        gl_images_release(gl, &d->images);
         gl_pipeline_release(gl, &d->pipeline);
     } else {
         hg__glyph_frame_free(&d->glyphs.frame); /* objetos GL morrem com o contexto */
