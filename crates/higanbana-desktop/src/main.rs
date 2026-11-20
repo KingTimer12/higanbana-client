@@ -36,13 +36,13 @@ fn main() {
         std::thread::sleep(std::time::Duration::from_secs(15));
         tracing::debug!(processo_mb = mem::private_mb(), "memória");
     });
-    tracing::info!(version = higanbana_core::version::current(), data = %paths.data.display(), cache = %paths.cache.display(), "higanbana abrindo");
+    tracing::info!(version = higanbana_core::version::current(), data = %paths.data.display(), cache = %paths.cache.display(), processo_mb = mem::private_mb(), "higanbana abrindo");
     let (tx, rx) = mpsc::unbounded::<Event>();
     let events = Arc::new(move |e| {
         let _ = tx.unbounded_send(e);
     });
     let core = Arc::new(Core::new(paths, events).expect("núcleo do higanbana"));
-    tracing::info!("núcleo pronto");
+    tracing::info!(processo_mb = mem::private_mb(), "núcleo pronto");
 
     gpui_kit::application().with_assets(ui::Assets).run(move |cx: &mut App| {
         gpui_kit::init(cx);
@@ -61,7 +61,7 @@ fn main() {
             window_background: gpui_kit::WindowBackgroundAppearance::Transparent,
             ..TitleBar::window_options()
         };
-        tracing::info!("abrindo janela");
+        tracing::info!(processo_mb = mem::private_mb(), "abrindo janela");
         gpui_kit::open_window(options, cx, |window, cx| {
             let hwnd = hwnd(window);
             if let Some(h) = hwnd {
@@ -73,7 +73,7 @@ fn main() {
             cx.new(|cx| app::AppView::new(core.clone(), surface, rx, handle, window, cx))
         })
         .expect("janela principal");
-        tracing::info!("janela aberta");
+        tracing::info!(processo_mb = mem::private_mb(), "janela aberta");
         cx.on_window_closed(|cx, _| {
             tracing::info!("janela fechada; saindo");
             cx.quit()

@@ -439,6 +439,7 @@ impl AppState {
                     s.cover_file_failed(&key);
                 }
                 let evicted = s.images.insert(key, img, weight);
+                tracing::trace!(total_mb = s.images.total_mb(), n = s.images.len(), "cache de imagens");
                 release_images(evicted, cx);
                 cx.notify();
             });
