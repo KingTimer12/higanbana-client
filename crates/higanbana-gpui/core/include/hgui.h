@@ -122,6 +122,33 @@ int       hg_window_poll_event(hg_window* win, hg_event* out);
 /* Bloqueia até chegar um evento (app ocioso não gasta CPU). */
 hg_result hg_window_wait_event(hg_window* win, hg_event* out);
 float     hg_window_dpi_scale(const hg_window* win);
+/* Espera um evento por até `timeout_ms`. Sem evento no prazo: out->kind = HG_EVENT_NONE.
+ * Usado pelo laço enquanto há animação/timer pendente. */
+hg_result hg_window_wait_event_timeout(hg_window* win, uint32_t timeout_ms, hg_event* out);
+
+/* ---- Cursor ------------------------------------------------------------ */
+typedef enum hg_cursor {
+    HG_CURSOR_ARROW = 0,
+    HG_CURSOR_HAND,
+    HG_CURSOR_IBEAM,
+    HG_CURSOR_CROSSHAIR,
+    HG_CURSOR_NOT_ALLOWED,
+    HG_CURSOR_RESIZE_EW,
+    HG_CURSOR_RESIZE_NS,
+    HG_CURSOR_MOVE,
+    HG_CURSOR_WAIT
+} hg_cursor;
+
+/* Cursor mostrado enquanto o mouse está na área cliente (aplicado via WM_SETCURSOR). */
+hg_result hg_window_set_cursor(hg_window* win, hg_cursor cursor);
+hg_cursor hg_window_cursor(const hg_window* win);
+
+/* ---- Área de transferência -------------------------------------------- */
+/* Copia `len` bytes UTF-8 como CF_UNICODETEXT. */
+hg_result hg_clipboard_set_text(const char* utf8, size_t len);
+/* Escreve em *out_len o tamanho UTF-8 do texto da área de transferência (0 se vazia).
+ * Copia para `out` só se `cap >= *out_len` (sem terminador); senão só informa o tamanho. */
+hg_result hg_clipboard_get_text(char* out, size_t cap, size_t* out_len);
 
 /* ---- Frame ------------------------------------------------------------ */
 hg_result hg_frame_begin(hg_window* win, hg_color clear);
@@ -175,6 +202,18 @@ hg_result hg_text_measure(hg_context* ctx, hg_font_id font, float size_px, const
 /* (x, y) = canto superior esquerdo da caixa de texto. */
 hg_result hg_draw_text(hg_draw_list* dl, hg_font_id font, float size_px, float x, float y, float max_width,
                        hg_color color, const char* utf8, size_t len);
+
+/* x (px, relativo ao início, linha única) do cursor antes do byte `byte_index`
+ * (fronteira de caractere; == len = fim do texto). */
+hg_result hg_text_caret_x(hg_context* ctx, hg_font_id font, float size_px, const char* utf8, size_t len,
+                          size_t byte_index, float* out_x);
+/* Fronteira de caractere (índice de byte) mais próxima do ponto x (linha única). */
+hg_result hg_text_hit_test(hg_context* ctx, hg_font_id font, float size_px, const char* utf8, size_t len,
+                           float x, size_t* out_byte_index);
+/* x de todas as fronteiras num só layout: `out_x[k]` = x antes do k-ésimo codepoint,
+ * `out_x[count-1]` = fim. `count` precisa ser (codepoints + 1). */
+hg_result hg_text_caret_positions(hg_context* ctx, hg_font_id font, float size_px, const char* utf8, size_t len,
+                                  float* out_x, size_t count);
 
 #ifdef __cplusplus
 }

@@ -45,6 +45,13 @@ typedef struct DWRITE_LINE_METRICS {
     BOOL   isTrimmed;
 } DWRITE_LINE_METRICS;
 
+typedef struct DWRITE_HIT_TEST_METRICS {
+    UINT32 textPosition, length;
+    FLOAT  left, top, width, height;
+    UINT32 bidiLevel;
+    BOOL   isText, isTrimmed;
+} DWRITE_HIT_TEST_METRICS;
+
 /* ---- IDWriteFactory --------------------------------------------------- */
 typedef struct IDWriteFactoryVtbl {
     HRESULT(STDMETHODCALLTYPE* QueryInterface)(IDWriteFactory*, REFIID, void**);
@@ -75,7 +82,7 @@ typedef struct IDWriteTextFormatVtbl {
 } IDWriteTextFormatVtbl;
 struct IDWriteTextFormat { const IDWriteTextFormatVtbl* lpVtbl; };
 
-/* ---- IDWriteTextLayout (herda IDWriteTextFormat: 28 slots) ------------ */
+/* ---- IDWriteTextLayout (herda IDWriteTextFormat: 28 slots; Draw = 58, HitTestPoint = 64) ------------ */
 typedef struct IDWriteTextLayoutVtbl {
     HRESULT(STDMETHODCALLTYPE* QueryInterface)(IDWriteTextLayout*, REFIID, void**);
     ULONG(STDMETHODCALLTYPE* AddRef)(IDWriteTextLayout*);
@@ -84,6 +91,11 @@ typedef struct IDWriteTextLayoutVtbl {
     HRESULT(STDMETHODCALLTYPE* Draw)(IDWriteTextLayout*, void* ctx, IDWriteTextRenderer*, FLOAT x, FLOAT y);
     HRESULT(STDMETHODCALLTYPE* GetLineMetrics)(IDWriteTextLayout*, DWRITE_LINE_METRICS*, UINT32 max, UINT32* count);
     HRESULT(STDMETHODCALLTYPE* GetMetrics)(IDWriteTextLayout*, DWRITE_TEXT_METRICS*);
+    void* _unused61_63[3]; /* GetOverhangMetrics, GetClusterMetrics, DetermineMinWidth */
+    HRESULT(STDMETHODCALLTYPE* HitTestPoint)(IDWriteTextLayout*, FLOAT x, FLOAT y, BOOL* trailing, BOOL* inside,
+                                             DWRITE_HIT_TEST_METRICS*);
+    HRESULT(STDMETHODCALLTYPE* HitTestTextPosition)(IDWriteTextLayout*, UINT32 pos, BOOL trailing, FLOAT* x, FLOAT* y,
+                                                    DWRITE_HIT_TEST_METRICS*);
 } IDWriteTextLayoutVtbl;
 struct IDWriteTextLayout { const IDWriteTextLayoutVtbl* lpVtbl; };
 

@@ -25,6 +25,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                      SWP_NOZORDER | SWP_NOACTIVATE);
         return 0;
     }
+    case WM_SETCURSOR:
+        if (hg__window_on_setcursor(win, lp)) return TRUE;
+        return DefWindowProcW(hwnd, msg, wp, lp);
     case WM_ERASEBKGND:
         return 1; /* evita flicker: backend pinta tudo */
     default:
