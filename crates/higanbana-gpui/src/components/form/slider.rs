@@ -3,36 +3,32 @@
 use super::slider_value::Range;
 use super::style::{disabled_look, ring, ChangeFn};
 use crate::color::Color;
+use crate::components::basic::Component;
 use crate::cx::{EventCx, RenderCx};
 use crate::element::{div, Element, ElementId};
 use crate::style::{pct, px, Length, Styled};
-use crate::theme::Theme;
 use std::rc::Rc;
 
 const THUMB: f32 = 16.0;
 
 /// Valor em `[min, max]` com passo. `on_change` só é chamado quando o valor muda.
-pub struct Slider<'a, V> {
+pub struct Slider<V> {
     id: ElementId,
     value: f32,
     range: Range,
     width: Length,
-    theme: &'a Theme,
-    ring_visible: bool,
     disabled: bool,
     on_change: Option<ChangeFn<V, f32>>,
 }
 
-impl<'a, V: 'static> Slider<'a, V> {
+impl<V: 'static> Slider<V> {
     /// Faixa padrão 0..100, passo 1.
-    pub fn new(cx: &RenderCx<'a, V>, id: impl Into<ElementId>, value: f32) -> Self {
+    pub fn new(id: impl Into<ElementId>, value: f32) -> Self {
         Self {
             id: id.into(),
             value,
             range: Range { min: 0.0, max: 100.0, step: 1.0 },
             width: pct(100.0),
-            theme: cx.theme(),
-            ring_visible: cx.focus().visible,
             disabled: false,
             on_change: None,
         }
@@ -64,9 +60,11 @@ impl<'a, V: 'static> Slider<'a, V> {
         self.on_change = Some(Rc::new(f));
         self
     }
+}
 
-    fn build(self) -> Element<V> {
-        let (t, r, value, id) = (self.theme, self.range, self.value, self.id);
+impl<V: 'static> Component<V> for Slider<V> {
+    fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
+        let (t, r, value, id) = (cx.theme(), self.range, self.value, self.id);
         let cb = self.on_change;
         let emit: Rc<dyn Fn(&mut V, f32, &mut EventCx)> = Rc::new(move |v, n, cx| {
             if n != value {
@@ -91,7 +89,7 @@ impl<'a, V: 'static> Slider<'a, V> {
             .bg(t.background)
             .border(1.0, t.primary)
             .shadow(Color::BLACK.alpha(0.1), 2.0)
-            .when(self.ring_visible, |e| e.focus(ring(t.ring)));
+            .when(cx.focus().visible, |e| e.focus(ring(t.ring)));
         let root = div()
             .relative()
             .w(self.width)
@@ -117,11 +115,5 @@ impl<'a, V: 'static> Slider<'a, V> {
             .child(track)
             .child(thumb);
         disabled_look(root, self.disabled)
-    }
-}
-
-impl<V: 'static> From<Slider<'_, V>> for Element<V> {
-    fn from(s: Slider<'_, V>) -> Self {
-        s.build()
     }
 }

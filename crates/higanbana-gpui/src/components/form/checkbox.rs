@@ -1,10 +1,10 @@
 //! Checkbox (shadcn): caixa 16 px com marca, estado indeterminado e rótulo clicável.
 use super::style::{disabled_look, ring, ChangeFn};
 use crate::color::Color;
+use crate::components::basic::Component;
 use crate::cx::{EventCx, RenderCx};
 use crate::element::{div, text, Element, ElementId};
 use crate::style::Styled;
-use crate::theme::Theme;
 use std::borrow::Cow;
 use std::rc::Rc;
 
@@ -26,27 +26,17 @@ impl From<bool> for CheckState {
 
 /// Caixa de seleção. Clique, Espaço/Enter ou clique no rótulo alternam;
 /// `on_change` recebe o novo valor (indeterminado -> `true`).
-pub struct Checkbox<'a, V> {
+pub struct Checkbox<V> {
     id: ElementId,
     state: CheckState,
-    theme: &'a Theme,
-    ring_visible: bool,
     label: Option<Cow<'static, str>>,
     disabled: bool,
     on_change: Option<ChangeFn<V, bool>>,
 }
 
-impl<'a, V: 'static> Checkbox<'a, V> {
-    pub fn new(cx: &RenderCx<'a, V>, id: impl Into<ElementId>, state: impl Into<CheckState>) -> Self {
-        Self {
-            id: id.into(),
-            state: state.into(),
-            theme: cx.theme(),
-            ring_visible: cx.focus().visible,
-            label: None,
-            disabled: false,
-            on_change: None,
-        }
+impl<V: 'static> Checkbox<V> {
+    pub fn new(id: impl Into<ElementId>, state: impl Into<CheckState>) -> Self {
+        Self { id: id.into(), state: state.into(), label: None, disabled: false, on_change: None }
     }
 
     pub fn label(mut self, label: impl Into<Cow<'static, str>>) -> Self {
@@ -63,23 +53,25 @@ impl<'a, V: 'static> Checkbox<'a, V> {
         self.on_change = Some(Rc::new(f));
         self
     }
+}
 
-    fn mark(&self) -> Option<Element<V>> {
-        let fg = self.theme.primary_foreground;
-        match self.state {
-            CheckState::Unchecked => None,
-            CheckState::Checked => {
-                Some(text("\u{2713}").font_family("Segoe UI Symbol").text_size(12.0).font_bold().text_color(fg))
-            }
-            CheckState::Indeterminate => Some(div().w(8.0).h(2.0).rounded(1.0).bg(fg)),
+/// Marca interna: check (glifo do Segoe UI Symbol) ou barra do indeterminado.
+fn mark<V>(state: CheckState, fg: Color) -> Option<Element<V>> {
+    match state {
+        CheckState::Unchecked => None,
+        CheckState::Checked => {
+            Some(text("\u{2713}").font_family("Segoe UI Symbol").text_size(12.0).font_bold().text_color(fg))
         }
+        CheckState::Indeterminate => Some(div().w(8.0).h(2.0).rounded(1.0).bg(fg)),
     }
+}
 
-    fn build(self) -> Element<V> {
-        let t = self.theme;
+impl<V: 'static> Component<V> for Checkbox<V> {
+    fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
+        let t = cx.theme();
         let on = self.state != CheckState::Unchecked;
         let next = self.state != CheckState::Checked;
-        let cb = self.on_change.clone();
+        let cb = self.on_change;
         let toggle: Rc<dyn Fn(&mut V, &mut EventCx)> = Rc::new(move |v, cx| {
             if let Some(f) = &cb {
                 f(v, next, cx);
@@ -97,44 +89,24 @@ impl<'a, V: 'static> Checkbox<'a, V> {
             .rounded(4.0)
             .border(1.0, if on { t.primary } else { t.input })
             .bg(if on { t.primary } else { idle_bg })
-            .when(!self.disabled, |e| e.cursor_pointer())
-            .when(self.ring_visible, |e| e.focus(ring(t.ring)))
+            .cursor_pointer()
+            .when(cx.focus().visible, |e| e.focus(ring(t.ring)))
             .on_click(move |v, _, cx| t1(v, cx));
-        if let Some(m) = self.mark() {
+        if let Some(m) = mark(self.state, t.primary_foreground) {
             bx = bx.child(m);
         }
-        let id = self.id;
-        let row = div().flex_row().items_center().gap(8.0).child(bx).when_some(self.label, |row, l| {
-            row.child(
-                text(l)
-                    .text_size(t.typography.sm)
-                    .font_weight(500)
-                    .text_color(t.foreground)
-                    .when(!self.disabled, |e| e.cursor_pointer())
-                    .on_click(move |v, _, cx| {
+        let mut row = div().flex_row().items_center().gap(8.0).child(bx);
+        if let Some(l) = self.label {
+            let id = self.id;
+            row = row.child(
+                text(l).text_size(t.typography.sm).font_weight(500).text_color(t.foreground).cursor_pointer().on_click(
+                    move |v, _, cx| {
                         toggle(v, cx);
                         cx.focus(id);
-                    }),
-            )
-        });
-        disabled_look(row, self.disabled)
-    }
-}
-
-/// `when` com valor opcional (só neste módulo, para não mexer em `Element`).
-trait WhenSome: Sized {
-    fn when_some<T>(self, v: Option<T>, f: impl FnOnce(Self, T) -> Self) -> Self {
-        match v {
-            Some(v) => f(self, v),
-            None => self,
+                    },
+                ),
+            );
         }
-    }
-}
-
-impl<V> WhenSome for Element<V> {}
-
-impl<V: 'static> From<Checkbox<'_, V>> for Element<V> {
-    fn from(c: Checkbox<'_, V>) -> Self {
-        c.build()
+        disabled_look(row, self.disabled)
     }
 }

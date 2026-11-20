@@ -1,6 +1,7 @@
 //! Input: edição avisa mudança, Enter envia, senha pinta bolinhas, desabilitado ignora.
 use super::test_util::{build, key, paint, with_cx};
 use super::Input;
+use crate::components::basic::Component;
 use crate::anim::Animator;
 use crate::prelude::*;
 use crate::{point, Modifiers, MouseButton};
@@ -14,12 +15,12 @@ struct V {
 fn input(v: &V, password: bool, disabled: bool) -> Element<V> {
     let mut a = Animator::default();
     with_cx(&mut a, |cx| {
-        let i = Input::new(cx, "f", &v.s, |v: &mut V| &mut v.s)
+        let i = Input::new("f", &v.s, |v: &mut V| &mut v.s)
             .width(200.0)
             .disabled(disabled)
             .on_change(|v, t, _| v.log.push(format!("change {t}")))
             .on_submit(|v, t, _| v.log.push(format!("submit {t}")));
-        div().child(if password { i.password() } else { i })
+        div().child(if password { i.password() } else { i }.render(cx))
     })
 }
 

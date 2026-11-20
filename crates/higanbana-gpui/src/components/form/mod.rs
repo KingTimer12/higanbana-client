@@ -1,7 +1,7 @@
 //! Componentes do grupo `form`: Input, Checkbox, Switch e Slider (shadcn/ui new-york).
 //!
 //! O estado mora na view; o componente recebe o valor atual e devolve mudanças por
-//! callbacks (`on_change`). Todos viram `Element<V>` via `Into`.
+//! callbacks (`on_change`). Todos viram `Element<V>` via `Component::render(cx)`.
 mod checkbox;
 mod input;
 mod input_keys;

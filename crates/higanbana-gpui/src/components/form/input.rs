@@ -3,26 +3,26 @@ use super::input_keys::{attach, Callbacks, TextFn};
 use super::password::patch_field;
 use super::style::{disabled_look, ring};
 use crate::color::Color;
+use crate::components::basic::Component;
 use crate::cx::{EventCx, RenderCx};
 use crate::element::{text_field, Element, ElementId};
 use crate::style::{pct, Length, Styled};
 use crate::text_input::TextInputState;
-use crate::theme::Theme;
 use std::borrow::Cow;
 use std::rc::Rc;
 
 /// Campo de texto estilizado. O `TextInputState` mora na view; `lens` diz onde.
 ///
 /// ```ignore
-/// Input::new(cx, "email", &self.email, |v: &mut App| &mut v.email)
+/// Input::new("email", &self.email, |v: &mut App| &mut v.email)
 ///     .placeholder("voce@exemplo.com")
 ///     .on_submit(|v, texto, cx| v.enviar(texto))
+///     .render(cx)
 /// ```
 pub struct Input<'a, V, L> {
     id: ElementId,
     state: &'a TextInputState,
     lens: L,
-    theme: &'a Theme,
     placeholder: Option<Cow<'static, str>>,
     width: Length,
     disabled: bool,
@@ -35,12 +35,11 @@ impl<'a, V: 'static, L> Input<'a, V, L>
 where
     L: Fn(&mut V) -> &mut TextInputState + Clone + 'static,
 {
-    pub fn new(cx: &RenderCx<'a, V>, id: impl Into<ElementId>, state: &'a TextInputState, lens: L) -> Self {
+    pub fn new(id: impl Into<ElementId>, state: &'a TextInputState, lens: L) -> Self {
         Self {
             id: id.into(),
             state,
             lens,
-            theme: cx.theme(),
             placeholder: None,
             width: pct(100.0),
             disabled: false,
@@ -90,9 +89,14 @@ where
         self.cbs.submit = Some(Rc::new(f) as TextFn<V>);
         self
     }
+}
 
-    fn build(self) -> Element<V> {
-        let t = self.theme;
+impl<V: 'static, L> Component<V> for Input<'_, V, L>
+where
+    L: Fn(&mut V) -> &mut TextInputState + Clone + 'static,
+{
+    fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
+        let t = cx.theme();
         let accent = if self.invalid { t.destructive } else { t.ring };
         let border = if self.invalid { t.destructive } else { t.input };
         let bg = if t.dark { t.input.alpha(0.3) } else { Color::TRANSPARENT };
@@ -114,14 +118,5 @@ where
         patch_field(&mut e, self.state, self.password, self.placeholder);
         let e = attach(e, self.lens, self.password, self.cbs);
         disabled_look(e, self.disabled)
-    }
-}
-
-impl<V: 'static, L> From<Input<'_, V, L>> for Element<V>
-where
-    L: Fn(&mut V) -> &mut TextInputState + Clone + 'static,
-{
-    fn from(i: Input<'_, V, L>) -> Self {
-        i.build()
     }
 }

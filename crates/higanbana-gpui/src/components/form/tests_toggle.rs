@@ -2,6 +2,7 @@
 use super::test_util::{build, key, paint, with_cx};
 use super::{CheckState, Checkbox, Switch};
 use crate::anim::Animator;
+use crate::components::basic::Component;
 use crate::prelude::*;
 use crate::{point, Modifiers, MouseButton};
 use std::time::Duration;
@@ -12,14 +13,18 @@ struct V {
     log: Vec<bool>,
 }
 
-fn checkbox(v: &V, state: CheckState, disabled: bool) -> Element<V> {
+fn checkbox(_v: &V, state: CheckState, disabled: bool) -> Element<V> {
     let mut a = Animator::default();
     with_cx(&mut a, |cx| {
-        div().child(
-            Checkbox::new(cx, "c", state).label("Aceito").disabled(disabled).on_change(|v: &mut V, b, _| {
-                v.on = b;
-                v.log.push(b);
-            }),
+        div().flex_col().child(
+            Checkbox::new("c", state)
+                .label("Aceito")
+                .disabled(disabled)
+                .on_change(|v: &mut V, b, _| {
+                    v.on = b;
+                    v.log.push(b);
+                })
+                .render(cx),
         )
     })
 }
@@ -41,9 +46,12 @@ fn checkbox_toggles_by_click_space_and_label() {
     t.focus("c");
     assert!(t.key_down(&key(Key::Space), &mut v, &mut EventCx::default()));
     t = build(checkbox(&v, v.on.into(), false));
-    click(&mut t, &mut v, 30.0, 8.0); // rótulo
-    assert_eq!(v.log, [true, false, true]);
-    assert_eq!(t.focused(), Some("c".into()), "rótulo foca a caixa");
+    let m = Modifiers::default();
+    let mut cx = EventCx::default();
+    t.mouse_down(point(30.0, 8.0), MouseButton::Left, m, &mut v, &mut cx);
+    t.mouse_up(point(30.0, 8.0), MouseButton::Left, m, &mut v, &mut cx);
+    assert_eq!(v.log, [true, false, true], "rótulo alterna");
+    assert_eq!(cx.focus, Some(crate::cx::FocusRequest::Focus("c".into())), "rótulo foca a caixa");
     let mut t = build(checkbox(&v, CheckState::Indeterminate, false));
     click(&mut t, &mut v, 8.0, 8.0);
     assert_eq!(v.log.last(), Some(&true), "indeterminado -> marcado");
@@ -62,11 +70,11 @@ fn disabled_checkbox_ignores_input() {
 fn switch_toggles_and_thumb_animates_then_idles() {
     let mut a = Animator::default();
     let mut v = V::default();
-    let mk = |a: &mut Animator, on: bool, dt: u64, t0: std::time::Instant| {
+    let mk = |a: &mut Animator, on: bool, dt: u64, t0: std::time::Instant| -> Element<V> {
         with_cx(a, |cx: &mut RenderCx<'_, V>| {
             cx.animator.begin();
             cx.now = t0 + Duration::from_millis(dt);
-            let e = div().child(Switch::new(cx, "s", on).on_change(|v: &mut V, b, _| v.log.push(b)));
+            let e = div().child(Switch::new("s", on).on_change(|v: &mut V, b, _| v.log.push(b)).render(cx));
             cx.animator.end();
             e
         })

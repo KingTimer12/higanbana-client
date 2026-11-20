@@ -2,6 +2,7 @@
 use super::slider_value::Range;
 use super::test_util::{build, key, with_cx};
 use super::Slider;
+use crate::components::basic::Component;
 use crate::anim::Animator;
 use crate::prelude::*;
 use crate::{point, Modifiers, MouseButton};
@@ -15,12 +16,13 @@ fn slider(v: &V, disabled: bool) -> Element<V> {
     let mut a = Animator::default();
     with_cx(&mut a, |cx| {
         div().child(
-            Slider::new(cx, "sl", v.value)
+            Slider::new("sl", v.value)
                 .range(0.0, 10.0)
                 .step(2.0)
                 .width(100.0)
                 .disabled(disabled)
-                .on_change(|v: &mut V, n, _| v.value = n),
+                .on_change(|v: &mut V, n, _| v.value = n)
+                .render(cx),
         )
     })
 }
@@ -42,13 +44,15 @@ fn click_jumps_and_drag_follows_with_capture() {
     let mut v = V::default();
     let mut t = build(slider(&v, false));
     let m = Modifiers::default();
-    t.mouse_down(point(41.0, 8.0), MouseButton::Left, m, &mut v, &mut EventCx::default());
+    let mut cx = EventCx::default();
+    t.mouse_down(point(41.0, 8.0), MouseButton::Left, m, &mut v, &mut cx);
     assert_eq!(v.value, 4.0);
+    assert_eq!(cx.focus, Some(crate::cx::FocusRequest::Focus("sl".into())), "clique foca o polegar");
     assert!(t.is_captured());
     t.pointer_move(point(500.0, 150.0), m, &mut v, &mut EventCx::default());
     assert_eq!(v.value, 10.0, "fora da caixa: limitado ao máximo");
     t.mouse_up(point(500.0, 150.0), MouseButton::Left, m, &mut v, &mut EventCx::default());
-    assert_eq!(t.focused(), Some("sl".into()), "clique foca o polegar");
+    assert!(!t.is_captured());
 }
 
 #[test]
