@@ -12,7 +12,7 @@ mod spirv;
 use std::path::{Path, PathBuf};
 
 fn main() {
-    let core_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../higanbana-gpui/core");
+    let core_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../higanbana-gpui/core");
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     println!("cargo:rerun-if-changed={}", core_dir.display());
     println!("cargo:rerun-if-changed=wrapper.h");
