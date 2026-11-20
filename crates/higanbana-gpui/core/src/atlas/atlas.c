@@ -9,6 +9,7 @@ typedef struct hg_atlas_entry {
     uint64_t key;
     uint64_t last_used;
     hg_urect rect;
+    uint64_t user;
     int      alive;
 } hg_atlas_entry;
 
@@ -113,7 +114,7 @@ hg_result hg__atlas_get_or_insert(hg_atlas* a, uint64_t key, uint32_t w, uint32_
         hg_pack_release(&a->pack, rect);
         return hg__fail(HG_ERR_OOM, "atlas: sem memória");
     }
-    a->entries[slot] = (hg_atlas_entry){ key, frame, rect, 1 };
+    a->entries[slot] = (hg_atlas_entry){ key, frame, rect, 0, 1 };
     a->alive_count++;
     *out_uv = to_rect(rect);
     *out_inserted = 1;
@@ -125,3 +126,15 @@ int hg__atlas_contains(const hg_atlas* a, uint64_t key) {
 }
 
 uint32_t hg__atlas_entry_count(const hg_atlas* a) { return a ? a->alive_count : 0; }
+
+int hg__atlas_get_user(const hg_atlas* a, uint64_t key, uint64_t* out) {
+    uint32_t slot = a ? hg_map_get(&a->map, key) : HG_MAP_EMPTY;
+    if (slot == HG_MAP_EMPTY) return 0;
+    *out = a->entries[slot].user;
+    return 1;
+}
+
+void hg__atlas_set_user(hg_atlas* a, uint64_t key, uint64_t user) {
+    uint32_t slot = a ? hg_map_get(&a->map, key) : HG_MAP_EMPTY;
+    if (slot != HG_MAP_EMPTY) a->entries[slot].user = user;
+}

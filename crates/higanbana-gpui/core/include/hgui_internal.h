@@ -20,6 +20,9 @@ hg_result hg__atlas_get_or_insert(hg_atlas* atlas, uint64_t key, uint32_t w, uin
                                   uint64_t frame, hg_rect* out_uv, int* out_inserted);
 int       hg__atlas_contains(const hg_atlas* atlas, uint64_t key);
 uint32_t  hg__atlas_entry_count(const hg_atlas* atlas);
+/* Dado livre por entrada (ex.: offset do glyph). 0 se a chave não existe. */
+int       hg__atlas_get_user(const hg_atlas* atlas, uint64_t key, uint64_t* out);
+void      hg__atlas_set_user(hg_atlas* atlas, uint64_t key, uint64_t user);
 
 /* ---- Janela (testes) -------------------------------------------------- */
 void hg__window_inject_resize(hg_window* win, uint32_t width, uint32_t height);

@@ -1,6 +1,7 @@
 /* context.c — criação do contexto com seleção de backend e fallback. */
 #include "context.h"
 #include "error.h"
+#include "text.h"
 #include <stdlib.h>
 
 static const hg_backend_kind g_fallback[] = { HG_BACKEND_D3D11, HG_BACKEND_OPENGL, HG_BACKEND_WGPU };
@@ -35,6 +36,7 @@ hg_result hg_context_create(hg_backend_kind preferred, hg_context** out) {
 
 void hg_context_destroy(hg_context* ctx) {
     if (!ctx) return;
+    hg__text_system_destroy(ctx->text);
     if (ctx->backend) ctx->backend->destroy(ctx);
     free(ctx);
 }

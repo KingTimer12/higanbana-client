@@ -120,6 +120,23 @@ hg_result hg_frame_begin(hg_window* win, hg_color clear);
 hg_result hg_frame_submit(hg_window* win, const hg_draw_list* dl);
 hg_result hg_frame_end(hg_window* win, int vsync);
 
+/* ---- Texto ------------------------------------------------------------ */
+typedef uint32_t hg_font_id;
+
+typedef struct hg_text_metrics {
+    float width, height;
+    float baseline; /* distância do topo até a linha de base da 1ª linha */
+} hg_text_metrics;
+
+/* weight: 100..900 (400 normal, 700 negrito). Fontes do sistema, com fallback (CJK etc.). */
+hg_result hg_font_load(hg_context* ctx, const char* family_utf8, float weight, int italic, hg_font_id* out);
+/* max_width <= 0: sem quebra de linha. */
+hg_result hg_text_measure(hg_context* ctx, hg_font_id font, float size_px, const char* utf8, size_t len,
+                          float max_width, hg_text_metrics* out);
+/* (x, y) = canto superior esquerdo da caixa de texto. */
+hg_result hg_draw_text(hg_draw_list* dl, hg_font_id font, float size_px, float x, float y, float max_width,
+                       hg_color color, const char* utf8, size_t len);
+
 #ifdef __cplusplus
 }
 #endif

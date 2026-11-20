@@ -8,5 +8,6 @@ struct hg_context {
     hg_backend_info        info;
     void*                  backend_data; /* dono: backend->create/destroy */
     uint64_t               frame_index;
+    struct hg_text_system* text;         /* criado sob demanda (hg_font_load) */
 };
 #endif

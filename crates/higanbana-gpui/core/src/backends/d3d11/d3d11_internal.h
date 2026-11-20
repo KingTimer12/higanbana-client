@@ -41,6 +41,23 @@ typedef struct d3d11_pipeline {
 hg_result d3d11_pipeline_create(ID3D11Device* dev, d3d11_pipeline* p);
 void      d3d11_pipeline_release(d3d11_pipeline* p);
 
+/* ---- glyphs: atlas R8 + pipeline + instâncias do frame ---------------- */
+struct hg_glyph_instance;
+
+typedef struct d3d11_glyphs {
+    ID3D11VertexShader*       vs;
+    ID3D11PixelShader*        ps;
+    ID3D11InputLayout*        layout;
+    ID3D11SamplerState*       sampler;
+    ID3D11Texture2D*          atlas;
+    ID3D11ShaderResourceView* atlas_srv;
+    d3d11_dynamic_buffer      instances_gpu;
+    struct hg_glyph_instance* instances;    /* rascunho reaproveitado entre frames */
+    uint32_t                  count, capacity;
+    uint32_t*                 batch_counts; /* glyphs por lote da draw list */
+    uint32_t                  batch_capacity;
+} d3d11_glyphs;
+
 /* ---- device: um por contexto ------------------------------------------ */
 typedef struct d3d11_device {
     d3d11_loader         loader;
@@ -49,7 +66,13 @@ typedef struct d3d11_device {
     IDXGIFactory2*       factory;
     d3d11_pipeline       pipeline;
     d3d11_dynamic_buffer quads;
+    d3d11_glyphs         glyphs;
 } d3d11_device;
+
+/* Rasteriza/coleta os glyphs do frame e sobe as instâncias (pipeline criado sob demanda). */
+hg_result d3d11_glyphs_prepare(d3d11_device* d, hg_context* ctx, const hg_draw_list* dl);
+void      d3d11_glyphs_bind(d3d11_device* d);
+void      d3d11_glyphs_release(d3d11_glyphs* g);
 
 hg_result d3d11_device_create(d3d11_device* d, hg_backend_info* info);
 void      d3d11_device_release(d3d11_device* d);
@@ -67,7 +90,7 @@ hg_result d3d11_surface_present(d3d11_surface* s, int vsync);
 void      d3d11_surface_release(d3d11_surface* s);
 
 /* ---- render: envia draw list ------------------------------------------ */
-hg_result d3d11_render_draw_list(d3d11_device* d, d3d11_surface* s, const hg_draw_list* dl);
+hg_result d3d11_render_draw_list(d3d11_device* d, hg_context* ctx, d3d11_surface* s, const hg_draw_list* dl);
 
 #define D3D11_RELEASE(p) do { if (p) { IUnknown_Release((IUnknown*)(p)); (p) = NULL; } } while (0)
 #endif

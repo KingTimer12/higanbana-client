@@ -65,7 +65,7 @@ static hg_result d3d11_begin_frame(hg_window* win, hg_color clear) {
 }
 
 static hg_result d3d11_submit(hg_window* win, const hg_draw_list* dl) {
-    return d3d11_render_draw_list(device_of(win->ctx), surface_of(win), dl);
+    return d3d11_render_draw_list(device_of(win->ctx), win->ctx, surface_of(win), dl);
 }
 
 static hg_result d3d11_end_frame(hg_window* win, int vsync) {

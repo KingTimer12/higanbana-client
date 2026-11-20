@@ -47,6 +47,7 @@ hg_result d3d11_device_create(d3d11_device* d, hg_backend_info* info) {
 }
 
 void d3d11_device_release(d3d11_device* d) {
+    d3d11_glyphs_release(&d->glyphs);
     d3d11_buffer_release(&d->quads);
     d3d11_pipeline_release(&d->pipeline);
     D3D11_RELEASE(d->factory);
