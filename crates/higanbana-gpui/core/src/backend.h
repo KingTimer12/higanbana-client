@@ -19,6 +19,10 @@ typedef struct hg_backend_vtbl {
     hg_result (*begin_frame)(struct hg_window* win, hg_color clear);
     hg_result (*submit)(struct hg_window* win, const hg_draw_list* dl);
     hg_result (*end_frame)(struct hg_window* win, int vsync);
+    /* Texturas de imagem (opcionais: NULL = backend sem imagens, que são puladas).
+     * create preenche img->gpu a partir de img->pixels; destroy zera img->gpu. */
+    hg_result (*texture_create)(hg_context* ctx, struct hg_image* img);
+    void      (*texture_destroy)(hg_context* ctx, struct hg_image* img);
     /* Testes: lê um pixel BGRA8 do backbuffer. */
     hg_result (*read_pixel)(struct hg_window* win, uint32_t x, uint32_t y, uint32_t* out);
 } hg_backend_vtbl;

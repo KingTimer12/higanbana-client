@@ -27,7 +27,8 @@ void d3d11_buffer_release(d3d11_dynamic_buffer* b) {
 }
 
 uint64_t d3d11_gpu_bytes(const d3d11_device* d) {
-    uint64_t bytes = (uint64_t)d->quads.capacity + d->glyphs.instances_gpu.capacity;
+    uint64_t bytes = (uint64_t)d->quads.capacity + d->glyphs.instances_gpu.capacity +
+                     d->images.instances.capacity + d->images.texture_bytes;
     if (d->glyphs.atlas) bytes += (uint64_t)HG_GLYPH_ATLAS_SIZE * HG_GLYPH_ATLAS_SIZE; /* R8 */
     return bytes;
 }

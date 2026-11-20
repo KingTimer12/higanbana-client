@@ -55,6 +55,8 @@ static VTBL: SyncVtbl = SyncVtbl(hg_backend_vtbl {
     begin_frame: Some(ffi::begin_frame),
     submit: Some(ffi::submit),
     end_frame: Some(ffi::end_frame),
+    texture_create: None, // imagens: fase 3 (agente do WGPU)
+    texture_destroy: None,
     read_pixel: Some(ffi::read_pixel),
 });
 

@@ -2,6 +2,7 @@
 #include "context.h"
 #include "error.h"
 #include "text.h"
+#include "image.h"
 #include "window.h"
 #include <string.h>
 
@@ -43,6 +44,7 @@ hg_result hg_context_switch_backend(hg_context* ctx, hg_backend_kind kind) {
     const hg_backend_vtbl* prev = ctx->backend;
     hg_backend_info prev_info = ctx->info;
     detach_all(ctx);
+    hg__images_release_gpu(ctx); /* recriadas sob demanda no backend novo */
     prev->destroy(ctx);
     if (ctx->text) hg__atlas_clear(ctx->text->atlas); /* textura do atlas morreu com o backend */
 

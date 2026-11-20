@@ -68,17 +68,18 @@ static D3D11_RECT scissor_for(const hg_batch* b, const d3d11_surface* s) {
 
 hg_result d3d11_render_draw_list(d3d11_device* d, hg_context* ctx, d3d11_surface* s, const hg_draw_list* dl) {
     hg_result r = d3d11_glyphs_prepare(d, ctx, dl);
+    if (r == HG_OK) r = d3d11_images_prepare(d, dl);
     if (r == HG_OK && dl->quad_count > 0) r = upload_quads(d, dl);
     if (r != HG_OK) return r;
     upload_globals(d, s);
     bind_common(d, s);
     ctx->stats.draw_calls = 0;
 
-    /* Por lote: quads primeiro, texto por cima. */
-    UINT quad_start = 0, glyph_start = 0, i = 0;
+    /* Por lote: quads, imagens, texto por cima. */
+    UINT quad_start = 0, image_start = 0, glyph_start = 0, i = 0;
     for (const hg_batch* b = dl->first; b; b = b->next, i++) {
         UINT glyphs = d->glyphs.frame.count ? d->glyphs.frame.batch_counts[i] : 0;
-        if (b->quad_count == 0 && glyphs == 0) continue;
+        if (b->quad_count == 0 && b->image_count == 0 && glyphs == 0) continue;
         D3D11_RECT sc = scissor_for(b, s);
         ID3D11DeviceContext_RSSetScissorRects(d->imm, 1, &sc);
         if (b->quad_count) {
@@ -86,6 +87,10 @@ hg_result d3d11_render_draw_list(d3d11_device* d, hg_context* ctx, d3d11_surface
             ID3D11DeviceContext_DrawInstanced(d->imm, 4, b->quad_count, 0, quad_start);
             ctx->stats.draw_calls++;
             quad_start += b->quad_count;
+        }
+        if (b->image_count) {
+            ctx->stats.draw_calls += d3d11_images_draw(d, b, image_start);
+            image_start += b->image_count;
         }
         if (glyphs) {
             d3d11_glyphs_bind(d);

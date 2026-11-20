@@ -54,6 +54,19 @@ typedef struct d3d11_glyphs {
     hg_glyph_frame            frame;
 } d3d11_glyphs;
 
+/* ---- imagens: pipeline + instâncias; texturas ficam em hg_image.gpu ---- */
+typedef struct d3d11_images {
+    ID3D11VertexShader*  vs;
+    ID3D11PixelShader*   ps;
+    ID3D11InputLayout*   layout;
+    ID3D11SamplerState*  sampler;
+    d3d11_dynamic_buffer instances;
+    uint64_t             texture_bytes;
+} d3d11_images;
+
+struct hg_image;
+struct hg_batch;
+
 /* ---- device: um por contexto ------------------------------------------ */
 typedef struct d3d11_device {
     d3d11_loader         loader;
@@ -63,7 +76,16 @@ typedef struct d3d11_device {
     d3d11_pipeline       pipeline;
     d3d11_dynamic_buffer quads;
     d3d11_glyphs         glyphs;
+    d3d11_images         images;
 } d3d11_device;
+
+hg_result d3d11_texture_create(d3d11_device* d, struct hg_image* img);
+void      d3d11_texture_destroy(d3d11_device* d, struct hg_image* img);
+/* Garante texturas e sobe as instâncias de imagem do frame. */
+hg_result d3d11_images_prepare(d3d11_device* d, const hg_draw_list* dl);
+/* Desenha as imagens do lote a partir da instância `start`; devolve draw calls. */
+UINT      d3d11_images_draw(d3d11_device* d, const struct hg_batch* b, UINT start);
+void      d3d11_images_release(d3d11_images* p);
 
 /* Rasteriza/coleta os glyphs do frame e sobe as instâncias (pipeline criado sob demanda). */
 hg_result d3d11_glyphs_prepare(d3d11_device* d, hg_context* ctx, const hg_draw_list* dl);

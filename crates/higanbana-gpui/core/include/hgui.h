@@ -43,6 +43,9 @@ hg_result     hg_draw_quad(hg_draw_list* dl, const hg_quad* quad);
 hg_result     hg_push_clip(hg_draw_list* dl, hg_rect clip);
 void          hg_pop_clip(hg_draw_list* dl);
 uint32_t      hg_draw_list_quad_count(const hg_draw_list* dl);
+/* Abre uma camada nova: tudo desenhado depois fica por cima de tudo antes.
+ * Dentro de uma camada a ordem é fixa: quads, imagens, texto. */
+hg_result     hg_draw_list_layer(hg_draw_list* dl);
 
 /* ---- Backends e contexto --------------------------------------------- */
 typedef enum hg_backend_kind {
@@ -124,6 +127,26 @@ float     hg_window_dpi_scale(const hg_window* win);
 hg_result hg_frame_begin(hg_window* win, hg_color clear);
 hg_result hg_frame_submit(hg_window* win, const hg_draw_list* dl);
 hg_result hg_frame_end(hg_window* win, int vsync);
+
+/* ---- Imagens ---------------------------------------------------------- */
+typedef struct hg_image hg_image;
+
+/* Pixels RGBA8 com alfa pré-multiplicado; `stride` = bytes por linha. O core copia
+ * os pixels (reenvio à GPU na troca de backend) e cria a textura no primeiro uso.
+ * Destruir só depois de enviar (hg_frame_submit) os frames que a usam. */
+hg_result hg_image_create(hg_context* ctx, uint32_t width, uint32_t height, const uint8_t* rgba,
+                          uint32_t stride, hg_image** out);
+void      hg_image_destroy(hg_image* img);
+void      hg_image_size(const hg_image* img, uint32_t* width, uint32_t* height);
+
+typedef struct hg_image_draw {
+    hg_rect  rect;      /* destino em pixels */
+    hg_rect  uv;        /* região da imagem, 0..1 ({0,0,1,1} = inteira) */
+    hg_color tint;      /* multiplica a imagem; {1,1,1,1} = original */
+    float    radius[4]; /* tl, tr, br, bl */
+} hg_image_draw;
+
+hg_result hg_draw_image(hg_draw_list* dl, hg_image* img, const hg_image_draw* draw);
 
 /* ---- Estatísticas ----------------------------------------------------- */
 typedef struct hg_stats {

@@ -8,3 +8,4 @@
 -Isrc/backends/d3d11
 -Isrc/text
 -Isrc/render
+-Isrc/image

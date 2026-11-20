@@ -11,6 +11,7 @@ struct hg_context {
     struct hg_text_system* text;         /* criado sob demanda (hg_font_load) */
     hg_stats               stats;        /* backend preenche gpu_bytes/draw_calls */
     long long              last_frame_ticks;
+    struct hg_image*       images;       /* lista p/ liberar/recriar texturas */
     struct hg_window*      windows;      /* lista intrusiva (hg_window.next) p/ troca de backend */
 };
 /* stats.c */

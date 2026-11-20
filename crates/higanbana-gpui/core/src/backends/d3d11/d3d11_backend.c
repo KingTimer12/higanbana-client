@@ -77,6 +77,14 @@ static hg_result d3d11_read_pixel(hg_window* win, uint32_t x, uint32_t y, uint32
     return d3d11_surface_read_pixel(device_of(win->ctx), surface_of(win), x, y, out);
 }
 
+static hg_result d3d11_tex_create(hg_context* ctx, struct hg_image* img) {
+    return d3d11_texture_create(device_of(ctx), img);
+}
+
+static void d3d11_tex_destroy(hg_context* ctx, struct hg_image* img) {
+    d3d11_texture_destroy(device_of(ctx), img);
+}
+
 const hg_backend_vtbl hg__d3d11_backend = {
     .kind = HG_BACKEND_D3D11,
     .name = "Direct3D 11",
@@ -89,5 +97,7 @@ const hg_backend_vtbl hg__d3d11_backend = {
     .begin_frame = d3d11_begin_frame,
     .submit = d3d11_submit,
     .end_frame = d3d11_end_frame,
+    .texture_create = d3d11_tex_create,
+    .texture_destroy = d3d11_tex_destroy,
     .read_pixel = d3d11_read_pixel,
 };

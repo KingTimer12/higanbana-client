@@ -1,9 +1,10 @@
+/* draw_list.c — lotes por clip/camada, quads em chunks na arena. */
 #include "draw_list.h"
 #include "error.h"
 #include <stdlib.h>
 #include <string.h>
 
-static hg_batch* open_batch(hg_draw_list* dl) {
+hg_batch* hg__draw_list_open_batch(hg_draw_list* dl) {
     hg_batch* b = hg_arena_alloc(&dl->arena, sizeof *b, _Alignof(hg_batch));
     if (!b) return NULL;
     memset(b, 0, sizeof *b);
@@ -17,7 +18,7 @@ static hg_batch* open_batch(hg_draw_list* dl) {
 }
 
 hg_batch* hg__draw_list_batch(hg_draw_list* dl) {
-    return dl->last ? dl->last : open_batch(dl);
+    return dl->last ? dl->last : hg__draw_list_open_batch(dl);
 }
 
 hg_draw_list* hg_draw_list_create(void) {
@@ -36,6 +37,7 @@ void hg_draw_list_reset(hg_draw_list* dl) {
     hg_arena_reset(&dl->arena);
     dl->first = dl->last = NULL;
     dl->quad_count = 0;
+    dl->image_count = 0;
     dl->clip_depth = 0;
 }
 
@@ -76,13 +78,18 @@ hg_result hg_push_clip(hg_draw_list* dl, hg_rect clip) {
         return hg__fail(HG_ERR_INVALID, "hg_push_clip: pilha de clip cheia");
     if (dl->clip_depth > 0) clip = intersect(dl->clips[dl->clip_depth - 1], clip);
     dl->clips[dl->clip_depth++] = clip;
-    return open_batch(dl) ? HG_OK : hg__fail(HG_ERR_OOM, "hg_push_clip: sem memória");
+    return hg__draw_list_open_batch(dl) ? HG_OK : hg__fail(HG_ERR_OOM, "hg_push_clip: sem memória");
 }
 
 void hg_pop_clip(hg_draw_list* dl) {
     if (!dl || dl->clip_depth == 0) return;
     dl->clip_depth--;
-    open_batch(dl);
+    hg__draw_list_open_batch(dl);
 }
 
 uint32_t hg_draw_list_quad_count(const hg_draw_list* dl) { return dl ? dl->quad_count : 0; }
+
+hg_result hg_draw_list_layer(hg_draw_list* dl) {
+    if (!dl) return hg__fail(HG_ERR_INVALID, "hg_draw_list_layer: lista nula");
+    return hg__draw_list_open_batch(dl) ? HG_OK : hg__fail(HG_ERR_OOM, "hg_draw_list_layer: sem memória");
+}
