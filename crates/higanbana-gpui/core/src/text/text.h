@@ -48,6 +48,9 @@ typedef struct hg_text_system {
     hg_atlas*       atlas;
     uint8_t*        scratch; /* raster reaproveitado entre glyphs */
     size_t          scratch_size;
+    IUnknown**      faces;   /* font faces vistas, com AddRef: id estável p/ chave do atlas */
+    uint32_t        face_count, face_capacity;
+    uint64_t        skipped_glyphs; /* glyphs pulados por atlas cheio no frame */
 } hg_text_system;
 
 /* text_system.c */
@@ -55,6 +58,8 @@ hg_result hg__text_system_get(hg_context* ctx, hg_text_system** out); /* cria so
 void      hg__text_system_destroy(hg_text_system* ts);
 hg_result hg__text_format(hg_text_system* ts, hg_font_id font, float size, IDWriteTextFormat** out);
 uint8_t*  hg__text_scratch(hg_text_system* ts, size_t bytes);
+/* Índice estável da face (segura uma referência). UINT32_MAX = sem memória. */
+uint32_t  hg__text_face_id(hg_text_system* ts, IDWriteFontFace* face);
 
 /* text_utf.c — NULL + HG_ERR_INVALID quando o UTF-8 é inválido. */
 hg_result hg__utf8_to_utf16(const char* utf8, size_t len, WCHAR* out, int out_cap, int* out_len);

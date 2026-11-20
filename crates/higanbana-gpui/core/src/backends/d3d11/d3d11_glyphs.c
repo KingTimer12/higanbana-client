@@ -19,6 +19,8 @@ static const D3D11_INPUT_ELEMENT_DESC k_glyph_layout[] = {
     INSTANCE("COLOR", color),
 };
 
+static void d3d11_glyphs_release_gpu(d3d11_glyphs* g);
+
 static hg_result create_atlas_texture(ID3D11Device* dev, d3d11_glyphs* g) {
     D3D11_TEXTURE2D_DESC td = { 0 };
     td.Width = td.Height = HG_GLYPH_ATLAS_SIZE;
@@ -33,7 +35,8 @@ static hg_result create_atlas_texture(ID3D11Device* dev, d3d11_glyphs* g) {
 }
 
 static hg_result ensure_pipeline(ID3D11Device* dev, d3d11_glyphs* g) {
-    if (g->vs) return HG_OK;
+    if (g->atlas_srv) return HG_OK; /* último objeto criado: pipeline completo */
+    d3d11_glyphs_release_gpu(g);
     D3D11_SAMPLER_DESC sd = { 0 };
     sd.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
     sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -44,12 +47,14 @@ static hg_result ensure_pipeline(ID3D11Device* dev, d3d11_glyphs* g) {
         hr = ID3D11Device_CreateInputLayout(dev, k_glyph_layout, ARRAYSIZE(k_glyph_layout), hg_glyph_vs,
                                             sizeof hg_glyph_vs, &g->layout);
     if (SUCCEEDED(hr)) hr = ID3D11Device_CreateSamplerState(dev, &sd, &g->sampler);
-    if (FAILED(hr)) return hg__fail(HG_ERR_DEVICE, "d3d11: pipeline de glyph falhou");
+    hg_result r = FAILED(hr) ? hg__fail(HG_ERR_DEVICE, "d3d11: pipeline de glyph falhou") : HG_OK;
     g->instances_gpu.bind = D3D11_BIND_VERTEX_BUFFER;
-    return create_atlas_texture(dev, g);
+    if (r == HG_OK) r = create_atlas_texture(dev, g);
+    if (r != HG_OK) d3d11_glyphs_release_gpu(g);
+    return r;
 }
 
-void d3d11_glyphs_release(d3d11_glyphs* g) {
+static void d3d11_glyphs_release_gpu(d3d11_glyphs* g) {
     d3d11_buffer_release(&g->instances_gpu);
     D3D11_RELEASE(g->sampler);
     D3D11_RELEASE(g->atlas_srv);
@@ -57,6 +62,10 @@ void d3d11_glyphs_release(d3d11_glyphs* g) {
     D3D11_RELEASE(g->layout);
     D3D11_RELEASE(g->ps);
     D3D11_RELEASE(g->vs);
+}
+
+void d3d11_glyphs_release(d3d11_glyphs* g) {
+    d3d11_glyphs_release_gpu(g);
     free(g->instances);
     free(g->batch_counts);
     g->instances = NULL;
@@ -139,7 +148,6 @@ void d3d11_glyphs_bind(d3d11_device* d) {
     ID3D11DeviceContext_IASetVertexBuffers(c, 0, 1, &g->instances_gpu.buffer, &stride, &offset);
     ID3D11DeviceContext_VSSetShader(c, g->vs, NULL, 0);
     ID3D11DeviceContext_PSSetShader(c, g->ps, NULL, 0);
-    ID3D11DeviceContext_PSSetConstantBuffers(c, 0, 1, &d->pipeline.globals);
     ID3D11DeviceContext_PSSetShaderResources(c, 0, 1, &g->atlas_srv);
     ID3D11DeviceContext_PSSetSamplers(c, 0, 1, &g->sampler);
 }

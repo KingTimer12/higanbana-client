@@ -147,3 +147,9 @@ void hg__window_inject_resize(hg_window* win, uint32_t width, uint32_t height) {
 }
 
 void hg__window_request_close(hg_window* win) { PostMessageW(win->hwnd, WM_CLOSE, 0, 0); }
+
+hg_result hg__window_read_pixel(hg_window* win, uint32_t x, uint32_t y, uint32_t* out_bgra) {
+    if (!win || !out_bgra || x >= win->width || y >= win->height)
+        return hg__fail(HG_ERR_INVALID, "read_pixel: fora da janela");
+    return win->ctx->backend->read_pixel(win, x, y, out_bgra);
+}

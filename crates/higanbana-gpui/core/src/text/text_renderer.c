@@ -16,10 +16,10 @@ typedef struct draw_ctx {
 
 /* ---- glyph -> atlas ------------------------------------------------------ */
 
-static uint64_t glyph_key(const IDWriteFontFace* face, float size, UINT16 index, int sub) {
-    uint64_t h = (uint64_t)(uintptr_t)face * 0x9E3779B97F4A7C15ULL;
-    h ^= ((uint64_t)(uint32_t)lroundf(size * 4.0f) << 20) ^ ((uint64_t)index << 2) ^ (uint64_t)sub;
-    return h;
+/* Chave exata (sem hash): face 16 bits | tamanho*4 24 bits | glyph 16 bits | subpixel 2 bits. */
+static uint64_t glyph_key(uint32_t face_id, float size, UINT16 index, int sub) {
+    uint64_t size_q = (uint64_t)lroundf(size * 4.0f) & 0xffffff;
+    return ((uint64_t)(face_id & 0xffff) << 48) | (size_q << 24) | ((uint64_t)index << 2) | (uint64_t)sub;
 }
 
 static uint64_t pack_offset(LONG left, LONG top) { return ((uint64_t)(uint32_t)left << 32) | (uint32_t)top; }
@@ -105,13 +105,19 @@ static HRESULT STDMETHODCALLTYPE r_inline(IDWriteTextRenderer* s, void* c, FLOAT
 static hg_result draw_glyph(draw_ctx* c, const DWRITE_GLYPH_RUN* run, UINT16 index, float x, float y) {
     float ix = floorf(x), iy = floorf(y + 0.5f);
     int sub = (int)((x - ix) * HG_SUBPIXEL_STEPS) % HG_SUBPIXEL_STEPS;
-    uint64_t key = glyph_key(run->fontFace, run->fontEmSize, index, sub);
+    uint32_t face = hg__text_face_id(c->ts, run->fontFace);
+    if (face == UINT32_MAX) return hg__fail(HG_ERR_OOM, "texto: sem memória para faces");
+    uint64_t key = glyph_key(face, run->fontEmSize, index, sub);
 
     uint64_t user;
     hg_rect uv;
     int inserted;
     hg_result r = HG_OK;
     if (!hg__atlas_contains(c->ts->atlas, key)) r = rasterize(c, run, index, sub, key);
+    if (r == HG_ERR_OOM && !hg__atlas_contains(c->ts->atlas, key)) {
+        c->ts->skipped_glyphs++; /* atlas cheio neste frame: pula o glyph, mantém o frame */
+        return HG_OK;
+    }
     if (r == HG_OK) r = hg__atlas_get_or_insert(c->ts->atlas, key, 0, 0, c->frame, &uv, &inserted);
     if (r != HG_OK || uv.w == 0 || uv.h == 0 || !hg__atlas_get_user(c->ts->atlas, key, &user)) return r;
 

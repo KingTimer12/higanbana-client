@@ -72,3 +72,43 @@ fn draws_text_in_window() {
         assert_eq!(f.frame(), [OK; 3]);
     }
 }
+
+fn draw_and_read(f: &Fixture, px: (u32, u32)) -> ([i32; 2], u32) {
+    let clear = hg_color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+    let mut pixel = 0u32;
+    unsafe {
+        let r1 = hg_frame_begin(f.win, clear);
+        let r2 = hg_frame_submit(f.win, f.dl);
+        hg__window_read_pixel(f.win, px.0, px.1, &mut pixel);
+        hg_frame_end(f.win, 0);
+        ([r1, r2], pixel)
+    }
+}
+
+#[test]
+fn text_only_first_frame_is_visible() {
+    let f = Fixture::new();
+    let font = load_font(f.ctx);
+    let white = hg_color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+    let block = "█";
+    unsafe {
+        assert_eq!(hg_push_clip(f.dl, hg_rect { x: 0.0, y: 0.0, w: 300.0, h: 200.0 }), OK);
+        assert_eq!(hg_draw_text(f.dl, font, 96.0, 10.0, 10.0, 0.0, white, block.as_ptr().cast(), block.len()), OK);
+    }
+    let (rs, pixel) = draw_and_read(&f, (40, 70));
+    assert_eq!(rs, [OK; 2]);
+    assert!(pixel & 0x00ff_ffff > 0x0080_8080, "pixel = {pixel:#010x}");
+}
+
+#[test]
+fn full_glyph_atlas_skips_glyphs_instead_of_failing_frame() {
+    let f = Fixture::new();
+    let font = load_font(f.ctx);
+    let white = hg_color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+    // 300 ideogramas distintos a 200px (~12 MB de cobertura) não cabem no atlas 2048².
+    let huge: String = (0x4E00u32..0x4E00 + 300).filter_map(char::from_u32).collect();
+    unsafe {
+        assert_eq!(hg_draw_text(f.dl, font, 200.0, 0.0, 0.0, 0.0, white, huge.as_ptr().cast(), huge.len()), OK);
+    }
+    assert_eq!(f.frame(), [OK; 3]);
+}

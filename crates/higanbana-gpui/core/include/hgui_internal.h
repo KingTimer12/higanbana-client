@@ -27,6 +27,8 @@ void      hg__atlas_set_user(hg_atlas* atlas, uint64_t key, uint64_t user);
 /* ---- Janela (testes) -------------------------------------------------- */
 void hg__window_inject_resize(hg_window* win, uint32_t width, uint32_t height);
 void hg__window_request_close(hg_window* win);
+/* Lê um pixel (BGRA8) do backbuffer atual; chamar entre submit e end. */
+hg_result hg__window_read_pixel(hg_window* win, uint32_t x, uint32_t y, uint32_t* out_bgra);
 
 #ifdef __cplusplus
 }

@@ -33,20 +33,26 @@ static void upload_globals(d3d11_device* d, const d3d11_surface* s) {
     ID3D11DeviceContext_Unmap(d->imm, (ID3D11Resource*)d->pipeline.globals, 0);
 }
 
-static void bind_quad_pipeline(d3d11_device* d, const d3d11_surface* s) {
+/* Estado comum a quads e glyphs: definido uma vez por submit. */
+static void bind_common(d3d11_device* d, const d3d11_surface* s) {
     ID3D11DeviceContext* c = d->imm;
     const d3d11_pipeline* p = &d->pipeline;
-    UINT stride = sizeof(hg_quad), offset = 0;
     D3D11_VIEWPORT vp = { 0, 0, (FLOAT)s->width, (FLOAT)s->height, 0, 1 };
     ID3D11DeviceContext_IASetPrimitiveTopology(c, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    ID3D11DeviceContext_IASetInputLayout(c, p->quad_layout);
-    ID3D11DeviceContext_IASetVertexBuffers(c, 0, 1, &d->quads.buffer, &stride, &offset);
-    ID3D11DeviceContext_VSSetShader(c, p->quad_vs, NULL, 0);
     ID3D11DeviceContext_VSSetConstantBuffers(c, 0, 1, &p->globals);
-    ID3D11DeviceContext_PSSetShader(c, p->quad_ps, NULL, 0);
     ID3D11DeviceContext_RSSetState(c, p->raster);
     ID3D11DeviceContext_RSSetViewports(c, 1, &vp);
     ID3D11DeviceContext_OMSetBlendState(c, p->blend, NULL, 0xffffffff);
+}
+
+static void bind_quad_pipeline(d3d11_device* d) {
+    ID3D11DeviceContext* c = d->imm;
+    const d3d11_pipeline* p = &d->pipeline;
+    UINT stride = sizeof(hg_quad), offset = 0;
+    ID3D11DeviceContext_IASetInputLayout(c, p->quad_layout);
+    ID3D11DeviceContext_IASetVertexBuffers(c, 0, 1, &d->quads.buffer, &stride, &offset);
+    ID3D11DeviceContext_VSSetShader(c, p->quad_vs, NULL, 0);
+    ID3D11DeviceContext_PSSetShader(c, p->quad_ps, NULL, 0);
 }
 
 static D3D11_RECT scissor_for(const hg_batch* b, const d3d11_surface* s) {
@@ -65,6 +71,7 @@ hg_result d3d11_render_draw_list(d3d11_device* d, hg_context* ctx, d3d11_surface
     if (r == HG_OK && dl->quad_count > 0) r = upload_quads(d, dl);
     if (r != HG_OK) return r;
     upload_globals(d, s);
+    bind_common(d, s);
     ctx->stats.draw_calls = 0;
 
     /* Por lote: quads primeiro, texto por cima. */
@@ -75,7 +82,7 @@ hg_result d3d11_render_draw_list(d3d11_device* d, hg_context* ctx, d3d11_surface
         D3D11_RECT sc = scissor_for(b, s);
         ID3D11DeviceContext_RSSetScissorRects(d->imm, 1, &sc);
         if (b->quad_count) {
-            bind_quad_pipeline(d, s);
+            bind_quad_pipeline(d);
             ID3D11DeviceContext_DrawInstanced(d->imm, 4, b->quad_count, 0, quad_start);
             ctx->stats.draw_calls++;
             quad_start += b->quad_count;

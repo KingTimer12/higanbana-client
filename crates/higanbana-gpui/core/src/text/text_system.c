@@ -39,6 +39,8 @@ void hg__text_system_destroy(hg_text_system* ts) {
         free(ts->fonts[i].family);
     }
     free(ts->fonts);
+    for (uint32_t i = 0; i < ts->face_count; i++) ts->faces[i]->lpVtbl->Release(ts->faces[i]);
+    free(ts->faces);
     free(ts->scratch);
     hg__atlas_destroy(ts->atlas);
     DW_RELEASE(ts->factory);
@@ -100,4 +102,20 @@ hg_result hg__text_format(hg_text_system* ts, hg_font_id font, float size, IDWri
     f->format_sizes[slot] = size;
     *out = fmt;
     return HG_OK;
+}
+
+uint32_t hg__text_face_id(hg_text_system* ts, IDWriteFontFace* face) {
+    IUnknown* unk = (IUnknown*)face;
+    for (uint32_t i = 0; i < ts->face_count; i++)
+        if (ts->faces[i] == unk) return i;
+    if (ts->face_count == ts->face_capacity) {
+        uint32_t cap = ts->face_capacity ? ts->face_capacity * 2 : 8;
+        IUnknown** grown = realloc(ts->faces, sizeof *grown * cap);
+        if (!grown) return UINT32_MAX;
+        ts->faces = grown;
+        ts->face_capacity = cap;
+    }
+    unk->lpVtbl->AddRef(unk);
+    ts->faces[ts->face_count] = unk;
+    return ts->face_count++;
 }

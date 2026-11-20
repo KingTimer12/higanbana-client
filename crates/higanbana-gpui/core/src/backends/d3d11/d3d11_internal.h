@@ -90,6 +90,7 @@ hg_result d3d11_surface_create(d3d11_device* d, HWND hwnd, UINT w, UINT h, d3d11
 hg_result d3d11_surface_resize(d3d11_device* d, d3d11_surface* s, UINT w, UINT h);
 hg_result d3d11_surface_present(d3d11_surface* s, int vsync);
 void      d3d11_surface_release(d3d11_surface* s);
+hg_result d3d11_surface_read_pixel(d3d11_device* d, d3d11_surface* s, UINT x, UINT y, uint32_t* out);
 
 /* ---- render: envia draw list ------------------------------------------ */
 hg_result d3d11_render_draw_list(d3d11_device* d, hg_context* ctx, d3d11_surface* s, const hg_draw_list* dl);

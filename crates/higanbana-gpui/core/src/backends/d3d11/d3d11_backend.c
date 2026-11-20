@@ -58,6 +58,7 @@ static hg_result d3d11_begin_frame(hg_window* win, hg_color clear) {
     d3d11_surface* s = surface_of(win);
     hg_result r = d3d11_surface_resize(d, s, win->width, win->height);
     if (r != HG_OK) return r;
+    if (!s->rtv) return hg__fail(HG_ERR_DEVICE, "d3d11: sem render target");
     const float c[4] = { clear.r, clear.g, clear.b, clear.a };
     ID3D11DeviceContext_OMSetRenderTargets(d->imm, 1, &s->rtv, NULL);
     ID3D11DeviceContext_ClearRenderTargetView(d->imm, s->rtv, c);
@@ -72,6 +73,10 @@ static hg_result d3d11_end_frame(hg_window* win, int vsync) {
     return d3d11_surface_present(surface_of(win), vsync);
 }
 
+static hg_result d3d11_read_pixel(hg_window* win, uint32_t x, uint32_t y, uint32_t* out) {
+    return d3d11_surface_read_pixel(device_of(win->ctx), surface_of(win), x, y, out);
+}
+
 const hg_backend_vtbl hg__d3d11_backend = {
     .kind = HG_BACKEND_D3D11,
     .name = "Direct3D 11",
@@ -84,4 +89,5 @@ const hg_backend_vtbl hg__d3d11_backend = {
     .begin_frame = d3d11_begin_frame,
     .submit = d3d11_submit,
     .end_frame = d3d11_end_frame,
+    .read_pixel = d3d11_read_pixel,
 };
