@@ -11,7 +11,7 @@ fn locate_libclang() {
         return;
     }
     let path = std::env::var_os("PATH").unwrap_or_default();
-    let common = [r"C:Program Fileslvmbin", r"c:program files (x86)lvmbin"];
+    let common = [r"C:\Program Files\LLVM\bin", r"C:\Program Files (x86)\LLVM\bin"];
     let found = std::env::split_paths(&path)
         .chain(common.iter().map(PathBuf::from))
         .find(|dir| dir.join("libclang.dll").is_file() || dir.join("clang.dll").is_file());
