@@ -148,6 +148,8 @@ typedef void (VKAPI_PTR* PFN_vkVoidFunction)(void);
 #define VK_DYNAMIC_STATE_SCISSOR     1
 #define VK_VERTEX_INPUT_RATE_INSTANCE 1
 #define VK_FILTER_NEAREST            0
+#define VK_FILTER_LINEAR             1
+#define VK_FORMAT_R8G8B8A8_UNORM     37
 #define VK_SAMPLER_ADDRESS_CLAMP_TO_EDGE 2
 #define VK_IMAGE_TYPE_2D             1
 #define VK_IMAGE_VIEW_TYPE_2D        1

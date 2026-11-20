@@ -58,6 +58,7 @@ static hg_result vulkan_resize(hg_window* win, uint32_t w, uint32_t h) {
 }
 
 static hg_result vulkan_begin_frame(hg_window* win, hg_color clear) {
+    vk_textures_collect(device_of(win->ctx));
     return vk_frame_begin(device_of(win->ctx), surface_of(win), win->width, win->height, clear);
 }
 
@@ -73,6 +74,14 @@ static hg_result vulkan_read_pixel(hg_window* win, uint32_t x, uint32_t y, uint3
     return vk_surface_read_pixel(device_of(win->ctx), surface_of(win), x, y, out);
 }
 
+static hg_result vulkan_tex_create(hg_context* ctx, struct hg_image* img) {
+    return vk_texture_create(device_of(ctx), img);
+}
+
+static void vulkan_tex_destroy(hg_context* ctx, struct hg_image* img) {
+    vk_texture_destroy(device_of(ctx), img);
+}
+
 const hg_backend_vtbl hg__vulkan_backend = {
     .kind = HG_BACKEND_VULKAN,
     .name = "Vulkan",
@@ -85,5 +94,7 @@ const hg_backend_vtbl hg__vulkan_backend = {
     .begin_frame = vulkan_begin_frame,
     .submit = vulkan_submit,
     .end_frame = vulkan_end_frame,
+    .texture_create = vulkan_tex_create,
+    .texture_destroy = vulkan_tex_destroy,
     .read_pixel = vulkan_read_pixel,
 };

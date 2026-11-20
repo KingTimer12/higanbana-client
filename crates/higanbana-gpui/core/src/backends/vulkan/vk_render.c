@@ -1,5 +1,5 @@
 /* vk_render.c — sobe quads no buffer do frame e grava um render pass com um
- * scissor por lote: quads primeiro, texto por cima (instanciado, strip de 4). */
+ * scissor por lote: quads primeiro, imagens, texto por cima (instanciado, strip de 4). */
 #include "vk_internal.h"
 #include "draw_list.h"
 #include "error.h"
@@ -51,12 +51,13 @@ static void bind_quads(vk_device* d, VkCommandBuffer cmd, vk_frame* f) {
 static void record_batches(vk_device* d, hg_context* ctx, vk_surface* s, vk_frame* f, const hg_draw_list* dl) {
     VkCommandBuffer cmd = f->cmd;
     const hg_glyph_frame* gf = &d->glyphs.frame;
-    uint32_t quad_start = 0, glyph_start = 0, i = 0;
+    uint32_t quad_start = 0, image_start = 0, glyph_start = 0, i = 0;
     for (const hg_batch* b = dl->first; b; b = b->next, i++) {
         uint32_t glyphs = gf->count ? gf->batch_counts[i] : 0;
         VkRect2D sc;
-        if ((b->quad_count == 0 && glyphs == 0) || !scissor_for(b, s, &sc)) {
+        if ((b->quad_count == 0 && b->image_count == 0 && glyphs == 0) || !scissor_for(b, s, &sc)) {
             quad_start += b->quad_count;
+            image_start += b->image_count;
             glyph_start += glyphs;
             continue;
         }
@@ -66,6 +67,10 @@ static void record_batches(vk_device* d, hg_context* ctx, vk_surface* s, vk_fram
             d->api.vkCmdDraw(cmd, 4, b->quad_count, 0, quad_start);
             ctx->stats.draw_calls++;
             quad_start += b->quad_count;
+        }
+        if (b->image_count) {
+            ctx->stats.draw_calls += vk_images_draw(d, cmd, f, b, image_start);
+            image_start += b->image_count;
         }
         if (glyphs) {
             vk_glyphs_bind(d, cmd, f);
@@ -81,6 +86,7 @@ hg_result vk_render_draw_list(vk_device* d, hg_context* ctx, vk_surface* s, cons
     hg_result r = vk_frame_record(d, s);
     vk_frame* f = &s->frames[s->slot];
     if (r == HG_OK) r = vk_glyphs_prepare(d, ctx, f, dl); /* cópias do atlas: fora do render pass */
+    if (r == HG_OK) r = vk_images_prepare(d, f, dl);
     if (r == HG_OK && dl->quad_count > 0) r = upload_quads(d, f, dl);
     if (r != HG_OK) return r;
 

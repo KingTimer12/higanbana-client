@@ -31,6 +31,7 @@ void vk_frames_release(vk_device* d, vk_surface* s) {
         vk_buffer_release(d, &f->quads);
         vk_buffer_release(d, &f->glyphs);
         vk_buffer_release(d, &f->staging);
+        vk_buffer_release(d, &f->images);
     }
 }
 
@@ -40,6 +41,7 @@ hg_result vk_frame_record(vk_device* d, vk_surface* s) {
     if (d->api.vkBeginCommandBuffer(s->frames[s->slot].cmd, &bi) != VK_SUCCESS)
         return hg__fail(HG_ERR_DEVICE, "vulkan: vkBeginCommandBuffer falhou");
     s->recording = 1;
+    d->images.recording++;
     return HG_OK;
 }
 
@@ -89,6 +91,7 @@ hg_result vk_frame_flush(vk_device* d, vk_surface* s, int signal_rendered) {
     vk_frame* f = &s->frames[s->slot];
     if (d->api.vkEndCommandBuffer(f->cmd) != VK_SUCCESS) return hg__fail(HG_ERR_DEVICE, "vulkan: vkEndCommandBuffer falhou");
     s->recording = 0;
+    d->images.recording--;
     const VkFlags wait_stage = VK_STAGE_COLOR_OUTPUT | VK_STAGE_TRANSFER;
     VkSubmitInfo si = { VK_STYPE_SUBMIT_INFO, NULL, s->acquire_pending ? 1u : 0u, &f->acquired, &wait_stage,
                         1, &f->cmd, signal_rendered ? 1u : 0u, &s->rendered[s->image] };

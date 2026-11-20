@@ -92,6 +92,7 @@ void vk_device_release(vk_device* d) {
         d->api.vkDeviceWaitIdle(d->dev);
         vk_buffer_release(d, &d->readback);
         vk_glyphs_release(d);
+        vk_images_release(d);
         vk_pipeline_release(d);
         VK_DESTROY(d, vkDestroyCommandPool, d->pool);
         d->api.vkDestroyDevice(d->dev, NULL);

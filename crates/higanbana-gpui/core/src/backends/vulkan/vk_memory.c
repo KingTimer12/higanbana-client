@@ -47,11 +47,11 @@ void vk_buffer_release(vk_device* d, vk_buffer* b) {
 }
 
 uint64_t vk_gpu_bytes(const vk_device* d, const vk_surface* s) {
-    uint64_t bytes = d->readback.capacity;
+    uint64_t bytes = d->readback.capacity + d->images.texture_bytes; /* RGBA8 */
     if (d->glyphs.atlas) bytes += (uint64_t)HG_GLYPH_ATLAS_SIZE * HG_GLYPH_ATLAS_SIZE; /* R8 */
     for (int i = 0; i < VK_FRAMES; i++) {
         const vk_frame* f = &s->frames[i];
-        bytes += f->quads.capacity + f->glyphs.capacity + f->staging.capacity;
+        bytes += f->quads.capacity + f->glyphs.capacity + f->staging.capacity + f->images.capacity;
     }
     return bytes;
 }

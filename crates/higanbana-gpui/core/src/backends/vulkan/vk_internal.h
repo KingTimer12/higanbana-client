@@ -21,7 +21,7 @@ typedef struct vk_pipeline {
     VkRenderPass          pass_clear, pass_load; /* compatíveis entre si */
     VkDescriptorSetLayout set_layout;
     VkPipelineLayout      layout;
-    VkPipeline            quad, glyph;
+    VkPipeline            quad, glyph, image;
 } vk_pipeline;
 
 /* ---- glyphs: atlas R8 (device local), descritor e uploads pendentes --- */
@@ -40,6 +40,15 @@ typedef struct vk_glyphs {
     uint32_t           region_count, region_capacity;
 } vk_glyphs;
 
+/* ---- imagens: sampler linear, texturas vivas e lixo à espera da GPU --- */
+struct vk_texture; /* vk_texture.c */
+typedef struct vk_images {
+    VkSampler          sampler;       /* linear clamp, criado na primeira textura */
+    struct vk_texture* garbage;       /* destruídas, liberadas quando a fence sinaliza */
+    uint64_t           texture_bytes; /* RGBA8 residente */
+    int                recording;     /* command buffers de frame gravando (não submetidos) */
+} vk_images;
+
 /* ---- device: um por contexto ----------------------------------------- */
 typedef struct vk_device {
     vk_api                           api;
@@ -52,6 +61,7 @@ typedef struct vk_device {
     VkCommandPool                    pool;
     vk_pipeline                      pipeline;
     vk_glyphs                        glyphs;
+    vk_images                        images;
     vk_buffer                        readback; /* 1 pixel, para testes */
 } vk_device;
 
@@ -60,7 +70,7 @@ typedef struct vk_frame {
     VkCommandBuffer cmd;
     VkFence         fence;
     VkSemaphore     acquired;
-    vk_buffer       quads, glyphs, staging;
+    vk_buffer       quads, glyphs, staging, images;
 } vk_frame;
 
 typedef struct vk_surface {
@@ -105,6 +115,18 @@ void      vk_pipeline_release(vk_device* d);
 hg_result vk_glyphs_prepare(vk_device* d, hg_context* ctx, vk_frame* f, const hg_draw_list* dl);
 void      vk_glyphs_bind(vk_device* d, VkCommandBuffer cmd, vk_frame* f);
 void      vk_glyphs_release(vk_device* d);
+
+/* vk_texture.c — textura RGBA8 por hg_image (upload síncrono via staging) e
+ * destruição adiada até a GPU terminar os frames que podem usá-la. */
+hg_result vk_texture_create(vk_device* d, struct hg_image* img);
+void      vk_texture_destroy(vk_device* d, struct hg_image* img);
+VkDescriptorSet vk_texture_set(const struct hg_image* img);
+void      vk_textures_collect(vk_device* d); /* libera o lixo já concluído pela GPU */
+void      vk_images_release(vk_device* d);  /* device ocioso: libera lixo e sampler */
+
+/* vk_images.c — instâncias de imagem do frame e draws agrupados por textura. */
+hg_result vk_images_prepare(vk_device* d, vk_frame* f, const hg_draw_list* dl);
+uint32_t  vk_images_draw(vk_device* d, VkCommandBuffer cmd, vk_frame* f, const struct hg_batch* b, uint32_t start);
 
 /* vk_swapchain.c */
 hg_result vk_surface_create(vk_device* d, HWND hwnd, uint32_t w, uint32_t h, vk_surface* s);
