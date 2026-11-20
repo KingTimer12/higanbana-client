@@ -1,6 +1,7 @@
 //! Tabs: troca por clique e por setas (foco acompanha).
 use super::{center, click, key, Harness};
 use crate::components::Tabs;
+use crate::components::Component;
 use crate::prelude::*;
 use crate::Tree;
 

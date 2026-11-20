@@ -1,6 +1,7 @@
 //! Select: abrir, navegar, escolher (teclado e clique), dispensar e type-ahead.
 use super::{center, click, key, Harness};
 use crate::components::{Select, SelectState};
+use crate::components::Component;
 use crate::prelude::*;
 use crate::{point, Tree};
 

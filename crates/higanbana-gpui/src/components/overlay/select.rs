@@ -1,6 +1,7 @@
 //! Select (shadcn): gatilho como input com chevron; lista flutuante abaixo
 //! (mesma largura, vira para cima se não couber), check no escolhido,
 //! destaque por mouse/teclado (Cima/Baixo/Enter/Escape e type-ahead) e rolagem.
+use crate::components::basic::Component;
 use super::common::{panel, ring, sub, sub_i, Lens, OnChange};
 use super::select_state::{KeyOutcome, SelectState};
 use crate::cx::{EventCx, RenderCx};
@@ -73,7 +74,10 @@ impl<V: 'static> Select<V> {
         sub_i(id.into(), "item", i)
     }
 
-    pub fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
+}
+
+impl<V: 'static> Component<V> for Select<V> {
+    fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
         let theme = cx.theme();
         let (id, st, n) = (self.id, self.state, self.items.len());
         let label = st.selected.and_then(|i| self.items.get(i)).cloned();
@@ -128,7 +132,7 @@ impl<V: 'static> Select<V> {
             list = list.child(item(id, i, l.clone(), st, theme, &self.lens, &self.on_change));
         }
         let lens = self.lens;
-        let menu = overlay(Anchor::below(id), panel(theme).opacity(1.0).child(list)).match_width().on_dismiss(move |v: &mut V, cx| {
+        let menu = overlay(Anchor::below(id), panel(theme).child(list)).match_width().on_dismiss(move |v: &mut V, cx| {
             lens(v).close();
             cx.notify();
         });

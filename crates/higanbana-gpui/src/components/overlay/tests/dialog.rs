@@ -1,6 +1,7 @@
 //! Dialog: Escape, clique no fundo, botão "×", foco ao abrir e Tab preso.
 use super::{center, click, key, Harness};
 use crate::components::Dialog;
+use crate::components::Component;
 use crate::prelude::*;
 use crate::{point, Tree};
 
@@ -30,7 +31,7 @@ fn opened() -> (Harness, Tree<V>, V) {
     let (mut h, mut t, mut v) = (Harness::new(), Tree::new(), V::default());
     let mut cx = EventCx::default();
     v.open = true;
-    Dialog::open(&mut cx, "dlg");
+    Dialog::<V>::open(&mut cx, "dlg");
     frame(&mut h, &mut t, &v);
     t.apply_focus(cx.focus.unwrap());
     h.advance(200);

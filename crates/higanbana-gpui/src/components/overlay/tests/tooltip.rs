@@ -1,6 +1,7 @@
 //! Tooltip: aparece só depois do atraso; sair antes cancela; sair depois esconde.
 use super::{center, Harness};
 use crate::components::{Tooltip, TooltipState};
+use crate::components::Component;
 use crate::prelude::*;
 use crate::{point, Modifiers, Tree};
 
@@ -34,6 +35,8 @@ fn shows_after_delay_and_hides_on_leave() {
     h.advance(250);
     assert!(h.timers.fire_due(h.now, &mut v).unwrap().is_notified());
     assert!(v.tip.visible);
+    frame(&mut h, &mut t, &v);
+    h.advance(200);
     frame(&mut h, &mut t, &v);
     assert_eq!(t.overlay_count(), 1);
     hover(&mut h, &mut t, &mut v, point(700.0, 500.0));

@@ -1,5 +1,6 @@
 //! Tooltip (shadcn): balão pequeno em `primary` que aparece após um atraso de
 //! hover (timer, sem polling) e some ao sair. Lado configurável.
+use crate::components::basic::Component;
 use super::common::{presence, sub, Lens};
 use crate::cx::{RenderCx, TimerId};
 use crate::element::{div, overlay, text, Anchor, AnchorAlign, Element, ElementId, Side};
@@ -50,7 +51,10 @@ impl<V: 'static> Tooltip<V> {
         self
     }
 
-    pub fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
+}
+
+impl<V: 'static> Component<V> for Tooltip<V> {
+    fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
         let t = presence(cx, sub(self.id, "dica"), self.visible);
         let theme = cx.theme();
         let (lens, delay, id) = (self.lens, self.delay, self.id);

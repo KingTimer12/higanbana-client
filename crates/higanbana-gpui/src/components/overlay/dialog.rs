@@ -1,5 +1,6 @@
 //! Dialog (shadcn): modal centralizado com fundo escurecido, título, descrição,
 //! conteúdo, rodapé e botão "×". Escape, clique fora e "×" pedem fechamento.
+use crate::components::basic::Component;
 use super::common::{close_button, nothing, panel, presence, sub, OnChange};
 use crate::color::rgba;
 use crate::cx::{EventCx, RenderCx};
@@ -72,7 +73,10 @@ impl<V: 'static> Dialog<V> {
         self
     }
 
-    pub fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
+}
+
+impl<V: 'static> Component<V> for Dialog<V> {
+    fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
         let t = presence(cx, self.id, self.open);
         if t <= 0.001 {
             return nothing();

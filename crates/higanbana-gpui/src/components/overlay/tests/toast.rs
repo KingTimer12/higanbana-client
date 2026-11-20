@@ -1,6 +1,7 @@
 //! Toasts: ordem, limite visível, vencimento (com redesenho agendado) e "×".
 use super::{center, click, Harness};
 use crate::components::{Toast, Toaster, Toasts};
+use crate::components::Component;
 use crate::prelude::*;
 use crate::Tree;
 use std::time::Duration;

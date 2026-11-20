@@ -1,5 +1,6 @@
 //! Peças comuns dos overlays: ids derivados, lentes, presença animada e painel.
 use crate::anim::Transition;
+use crate::components::basic::focus_ring;
 use crate::cx::{EventCx, RenderCx};
 use crate::element::{div, text, Element, ElementId};
 use crate::style::Styled;
@@ -50,7 +51,7 @@ pub(super) fn panel<V>(theme: &Theme) -> Element<V> {
 /// Aplica o anel de foco do tema quando o foco veio do teclado.
 pub(super) fn ring<V>(e: Element<V>, theme: &Theme, visible: bool) -> Element<V> {
     let ring = theme.ring;
-    if visible { e.focus(move |s| s.border(2.0, ring)) } else { e }
+    if visible { e.focus(move |s| focus_ring(s, ring)) } else { e }
 }
 
 /// Botão "×" de fechar (diálogo e toast), focável por `id`.

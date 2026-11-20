@@ -1,5 +1,6 @@
 //! Toaster: coloque uma vez na raiz. Empilha os toasts no canto inferior
 //! direito, entra deslizando com fade, sai com fade antes de vencer.
+use crate::components::basic::Component;
 use super::common::{close_button, nothing, panel, sub, sub_i, Lens, PRESENCE};
 use super::toast::{Entry, Toasts};
 use crate::components::Variant;
@@ -20,7 +21,7 @@ impl<'a, V: 'static> Toaster<'a, V> {
         Self { id: id.into(), toasts, lens: Rc::new(lens) }
     }
 
-    pub fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
+    fn build(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
         let now = cx.now();
         if let Some(next) = self.toasts.items.iter().filter(|e| e.expires > now).map(|e| e.expires).min() {
             // Acorda no próximo vencimento (ou no início do fade de saída).
@@ -65,5 +66,11 @@ impl<'a, V: 'static> Toaster<'a, V> {
         } else {
             card.bg(theme.background)
         }
+    }
+}
+
+impl<V: 'static> Component<V> for Toaster<'_, V> {
+    fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
+        self.build(cx)
     }
 }

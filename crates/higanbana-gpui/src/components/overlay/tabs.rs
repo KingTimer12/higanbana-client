@@ -1,5 +1,6 @@
 //! Tabs (shadcn): lista de gatilhos em fundo `muted`; o ativo ganha fundo e sombra.
 //! Setas esquerda/direita (e Home/End) movem o foco e ativam a aba.
+use crate::components::basic::Component;
 use super::common::{ring, sub, sub_i, OnChange};
 use crate::color::rgba;
 use crate::cx::{EventCx, RenderCx};
@@ -34,7 +35,10 @@ impl<V: 'static> Tabs<V> {
         sub_i(id.into(), "aba", i)
     }
 
-    pub fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
+}
+
+impl<V: 'static> Component<V> for Tabs<V> {
+    fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
         let theme = cx.theme();
         let ring_on = cx.focus().visible;
         let (id, n, active) = (self.id, self.tabs.len(), self.active.min(self.tabs.len().saturating_sub(1)));
