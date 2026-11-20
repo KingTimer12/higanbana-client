@@ -1,5 +1,5 @@
 /* vk_pipeline.c — render passes, layout (push constants + atlas) e pipelines de
- * quad/glyph a partir do SPIR-V gerado no build (naga). Blend pré-multiplicado. */
+ * quad/glyph/imagem a partir do SPIR-V gerado no build (naga). Blend pré-multiplicado. */
 #include "vk_internal.h"
 #include "error.h"
 #include "text.h"
@@ -7,6 +7,8 @@
 #include "quad_fs_spv.h"
 #include "glyph_vs_spv.h"
 #include "glyph_fs_spv.h"
+#include "image_vs_spv.h"
+#include "image_fs_spv.h"
 
 #define F4 VK_FORMAT_R32G32B32A32_SFLOAT
 #define F1 VK_FORMAT_R32_SFLOAT
@@ -19,6 +21,10 @@ static const VkVertexInputAttributeDescription k_quad_attrs[] = {
 static const VkVertexInputAttributeDescription k_glyph_attrs[] = {
     { 0, 0, F4, offsetof(hg_glyph_instance, rect) }, { 1, 0, F4, offsetof(hg_glyph_instance, uv) },
     { 2, 0, F4, offsetof(hg_glyph_instance, color) },
+};
+static const VkVertexInputAttributeDescription k_image_attrs[] = {
+    { 0, 0, F4, offsetof(hg_image_draw, rect) }, { 1, 0, F4, offsetof(hg_image_draw, uv) },
+    { 2, 0, F4, offsetof(hg_image_draw, tint) }, { 3, 0, F4, offsetof(hg_image_draw, radius) },
 };
 
 static VkResult make_pass(vk_device* d, uint32_t load, uint32_t initial, VkRenderPass* out) {
@@ -84,11 +90,13 @@ hg_result vk_pipeline_create(vk_device* d) {
     vk_pipeline* p = &d->pipeline;
     shader_pair quad = { hg_quad_vs_spv, sizeof hg_quad_vs_spv, hg_quad_fs_spv, sizeof hg_quad_fs_spv };
     shader_pair glyph = { hg_glyph_vs_spv, sizeof hg_glyph_vs_spv, hg_glyph_fs_spv, sizeof hg_glyph_fs_spv };
+    shader_pair image = { hg_image_vs_spv, sizeof hg_image_vs_spv, hg_image_fs_spv, sizeof hg_image_fs_spv };
     VkResult r = make_pass(d, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_IMAGE_LAYOUT_UNDEFINED, &p->pass_clear);
     if (r == VK_SUCCESS) r = make_pass(d, VK_ATTACHMENT_LOAD_OP_LOAD, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, &p->pass_load);
     if (r == VK_SUCCESS) r = make_layout(d);
     if (r == VK_SUCCESS) r = make_pipeline(d, quad, sizeof(hg_quad), k_quad_attrs, 7, &p->quad);
     if (r == VK_SUCCESS) r = make_pipeline(d, glyph, sizeof(hg_glyph_instance), k_glyph_attrs, 3, &p->glyph);
+    if (r == VK_SUCCESS) r = make_pipeline(d, image, sizeof(hg_image_draw), k_image_attrs, 4, &p->image);
     if (r != VK_SUCCESS) {
         vk_pipeline_release(d);
         return hg__fail(HG_ERR_DEVICE, "vulkan: falha ao criar pipeline");
@@ -98,6 +106,7 @@ hg_result vk_pipeline_create(vk_device* d) {
 
 void vk_pipeline_release(vk_device* d) {
     vk_pipeline* p = &d->pipeline;
+    VK_DESTROY(d, vkDestroyPipeline, p->image);
     VK_DESTROY(d, vkDestroyPipeline, p->glyph);
     VK_DESTROY(d, vkDestroyPipeline, p->quad);
     VK_DESTROY(d, vkDestroyPipelineLayout, p->layout);
