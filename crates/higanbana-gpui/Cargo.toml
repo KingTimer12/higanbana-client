@@ -13,3 +13,5 @@ wgpu = ["higanbana-gpui-sys/wgpu"]
 higanbana-gpui-sys.workspace = true
 # Mesma versão do Cargo.lock; só os algoritmos usados (flexbox).
 taffy = { version = "=0.15.1", default-features = false, features = ["std", "taffy_tree", "flexbox", "content_size"] }
+# Movimento do cursor por grafema (emoji com ZWJ, acentos combinantes).
+unicode-segmentation = "1.13.3"
