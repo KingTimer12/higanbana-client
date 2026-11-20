@@ -453,12 +453,18 @@ pub fn sidebar(state: &Entity<AppState>, sections: &[String], cx: &mut App) -> i
         Some(url) => div().size_8().flex_none().rounded_full().overflow_hidden().bg(cx.theme().muted).child(rounded_image(Some(&url), Some(gpui_kit::px(999.)), cx)).into_any_element(),
         None => Avatar::new().name(name.clone()).small().into_any_element(),
     };
+    let settings = {
+        let core = core.clone();
+        Button::new("settings").ghost().small().icon(IconName::Settings2).tooltip("Configurações").on_click(move |_, window, cx| {
+            crate::settings_dialog::SettingsDialog::open(core.clone(), window, cx);
+        })
+    };
     let logout = Button::new("logout").ghost().small().icon(IconName::LogOut).tooltip("Sair da conta").on_click(move |_, _, _| {
         let c = core.clone();
         core.spawn(async move { c.auth().logout().await });
     });
     let footer = SidebarFooter::new().child(if collapsed {
-        h_flex().w_full().justify_center().child(face).into_any_element()
+        v_flex().w_full().items_center().gap_1().child(settings).child(face).into_any_element()
     } else {
         h_flex()
             .w_full()
@@ -471,6 +477,7 @@ pub fn sidebar(state: &Entity<AppState>, sections: &[String], cx: &mut App) -> i
                     .child(truncate(name).text_sm().font_weight(FontWeight::SEMIBOLD))
                     .child(div().text_xs().text_color(cx.theme().muted_foreground).child("Via Discord")),
             )
+            .child(settings)
             .child(logout)
             .into_any_element()
     });

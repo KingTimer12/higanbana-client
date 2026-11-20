@@ -104,17 +104,23 @@ fn disk_cache_dir() -> std::path::PathBuf {
     dir
 }
 
-/// Quanto do que já passou fica guardado para voltar sem ir à rede de novo.
-/// Fica no disco, então pode ser grande sem custar RAM.
-const BACK_CACHE: &str = "512MiB";
+/// Teto de tempo do buffer à frente: o limite em bytes sozinho deixa um
+/// episódio leve guardar minutos (150 MB ≈ 8 min de 1080p comum).
+const AHEAD_SECS: &str = "60";
 
-/// Opções fixas: nada da interface do próprio mpv; cache em disco, para a RAM
-/// ficar só com o que está tocando.
+/// Opções fixas: nada da interface do próprio mpv; buffer limitado (à frente e
+/// para trás) na RAM, ou em arquivo temporário quando o usuário liga o disco.
 /// `surface` traz as opções de saída de vídeo da plataforma (`wid`/`vo`).
-fn base_options(surface: Vec<(&'static str, String)>, cache_mib: u32, decode_threads: u8) -> Vec<(&'static str, String)> {
+fn base_options(surface: Vec<(&'static str, String)>, s: &Settings) -> Vec<(&'static str, String)> {
     let mut opts = surface;
+    if s.disk_cache {
+        opts.push(("cache-on-disk", "yes".into()));
+        opts.push(("demuxer-cache-dir", disk_cache_dir().to_string_lossy().into_owned()));
+    } else {
+        opts.push(("cache-on-disk", "no".into()));
+    }
     opts.extend([
-        ("vd-lavc-threads", decode_threads.to_string()),
+        ("vd-lavc-threads", s.decode_threads.to_string()),
         ("hwdec", "auto-safe".into()),
         ("keep-open", "yes".into()),
         ("osc", "no".into()),
@@ -124,12 +130,28 @@ fn base_options(surface: Vec<(&'static str, String)>, cache_mib: u32, decode_thr
         ("input-cursor", "no".into()),
         ("cursor-autohide", "no".into()),
         ("cache", "yes".into()),
-        ("cache-on-disk", "yes".into()),
-        ("demuxer-cache-dir", disk_cache_dir().to_string_lossy().into_owned()),
-        ("demuxer-max-bytes", format!("{cache_mib}MiB")),
-        ("demuxer-max-back-bytes", BACK_CACHE.into()),
+        ("demuxer-max-bytes", format!("{}MiB", s.cache_mib)),
+        ("demuxer-max-back-bytes", format!("{}MiB", s.back_cache_mib)),
+        // Menos memória: poucos quadros extras do decodificador, no máximo
+        // `AHEAD_SECS` lidos à frente (mesmo com folga no limite de bytes; o
+        // padrão do mpv é 1 h) e buffer de áudio curto.
+        ("hwdec-extra-frames", "2".into()),
+        ("cache-secs", AHEAD_SECS.into()),
+        ("demuxer-readahead-secs", AHEAD_SECS.into()),
+        ("audio-buffer", "0.2".into()),
         ("sub-auto", "no".into()),
     ]);
+    // Diagnóstico: `HIGANBANA_MPV="vo=gpu,hwdec=no"` sobrescreve opções sem recompilar.
+    if let Ok(extra) = std::env::var("HIGANBANA_MPV") {
+        for kv in extra.split(',') {
+            if let Some((k, v)) = kv.split_once('=') {
+                let k: &'static str = Box::leak(k.trim().to_owned().into_boxed_str());
+                opts.retain(|(o, _)| *o != k);
+                opts.push((k, v.trim().to_owned()));
+            }
+        }
+        tracing::info!(%extra, "opções extras do mpv");
+    }
     opts
 }
 
@@ -155,6 +177,8 @@ pub struct PlayerView {
     mpv: Option<Mpv>,
     focus: FocusHandle,
     data: PlayerData,
+    /// Log periódico de memória (processo e buffer do mpv), para achar vazamento.
+    _mem_probe: Option<Task<()>>,
 
     pos: f64,
     dur: f64,
@@ -281,6 +305,7 @@ impl PlayerView {
             thumbs: None,
             thumb_trash: Vec::new(),
             _thumb_events: None,
+            _mem_probe: None,
             last_mouse: None,
             _events: None,
             _subs: subs,
@@ -300,10 +325,30 @@ impl PlayerView {
             });
         })
         .detach();
-        let opts = base_options(this.surface.mpv_options(), this.data.settings.cache_mib, this.data.settings.decode_threads);
+        tracing::debug!(processo_mb = crate::mem::private_mb(), "abrindo player");
+        let opts = base_options(this.surface.mpv_options(), &this.data.settings);
         match Mpv::new(&opts, &OBSERVED).and_then(|(mpv, rx)| this.surface.attach(&mpv).map(|()| (mpv, rx))) {
             Ok((mpv, mut rx)) => {
                 this.mpv = Some(mpv);
+                this._mem_probe = Some(cx.spawn(async move |this, cx| {
+                    loop {
+                        cx.background_executor().timer(Duration::from_secs(10)).await;
+                        let alive = this.update(cx, |v, _| {
+                            let Some(m) = &v.mpv else { return };
+                            let get = |k: &str| m.get(k).unwrap_or_default();
+                            tracing::debug!(
+                                processo_mb = crate::mem::private_mb(),
+                                buffer = %get("demuxer-cache-state"),
+                                pos = v.pos,
+                                hwdec = %get("hwdec-current"),
+                                "memória do player"
+                            );
+                        });
+                        if alive.is_err() {
+                            break;
+                        }
+                    }
+                }));
                 this._events = Some(cx.spawn_in(window, async move |this, cx| {
                     while let Some(e) = rx.next().await {
                         let r = this.update_in(cx, |v, window, cx| {
@@ -753,6 +798,11 @@ impl PlayerView {
         {
             let _ = m.set("demuxer-max-bytes", &format!("{}MiB", s.cache_mib));
         }
+        if s.back_cache_mib != self.data.settings.back_cache_mib
+            && let Some(m) = &self.mpv
+        {
+            let _ = m.set("demuxer-max-back-bytes", &format!("{}MiB", s.back_cache_mib));
+        }
         if s.decode_threads != self.data.settings.decode_threads
             && let Some(m) = &self.mpv
         {
@@ -785,6 +835,12 @@ impl PlayerView {
             cx.background_executor().timer(HIDE_AFTER).await;
             let _ = this.update(cx, |v, cx| {
                 v.idle = true;
+                // Controles sumiram: o segundo mpv (miniaturas) tem decodificador
+                // e buffer próprios; fecha e reabre no próximo movimento do mouse.
+                if !v.paused && v.drag.is_none() {
+                    v.drop_thumbs();
+                    v._thumb_events = None;
+                }
                 cx.notify();
             });
         }));
@@ -903,7 +959,8 @@ fn menu_heading(text: &'static str, cx: &App) -> Div {
 
 const LANGS: [(&str, &str); 5] = [("por", "Português"), ("eng", "Inglês"), ("jpn", "Japonês"), ("kor", "Coreano"), ("spa", "Espanhol")];
 const COUNTDOWNS: [u8; 3] = [5, 10, 15];
-const CACHES: [u32; 4] = [100, 150, 300, 500];
+pub const CACHES: [u32; 4] = [50, 100, 150, 300];
+pub const BACK_CACHES: [u32; 4] = [0, 32, 64, 256];
 /// Núcleos do decodificador: 0 = o mpv escolhe.
 const THREADS: [u8; 4] = [0, 4, 2, 1];
 

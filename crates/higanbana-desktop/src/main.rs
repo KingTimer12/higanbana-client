@@ -9,10 +9,12 @@ mod components;
 mod image_cache;
 mod interact;
 mod logging;
+mod mem;
 mod motion;
 mod music;
 mod reader;
 mod series;
+mod settings_dialog;
 mod state;
 mod theme;
 mod ui;
@@ -29,6 +31,11 @@ use higanbana_core::{Core, Event, Paths};
 fn main() {
     let paths = Paths::system().expect("pastas do app");
     let _log = logging::init(&paths.cache);
+    // Diagnóstico: memória do processo a cada 15 s, em qualquer tela.
+    let _ = std::thread::Builder::new().name("mem-probe".into()).spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_secs(15));
+        tracing::debug!(processo_mb = mem::private_mb(), "memória");
+    });
     tracing::info!(version = higanbana_core::version::current(), data = %paths.data.display(), cache = %paths.cache.display(), "higanbana abrindo");
     let (tx, rx) = mpsc::unbounded::<Event>();
     let events = Arc::new(move |e| {
