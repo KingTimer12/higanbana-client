@@ -97,6 +97,9 @@ pub trait Styled: Sized {
     fn rounded_full(self) -> Self { self.rounded(9999.0) }
     fn shadow(self, color: Color, blur: f32) -> Self { self.with(|s| s.shadow = Some(Shadow { color, blur })) }
     fn opacity(self, v: f32) -> Self { self.with(|s| s.opacity = v.clamp(0.0, 1.0)) }
+    /// Cursor do mouse enquanto sobre o elemento.
+    fn cursor(self, c: crate::gfx::CursorStyle) -> Self { self.with(|s| s.cursor = Some(c)) }
+    fn cursor_pointer(self) -> Self { self.cursor(crate::gfx::CursorStyle::Pointer) }
 
     // ---- texto (herdado) ----
     fn text_color(self, c: Color) -> Self { self.with(|s| s.text.color = Some(c)) }

@@ -2,7 +2,9 @@
 //!
 //! Camadas: `gfx` (handles do core), `style`/`element` (descrição da UI),
 //! `layout` (taffy), `paint` (draw list), `input` (hit test, hover, clique, rolagem)
-//! e `app` (laço que só refaz trabalho quando algo mudou).
+//! `app` (laço que só refaz trabalho quando algo mudou), `anim` (tweens e timers),
+//! `text_input` (edição de texto) e overlays (camada acima da árvore).
+pub mod anim;
 pub mod app;
 pub mod color;
 pub mod cx;
@@ -14,13 +16,20 @@ pub mod input;
 pub mod layout;
 pub mod paint;
 pub mod style;
+pub mod text_input;
 pub mod theme;
 pub mod tree;
 
 pub use app::{App, View};
 pub use color::{premultiply_rgba8, rgb, rgba, Color};
-pub use cx::{EventCx, RenderCx};
-pub use element::{div, img, scroll, text, Element, ElementId, ImageData, ImageSource, MouseEvent};
+pub use anim::{Easing, Transition};
+pub use cx::{EventCx, FocusInfo, RenderCx, TimerId};
+pub use element::{
+    div, img, overlay, scroll, text, text_field, Anchor, AnchorAlign, Element, ElementId, ImageData, ImageSource,
+    MouseEvent, Overlay, PointerEvent, Side,
+};
+pub use input::{Key, KeyEvent};
+pub use text_input::{InputOutcome, TextInputState};
 pub use error::{Error, ErrorKind, Result};
 pub use geometry::{point, size, Corners, Edges, Point, Rect, Size};
 pub use gfx::*;
@@ -31,7 +40,8 @@ pub use tree::Tree;
 /// Tudo que uma view costuma precisar.
 pub mod prelude {
     pub use crate::{
-        auto, div, img, pct, px, rgb, rgba, scroll, text, App, BackendKind, Color, Element, EventCx, ImageData,
-        ImageSource, MouseEvent, RenderCx, Styled, Theme, View, WindowOptions,
+        auto, div, img, overlay, pct, px, rgb, rgba, scroll, text, text_field, Anchor, AnchorAlign, App, BackendKind,
+        Color, CursorStyle, Easing, Element, EventCx, ImageData, ImageSource, Key, KeyEvent, MouseEvent, PointerEvent,
+        RenderCx, Side, Styled, TextInputState, Theme, Transition, View, WindowOptions,
     };
 }

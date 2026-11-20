@@ -1,22 +1,30 @@
 //! Converte o layout relativo do taffy em retângulos absolutos, com rolagem e clips.
 use super::engine::LayoutEngine;
 use crate::element::ElementId;
-use crate::geometry::{Rect, Size};
+use crate::geometry::{Point, Rect, Size};
 use crate::style::Overflow;
 use crate::tree::node::{children, Node, NO_PARENT};
 use std::collections::HashMap;
+use std::ops::Range;
 
 /// Deslocamentos de rolagem por id de elemento (sobrevivem às reconstruções).
 pub(crate) type ScrollOffsets = HashMap<ElementId, f32>;
 
-/// Preenche `rect`, `content`, `clip` e `scroll_max` de cada nó.
-/// Também prende os deslocamentos guardados ao intervalo válido.
-pub(crate) fn position<V>(engine: &LayoutEngine, nodes: &mut [Node<V>], viewport: Size, offsets: &mut ScrollOffsets) {
-    for i in 0..nodes.len() {
+/// Preenche `rect`, `content`, `clip` e `scroll_max` dos nós em `range` (uma raiz e
+/// sua subárvore). A raiz fica em `origin`. Também prende os deslocamentos guardados.
+pub(crate) fn position<V>(
+    engine: &LayoutEngine,
+    nodes: &mut [Node<V>],
+    range: Range<usize>,
+    origin: Point,
+    viewport: Size,
+    offsets: &mut ScrollOffsets,
+) {
+    for i in range {
         let l = engine.layout(i);
         let parent = nodes[i].parent;
         let (origin_x, origin_y, clip, scroll) = if parent == NO_PARENT {
-            (0.0, 0.0, Rect::new(0.0, 0.0, viewport.width, viewport.height), 0.0)
+            (origin.x, origin.y, Rect::new(0.0, 0.0, viewport.width, viewport.height), 0.0)
         } else {
             let p = &nodes[parent as usize];
             let scroll = p.id.and_then(|id| offsets.get(&id).copied()).filter(|_| p.scroll_max > 0.0).unwrap_or(0.0);

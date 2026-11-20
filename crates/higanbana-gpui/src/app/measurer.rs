@@ -23,4 +23,18 @@ impl TextMeasurer for GpuMeasurer<'_> {
             }
         }
     }
+
+    /// Um layout DirectWrite só para todas as fronteiras.
+    fn caret_positions(&mut self, text: &str, style: &TextStyle, out: &mut Vec<f32>) {
+        let s = self.scale;
+        let r = self.ctx.font(&style.font).and_then(|font| self.ctx.caret_positions(font, style.size * s, text, out));
+        match r {
+            Ok(()) => out.iter_mut().for_each(|x| *x /= s),
+            Err(e) => {
+                eprintln!("higanbana-gpui: posições do cursor falharam: {e}");
+                out.clear();
+                out.resize(text.chars().count() + 1, 0.0);
+            }
+        }
+    }
 }

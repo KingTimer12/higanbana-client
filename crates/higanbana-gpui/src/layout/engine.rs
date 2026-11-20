@@ -23,7 +23,8 @@ impl Default for LayoutEngine {
 }
 
 impl LayoutEngine {
-    /// Recria os nós taffy (filhos antes dos pais) e calcula para a viewport.
+    /// Recria os nós taffy (filhos antes dos pais) e calcula a raiz principal na viewport.
+    /// Raízes de overlay ficam montadas para `compute_overlay`.
     pub(crate) fn compute<V>(&mut self, nodes: &[Node<V>], viewport: Size, measurer: &mut dyn TextMeasurer) {
         self.taffy.clear();
         self.ids.clear();
@@ -35,6 +36,13 @@ impl LayoutEngine {
             let mut style = to_taffy(&nodes[i].style);
             if i == 0 {
                 fill_viewport(&mut style, viewport);
+            } else if nodes[i].parent == crate::tree::node::NO_PARENT {
+                // Overlay: tamanho do conteúdo, no máximo a janela.
+                style.position = taffy::Position::Relative;
+                style.max_size = taffy::Size {
+                    width: taffy::LengthPercentageAuto::length(viewport.width),
+                    height: taffy::LengthPercentageAuto::length(viewport.height),
+                };
             }
             let id = match nodes[i].kind {
                 NodeKind::Div => {
@@ -50,8 +58,24 @@ impl LayoutEngine {
             width: AvailableSpace::Definite(viewport.width),
             height: AvailableSpace::Definite(viewport.height),
         };
+        self.run(nodes, 0, space, measurer);
+    }
+
+    /// Calcula a raiz de overlay `root` pelo conteúdo; `min_width` = largura da âncora.
+    pub(crate) fn compute_overlay<V>(&mut self, nodes: &[Node<V>], root: usize, min_width: Option<f32>, measurer: &mut dyn TextMeasurer) {
+        if let Some(w) = min_width {
+            let id = self.ids[root];
+            let mut style = self.taffy.style(id).expect("taffy: nó sem estilo").clone();
+            style.min_size.width = taffy::LengthPercentageAuto::length(w);
+            self.taffy.set_style(id, style).expect("taffy: estilo");
+        }
+        let space = taffy::Size { width: AvailableSpace::MaxContent, height: AvailableSpace::MaxContent };
+        self.run(nodes, root, space, measurer);
+    }
+
+    fn run<V>(&mut self, nodes: &[Node<V>], root: usize, space: taffy::Size<AvailableSpace>, measurer: &mut dyn TextMeasurer) {
         let cache = &mut self.cache;
-        let result = self.taffy.compute_layout_with_measure(self.ids[0], space, |input, _, ctx, style| {
+        let result = self.taffy.compute_layout_with_measure(self.ids[root], space, |input, _, ctx, style| {
             taffy::compute_leaf_layout(input, style, |_, _| 0.0, |known, avail| match ctx {
                 Some(i) => measure_leaf(&nodes[*i as usize], known, avail, cache, measurer),
                 None => taffy::Size::ZERO,
@@ -108,6 +132,12 @@ fn measure_leaf<V>(
                 (None, Some(kh)) if h > 0.0 => taffy::Size { width: kh * w / h, height: kh },
                 _ => taffy::Size { width: w, height: h },
             }
+        }
+        NodeKind::TextField(f) => {
+            // Uma linha: altura do texto (ou do placeholder); largura natural do conteúdo.
+            let shown = if !f.data.text.is_empty() { f.data.text.as_str() } else if !f.data.placeholder.is_empty() { &f.data.placeholder } else { " " };
+            let m = cache.measure(measurer, shown, &node.text, None);
+            taffy::Size { width: known.width.unwrap_or(m.width + 2.0), height: known.height.unwrap_or(m.height) }
         }
         NodeKind::Div => taffy::Size::ZERO,
     }

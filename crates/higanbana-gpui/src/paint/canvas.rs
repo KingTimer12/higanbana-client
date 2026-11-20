@@ -40,7 +40,7 @@ impl<'a> Layered<'a> {
         Self { inner, text: None, images: None, layers: 0 }
     }
 
-    fn new_layer(&mut self) {
+    pub fn new_layer(&mut self) {
         self.inner.layer();
         self.text = None;
         self.images = None;

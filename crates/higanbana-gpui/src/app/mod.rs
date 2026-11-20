@@ -2,6 +2,7 @@
 mod events;
 mod measurer;
 mod overlay;
+mod requests;
 mod run;
 
 pub use measurer::GpuMeasurer;

@@ -16,7 +16,7 @@ fn build(root: Element<Counter>) -> Tree<Counter> {
 
 fn click(t: &mut Tree<Counter>, v: &mut Counter, down: (f32, f32), up: (f32, f32)) -> EventCx {
     let mut cx = EventCx::default();
-    t.mouse_down(point(down.0, down.1), MouseButton::Left);
+    t.mouse_down(point(down.0, down.1), MouseButton::Left, Modifiers::default(), v, &mut cx);
     t.mouse_up(point(up.0, up.1), MouseButton::Left, Modifiers::default(), v, &mut cx);
     cx
 }

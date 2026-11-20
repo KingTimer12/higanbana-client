@@ -1,47 +1,50 @@
 //! Árvore de elementos descrita por `View::render` a cada reconstrução.
+mod handlers;
 mod id;
 mod image_data;
+mod interactive;
+mod overlay;
+mod text_field;
 
+pub use handlers::{
+    CharHandler, ClickHandler, DismissHandler, HoverHandler, HoverStyle, KeyHandler, MouseEvent, PointerEvent,
+    PointerHandler, StyleFn,
+};
 pub use id::ElementId;
 pub use image_data::{ImageData, ImageSource};
+pub use overlay::{overlay, Anchor, AnchorAlign, Overlay, Side};
+pub use text_field::{text_field, CARET_BLINK_MS};
+
+pub(crate) use handlers::Interactivity;
+pub(crate) use overlay::OverlaySpec;
+pub(crate) use text_field::FieldData;
 
 use crate::cx::EventCx;
-use crate::gfx::{Modifiers, MouseButton};
-use crate::geometry::Point;
 use crate::style::{Overflow, Style, Styled};
 use std::borrow::Cow;
 
-/// Clique entregue aos handlers; posição em pixels lógicos da janela.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MouseEvent {
-    pub position: Point,
-    pub button: MouseButton,
-    pub mods: Modifiers,
-}
-
-/// Handler de clique tipado na view.
-pub type ClickHandler<V> = Box<dyn Fn(&mut V, &MouseEvent, &mut EventCx)>;
-/// Transforma o estilo base no estilo de hover (só propriedades visuais valem).
-pub type HoverStyle = Box<dyn Fn(Style) -> Style>;
-
-pub(crate) enum Kind {
+pub(crate) enum Kind<V> {
     Div,
     Text(Cow<'static, str>),
     Image(ImageSource),
+    TextField(Box<FieldData>),
+    /// Conteúdo (único filho) vai para a camada de overlays.
+    Overlay(Box<OverlaySpec<V>>),
 }
 
 /// Elemento: div (com filhos), texto, imagem ou contêiner de rolagem.
 pub struct Element<V> {
-    pub(crate) kind: Kind,
+    pub(crate) kind: Kind<V>,
     pub(crate) style: Style,
     pub(crate) id: Option<ElementId>,
     pub(crate) hover: Option<HoverStyle>,
     pub(crate) on_click: Option<ClickHandler<V>>,
+    pub(crate) interact: Option<Box<Interactivity<V>>>,
     pub(crate) children: Vec<Element<V>>,
 }
 
-fn element<V>(kind: Kind, style: Style) -> Element<V> {
-    Element { kind, style, id: None, hover: None, on_click: None, children: Vec::new() }
+pub(crate) fn element<V>(kind: Kind<V>, style: Style) -> Element<V> {
+    Element { kind, style, id: None, hover: None, on_click: None, interact: None, children: Vec::new() }
 }
 
 /// Caixa flex vazia.
@@ -89,7 +92,8 @@ impl<V> Element<V> {
         self
     }
 
-    /// Clique = botão desce e sobe sobre o mesmo elemento.
+    /// Clique = botão desce e sobe sobre o mesmo elemento. Com foco, Enter/Espaço
+    /// não tratados também disparam o clique.
     pub fn on_click(mut self, f: impl Fn(&mut V, &MouseEvent, &mut EventCx) + 'static) -> Self {
         self.on_click = Some(Box::new(f));
         self

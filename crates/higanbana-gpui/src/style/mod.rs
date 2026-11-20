@@ -7,6 +7,7 @@ pub use text::{TextStyle, TextStyleRefinement};
 
 use crate::color::Color;
 use crate::geometry::{Corners, Edges};
+use crate::gfx::CursorStyle;
 
 /// Comprimento em pixels lógicos, porcentagem do pai ou automático.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -130,6 +131,8 @@ pub struct Style {
     pub shadow: Option<Shadow>,
     /// 0..1, multiplica a opacidade do elemento e dos filhos.
     pub opacity: f32,
+    /// Cursor do mouse sobre o elemento (o mais profundo com cursor vence).
+    pub cursor: Option<CursorStyle>,
     /// Propriedades de texto herdadas pelos descendentes.
     pub text: TextStyleRefinement,
 }
@@ -165,6 +168,7 @@ impl Default for Style {
             radius: Corners::all(0.0),
             shadow: None,
             opacity: 1.0,
+            cursor: None,
             text: TextStyleRefinement::default(),
         }
     }

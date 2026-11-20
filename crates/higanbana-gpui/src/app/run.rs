@@ -1,7 +1,9 @@
-//! Laço principal: bloqueia esperando evento; reconstrói/relayout/repinta só se sujo.
+//! Laço principal: bloqueia esperando evento (ou até o próximo prazo de timer,
+//! animação ou piscar do cursor); reconstrói/relayout/repinta só se sujo.
 use super::measurer::GpuMeasurer;
 use super::{overlay, App, View};
-use crate::cx::RenderCx;
+use crate::anim::Animator;
+use crate::cx::{RenderCx, Timers};
 use crate::error::Result;
 use crate::geometry::Size;
 use crate::gfx::{enumerate, BackendInfo, Context, DrawList, FontSpec, Window, WindowOptions};
@@ -9,6 +11,7 @@ use crate::paint::{GpuCanvas, ImageCache};
 use crate::style::TextStyle;
 use crate::theme::Theme;
 use crate::tree::Tree;
+use std::time::Instant;
 
 /// Quanto trabalho o próximo frame precisa (ordem crescente de custo).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -32,7 +35,13 @@ pub(super) struct Runner<'c, V> {
     pub viewport: Size,
     pub dirty: Dirty,
     show_stats: bool,
-    vsync: bool,
+    pub vsync: bool,
+    animator: Animator,
+    pub timers: Timers,
+    /// Reconstrução pedida para um instante (animação, `request_redraw_in`).
+    pub wake: Option<Instant>,
+    /// Próxima troca do cursor piscando (só repinta).
+    pub blink: Option<Instant>,
 }
 
 pub(super) fn run<V: View>(app: App, options: WindowOptions, view: V) -> Result<()> {
@@ -52,15 +61,25 @@ pub(super) fn run<V: View>(app: App, options: WindowOptions, view: V) -> Result<
         dirty: Dirty::Rebuild,
         show_stats: app.show_stats,
         vsync: app.vsync,
+        animator: Animator::default(),
+        timers: Timers::default(),
+        wake: None,
+        blink: None,
     };
     loop {
         r.frame();
-        let mut next = Some(r.win.wait_event()?);
+        let mut next = match r.deadline() {
+            None => Some(r.win.wait_event()?),
+            Some(t) => r.win.wait_event_timeout(t.saturating_duration_since(Instant::now()))?,
+        };
         while let Some(ev) = next {
             if !r.handle(ev) {
                 return Ok(());
             }
             next = r.win.poll_event();
+        }
+        if !r.tick(Instant::now()) {
+            return Ok(());
         }
     }
 }
@@ -75,28 +94,45 @@ impl<V: View> Runner<'_, V> {
         TextStyle { font: FontSpec::new(t.family, 400, false), size: t.sm, color: self.theme.foreground, wrap: true }
     }
 
+    /// Chama `View::render` com foco e animações; agenda o próximo frame se algo anima.
+    fn render(&mut self, now: Instant, measurer: &mut GpuMeasurer<'_>) {
+        let base = self.base_text();
+        self.animator.begin();
+        let mut cx = RenderCx::new(&self.theme, self.ctx.backend(), &self.backends, self.ctx.stats(), &mut self.animator)
+            .with_focus(self.tree.focus_info());
+        cx.now = now;
+        let root = self.view.render(&mut cx);
+        let wake = cx.wake;
+        self.tree.rebuild(root, &base, self.viewport, measurer);
+        let active = self.animator.is_active();
+        self.animator.end();
+        if let Some(w) = wake {
+            self.wake = Some(self.wake.map_or(w, |x| x.min(w)));
+        }
+        if active {
+            self.request_frame(now);
+        }
+    }
+
     /// Faz o mínimo necessário para o estado sujo e apresenta.
     fn frame(&mut self) {
         if self.dirty == Dirty::Clean || self.viewport.width < 1.0 || self.viewport.height < 1.0 {
             return;
         }
+        let now = Instant::now();
         let mut measurer = GpuMeasurer { ctx: self.ctx, scale: self.scale };
         match self.dirty {
-            Dirty::Rebuild => {
-                let mut cx = RenderCx::new(&self.theme, self.ctx.backend(), &self.backends, self.ctx.stats());
-                let root = self.view.render(&mut cx);
-                let base = self.base_text();
-                self.tree.rebuild(root, &base, self.viewport, &mut measurer);
-            }
+            Dirty::Rebuild => self.render(now, &mut measurer),
             Dirty::Relayout => self.tree.relayout(self.viewport, &mut measurer),
             _ => {}
         }
         self.dirty = Dirty::Clean;
+        self.blink = self.tree.next_blink(now);
         self.images.prepare(&self.tree);
         let mut list = self.pool.take().unwrap_or_default().recycle();
         {
             let mut canvas = GpuCanvas::new(&mut list, self.ctx, &self.images, self.scale);
-            self.tree.paint(&mut canvas);
+            self.tree.paint_at(&mut canvas, now);
             if self.show_stats {
                 overlay::paint(&mut canvas, self.ctx, &self.theme, self.viewport);
             }

@@ -5,7 +5,7 @@ use crate::prelude::*;
 use crate::{point, Corners, Point, Quad, Rect, TextStyle};
 
 #[derive(Debug, PartialEq)]
-enum Op {
+pub(super) enum Op {
     Quad(Rect, Color),
     Image,
     Text(String, Color),
@@ -15,7 +15,7 @@ enum Op {
 }
 
 #[derive(Default)]
-struct Rec(Vec<Op>);
+pub(super) struct Rec(pub Vec<Op>);
 
 impl Canvas for Rec {
     fn quad(&mut self, q: &Quad) {

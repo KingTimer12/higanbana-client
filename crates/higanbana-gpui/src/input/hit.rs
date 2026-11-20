@@ -5,9 +5,10 @@ use crate::tree::Tree;
 
 impl<V> Tree<V> {
     /// Nó mais acima sob `p`. Pré-ordem invertida = ordem de pintura invertida,
-    /// então irmãos posteriores e descendentes ganham.
+    /// então irmãos posteriores, descendentes e overlays ganham. Abaixo de um
+    /// overlay modal nada é atingido.
     pub fn hit_test(&self, p: Point) -> Option<usize> {
-        (0..self.nodes.len()).rev().find(|&i| {
+        (self.barrier..self.nodes.len()).rev().find(|&i| {
             let n = &self.nodes[i];
             n.clip.contains(p) && n.rect.contains(p)
         })
@@ -28,7 +29,7 @@ impl<V> Tree<V> {
 
     /// Elemento com estilo de hover mais profundo que contém o nó sob o mouse.
     pub(crate) fn hover_owner(&self, hovered: Option<u32>) -> Option<usize> {
-        hovered.and_then(|h| self.nearest(h as usize, |n| n.hover.is_some()))
+        hovered.and_then(|h| self.nearest(h as usize, |n| n.hover.is_some() && !n.disabled))
     }
 
     /// O nó `i` está sob o mouse (ele ou um descendente)?

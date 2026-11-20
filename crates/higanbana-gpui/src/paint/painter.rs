@@ -7,6 +7,7 @@ use crate::layout::padding_box;
 use crate::style::{Display, Overflow, Style};
 use crate::tree::node::{children, NodeKind};
 use crate::tree::Tree;
+use std::time::Instant;
 
 /// Cor da barra de rolagem (neutra, funciona nos dois temas).
 const SCROLLBAR: Color = rgba(0x8080_8080);
@@ -15,33 +16,57 @@ const SCROLLBAR_W: f32 = 4.0;
 impl<V> Tree<V> {
     /// Pinta a árvore toda. Devolve quantas camadas extras foram abertas.
     pub fn paint(&self, canvas: &mut dyn Canvas) -> u32 {
+        self.paint_at(canvas, Instant::now())
+    }
+
+    /// Pinta com o relógio dado (piscar do cursor). Overlays vão em camadas por cima.
+    pub fn paint_at(&self, canvas: &mut dyn Canvas, now: Instant) -> u32 {
         let mut out = Layered::new(canvas);
         if !self.nodes.is_empty() {
-            self.paint_node(&mut out, 0, 1.0, None);
+            self.paint_node(&mut out, 0, 1.0, None, now);
+        }
+        for o in &self.overlays {
+            out.new_layer();
+            if let Some(c) = o.spec.backdrop {
+                let rect = Rect::new(0.0, 0.0, self.viewport.width, self.viewport.height);
+                out.quad(&Quad { rect, fill: c, ..Quad::default() });
+            }
+            self.paint_node(&mut out, o.root as usize, 1.0, None, now);
         }
         out.layers
     }
 
-    fn paint_node(&self, out: &mut Layered<'_>, i: usize, opacity: f32, text_color: Option<Color>) {
+    /// Estilo de estado (desabilitado, foco, hover) aplicado sobre o base, se houver.
+    fn state_style(&self, i: usize) -> Option<Style> {
+        let n = &self.nodes[i];
+        let x = n.interact.as_deref();
+        if n.disabled {
+            return x.and_then(|x| x.disabled_style.as_ref()).map(|f| f(n.style.clone()));
+        }
+        let mut s: Option<Style> = None;
+        if let Some(f) = x.and_then(|x| x.focus_style.as_ref()).filter(|_| n.id.is_some() && n.id == self.focused) {
+            s = Some(f(n.style.clone()));
+        }
+        if let Some(f) = n.hover.as_ref().filter(|_| self.is_hovered(i)) {
+            s = Some(f(s.unwrap_or_else(|| n.style.clone())));
+        }
+        s
+    }
+
+    fn paint_node(&self, out: &mut Layered<'_>, i: usize, opacity: f32, text_color: Option<Color>, now: Instant) {
         let n = &self.nodes[i];
         if n.style.display == Display::None {
             return;
         }
-        let hovered_style;
-        let style: &Style = match &n.hover {
-            Some(f) if self.is_hovered(i) => {
-                hovered_style = f(n.style.clone());
-                &hovered_style
-            }
-            _ => &n.style,
-        };
+        let state = self.state_style(i);
+        let style: &Style = state.as_ref().unwrap_or(&n.style);
         let opacity = opacity * style.opacity;
         if opacity <= 0.0 {
             return;
         }
         // Cor de texto vinda de um ancestral em hover sobrepõe a herdada.
         // Um elemento que define a própria cor zera a sobreposição (já está em `n.text`).
-        let text_color = match (n.hover.is_some(), style.text.color, n.style.text.color) {
+        let text_color = match (state.is_some(), style.text.color, n.style.text.color) {
             (true, Some(c), _) => Some(c),
             (_, _, Some(_)) => None,
             _ => text_color,
@@ -58,6 +83,11 @@ impl<V> Tree<V> {
                     let max_width = n.text.wrap.then_some(n.content.size.width + 0.5);
                     out.text(s, &n.text, n.content, max_width, color);
                 }
+                NodeKind::TextField(f) => {
+                    let color = text_color.unwrap_or(n.text.color).fade(opacity);
+                    let focused = n.id.is_some() && n.id == self.focused;
+                    super::field::paint_field(out, n, f, focused, now, color, opacity);
+                }
                 NodeKind::Div => {}
             }
         }
@@ -69,7 +99,7 @@ impl<V> Tree<V> {
             out.push_clip(padding_box(n));
         }
         for c in children(&self.nodes, i) {
-            self.paint_node(out, c, opacity, text_color);
+            self.paint_node(out, c, opacity, text_color, now);
         }
         if clips {
             out.pop_clip();

@@ -8,6 +8,16 @@ use std::hash::{BuildHasherDefault, Hash, Hasher};
 /// Abstraído para o layout rodar em testes sem GPU.
 pub trait TextMeasurer {
     fn measure(&mut self, text: &str, style: &TextStyle, max_width: Option<f32>) -> Size;
+
+    /// x (lógico) de cada fronteira de caractere numa linha: `codepoints + 1` valores.
+    /// O padrão mede prefixos (lento); o medidor de GPU usa um layout só.
+    fn caret_positions(&mut self, text: &str, style: &TextStyle, out: &mut Vec<f32>) {
+        out.clear();
+        out.push(0.0);
+        for (i, c) in text.char_indices() {
+            out.push(self.measure(&text[..i + c.len_utf8()], style, None).width);
+        }
+    }
 }
 
 /// Hasher FNV-1a: chaves curtas, sem a sobrecarga do SipHash.
