@@ -86,6 +86,14 @@ static hg_result d3d12_read_pixel(hg_window* win, uint32_t x, uint32_t y, uint32
     return d3d12_surface_read_pixel(device_of(win->ctx), surface_of(win), x, y, out);
 }
 
+static hg_result d3d12_tex_create(hg_context* ctx, struct hg_image* img) {
+    return d3d12_texture_create(device_of(ctx), img);
+}
+
+static void d3d12_tex_destroy(hg_context* ctx, struct hg_image* img) {
+    d3d12_texture_destroy(device_of(ctx), img);
+}
+
 const hg_backend_vtbl hg__d3d12_backend = {
     .kind = HG_BACKEND_D3D12,
     .name = "Direct3D 12",
@@ -98,5 +106,7 @@ const hg_backend_vtbl hg__d3d12_backend = {
     .begin_frame = d3d12_begin_frame,
     .submit = d3d12_submit,
     .end_frame = d3d12_end_frame,
+    .texture_create = d3d12_tex_create,
+    .texture_destroy = d3d12_tex_destroy,
     .read_pixel = d3d12_read_pixel,
 };
