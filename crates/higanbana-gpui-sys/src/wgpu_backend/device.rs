@@ -25,8 +25,14 @@ pub struct Gpu {
     pub readback: wgpu::Buffer,
 }
 
+/// Instância única por processo, nunca destruída: o driver Vulkan da AMD
+/// compartilha estado entre instâncias e destruir uma enquanto outra thread
+/// apresenta derruba o processo (mesma correção de `vk_instance.c`).
 fn instance() -> wgpu::Instance {
-    wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle())
+    static INSTANCE: std::sync::OnceLock<wgpu::Instance> = std::sync::OnceLock::new();
+    INSTANCE
+        .get_or_init(|| wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle()))
+        .clone()
 }
 
 fn request_adapter(instance: &wgpu::Instance) -> Option<wgpu::Adapter> {
