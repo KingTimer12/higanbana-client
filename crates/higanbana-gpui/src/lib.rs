@@ -7,6 +7,7 @@
 pub mod anim;
 pub mod app;
 pub mod color;
+pub mod components;
 pub mod cx;
 pub mod element;
 pub mod error;
