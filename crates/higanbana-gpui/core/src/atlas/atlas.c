@@ -147,6 +147,14 @@ hg_result hg__atlas_get_or_insert(hg_atlas* a, uint64_t key, uint32_t w, uint32_
     return HG_OK;
 }
 
+void hg__atlas_clear(hg_atlas* a) {
+    if (!a) return;
+    hg_map_clear(&a->map);
+    hg_pack_clear(&a->pack);
+    a->entry_count = a->free_count = a->alive_count = 0;
+    a->lru_head = a->lru_tail = NIL;
+}
+
 int hg__atlas_contains(const hg_atlas* a, uint64_t key) {
     return a && hg_map_get(&a->map, key) != HG_MAP_EMPTY;
 }

@@ -68,6 +68,11 @@ int             hg_enumerate_backends(hg_backend_info* out, int max);
 hg_result       hg_context_create(hg_backend_kind preferred, hg_context** out);
 void            hg_context_destroy(hg_context* ctx);
 hg_backend_kind hg_context_backend(const hg_context* ctx);
+/* Troca o backend sem fechar janelas: recria superfícies e o atlas de glyphs.
+ * Se `kind` falhar, volta ao backend anterior e devolve o erro. */
+hg_result       hg_context_switch_backend(hg_context* ctx, hg_backend_kind kind);
+/* Adaptador do backend ativo (nome, GPU). */
+hg_backend_info hg_context_backend_info(const hg_context* ctx);
 
 /* ---- Janela e eventos ------------------------------------------------- */
 typedef struct hg_window hg_window;

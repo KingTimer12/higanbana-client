@@ -72,3 +72,8 @@ void hg_map_remove(hg_atlas_map* m, uint64_t key) {
         i = j;
     }
 }
+
+void hg_map_clear(hg_atlas_map* m) {
+    for (uint32_t i = 0; i < m->capacity; i++) m->values[i] = HG_MAP_EMPTY;
+    m->count = 0;
+}

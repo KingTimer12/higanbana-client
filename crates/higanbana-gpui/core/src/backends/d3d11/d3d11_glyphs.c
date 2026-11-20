@@ -1,11 +1,10 @@
 /* d3d11_glyphs.c — textura do atlas de glyphs, pipeline de glyph e sink que
- * coleta as instâncias geradas pelo sistema de texto. */
+ * sobe as instâncias coletadas por glyph_frame. */
 #include "d3d11_internal.h"
 #include "draw_list.h"
 #include "error.h"
-#include "text.h"
+#include "glyph_frame.h"
 #include <stddef.h>
-#include <stdlib.h>
 #include <string.h>
 #include "glyph_vs.h" /* gerado: hg_glyph_vs[] */
 #include "glyph_ps.h" /* gerado: hg_glyph_ps[] */
@@ -66,76 +65,32 @@ static void d3d11_glyphs_release_gpu(d3d11_glyphs* g) {
 
 void d3d11_glyphs_release(d3d11_glyphs* g) {
     d3d11_glyphs_release_gpu(g);
-    free(g->instances);
-    free(g->batch_counts);
-    g->instances = NULL;
-    g->batch_counts = NULL;
-    g->count = g->capacity = g->batch_capacity = 0;
+    hg__glyph_frame_free(&g->frame);
 }
 
-/* ---- sink --------------------------------------------------------------- */
-
-typedef struct sink_state {
-    d3d11_device* d;
-} sink_state;
-
-static hg_result sink_upload(void* user, hg_rect at, const uint8_t* r8, uint32_t pitch) {
-    d3d11_device* d = ((sink_state*)user)->d;
+static hg_result upload_r8(void* user, hg_rect at, const uint8_t* r8, uint32_t pitch) {
+    d3d11_device* d = user;
     D3D11_BOX box = { (UINT)at.x, (UINT)at.y, 0, (UINT)(at.x + at.w), (UINT)(at.y + at.h), 1 };
     ID3D11DeviceContext_UpdateSubresource(d->imm, (ID3D11Resource*)d->glyphs.atlas, 0, &box, r8, pitch, 0);
     return HG_OK;
 }
 
-static hg_result sink_emit(void* user, const hg_glyph_instance* glyph) {
-    d3d11_glyphs* g = &((sink_state*)user)->d->glyphs;
-    if (g->count == g->capacity) {
-        uint32_t cap = g->capacity ? g->capacity * 2 : 1024;
-        hg_glyph_instance* grown = realloc(g->instances, sizeof *grown * cap);
-        if (!grown) return hg__fail(HG_ERR_OOM, "d3d11: sem memória para glyphs");
-        g->instances = grown;
-        g->capacity = cap;
-    }
-    g->instances[g->count++] = *glyph;
-    return HG_OK;
-}
-
-static hg_result reserve_batches(d3d11_glyphs* g, uint32_t batches) {
-    if (batches <= g->batch_capacity) return HG_OK;
-    uint32_t* grown = realloc(g->batch_counts, sizeof *grown * batches);
-    if (!grown) return hg__fail(HG_ERR_OOM, "d3d11: sem memória para lotes");
-    g->batch_counts = grown;
-    g->batch_capacity = batches;
-    return HG_OK;
-}
-
 hg_result d3d11_glyphs_prepare(d3d11_device* d, hg_context* ctx, const hg_draw_list* dl) {
     d3d11_glyphs* g = &d->glyphs;
-    g->count = 0;
-    uint32_t batches = 0, texts = 0;
-    for (const hg_batch* b = dl->first; b; b = b->next, batches++) texts += b->text_count;
-    if (texts == 0) return HG_OK;
-    if (!ctx->text) return hg__fail(HG_ERR_INVALID, "texto desenhado sem fonte carregada");
-
+    g->frame.count = 0;
+    if (!hg__draw_list_has_text(dl)) return HG_OK;
     hg_result r = ensure_pipeline(d->dev, g);
-    if (r == HG_OK) r = reserve_batches(g, batches);
-    sink_state state = { d };
-    hg_glyph_sink sink = { &state, sink_upload, sink_emit };
-    uint32_t i = 0;
-    for (const hg_batch* b = dl->first; b && r == HG_OK; b = b->next, i++) {
-        uint32_t before = g->count;
-        for (const hg_text_run* run = b->texts_first; run && r == HG_OK; run = run->next)
-            r = hg__text_render_run(ctx->text, run, ctx->frame_index, &sink);
-        g->batch_counts[i] = g->count - before;
-    }
-    if (r != HG_OK || g->count == 0) return r;
+    if (r == HG_OK) r = hg__glyph_frame_collect(&g->frame, ctx, dl, upload_r8, d);
+    if (r != HG_OK || g->frame.count == 0) return r;
 
-    r = d3d11_buffer_reserve(d->dev, &g->instances_gpu, g->count * (UINT)sizeof(hg_glyph_instance));
+    UINT bytes = g->frame.count * (UINT)sizeof(hg_glyph_instance);
+    r = d3d11_buffer_reserve(d->dev, &g->instances_gpu, bytes);
     D3D11_MAPPED_SUBRESOURCE map;
     if (r == HG_OK &&
         FAILED(ID3D11DeviceContext_Map(d->imm, (ID3D11Resource*)g->instances_gpu.buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &map)))
         r = hg__fail(HG_ERR_DEVICE, "d3d11: Map de glyphs falhou");
     if (r != HG_OK) return r;
-    memcpy(map.pData, g->instances, sizeof(hg_glyph_instance) * g->count);
+    memcpy(map.pData, g->frame.instances, bytes);
     ID3D11DeviceContext_Unmap(d->imm, (ID3D11Resource*)g->instances_gpu.buffer, 0);
     return HG_OK;
 }

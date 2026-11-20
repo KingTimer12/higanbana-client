@@ -77,7 +77,7 @@ hg_result d3d11_render_draw_list(d3d11_device* d, hg_context* ctx, d3d11_surface
     /* Por lote: quads primeiro, texto por cima. */
     UINT quad_start = 0, glyph_start = 0, i = 0;
     for (const hg_batch* b = dl->first; b; b = b->next, i++) {
-        UINT glyphs = d->glyphs.count ? d->glyphs.batch_counts[i] : 0;
+        UINT glyphs = d->glyphs.frame.count ? d->glyphs.frame.batch_counts[i] : 0;
         if (b->quad_count == 0 && glyphs == 0) continue;
         D3D11_RECT sc = scissor_for(b, s);
         ID3D11DeviceContext_RSSetScissorRects(d->imm, 1, &sc);

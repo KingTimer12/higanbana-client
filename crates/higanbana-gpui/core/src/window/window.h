@@ -13,6 +13,7 @@ struct hg_window {
     float          dpi_scale;
     int            skip_frame;    /* frame atual vira no-op (minimizada) */
     void*          surface;       /* dono: backend->attach/detach */
+    hg_window*     next;          /* lista de janelas do contexto */
 };
 
 /* Aplica novo tamanho: atualiza estado, avisa backend e enfileira evento. */

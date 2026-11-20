@@ -3,6 +3,7 @@
 #define HG_D3D11_INTERNAL_H
 #define COBJMACROS
 #include "window.h"
+#include "glyph_frame.h"
 #include <d3d11.h>
 #include <dxgi1_2.h>
 
@@ -42,8 +43,6 @@ hg_result d3d11_pipeline_create(ID3D11Device* dev, d3d11_pipeline* p);
 void      d3d11_pipeline_release(d3d11_pipeline* p);
 
 /* ---- glyphs: atlas R8 + pipeline + instâncias do frame ---------------- */
-struct hg_glyph_instance;
-
 typedef struct d3d11_glyphs {
     ID3D11VertexShader*       vs;
     ID3D11PixelShader*        ps;
@@ -52,10 +51,7 @@ typedef struct d3d11_glyphs {
     ID3D11Texture2D*          atlas;
     ID3D11ShaderResourceView* atlas_srv;
     d3d11_dynamic_buffer      instances_gpu;
-    struct hg_glyph_instance* instances;    /* rascunho reaproveitado entre frames */
-    uint32_t                  count, capacity;
-    uint32_t*                 batch_counts; /* glyphs por lote da draw list */
-    uint32_t                  batch_capacity;
+    hg_glyph_frame            frame;
 } d3d11_glyphs;
 
 /* ---- device: um por contexto ------------------------------------------ */

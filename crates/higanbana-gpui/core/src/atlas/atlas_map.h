@@ -17,4 +17,5 @@ void     hg_map_free(hg_atlas_map* m);
 uint32_t hg_map_get(const hg_atlas_map* m, uint64_t key);       /* HG_MAP_EMPTY se ausente */
 int      hg_map_put(hg_atlas_map* m, uint64_t key, uint32_t v); /* 0 = sem memória */
 void     hg_map_remove(hg_atlas_map* m, uint64_t key);
+void     hg_map_clear(hg_atlas_map* m); /* mantém a capacidade */
 #endif

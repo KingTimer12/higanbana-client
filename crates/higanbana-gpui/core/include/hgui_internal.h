@@ -23,6 +23,14 @@ uint32_t  hg__atlas_entry_count(const hg_atlas* atlas);
 /* Dado livre por entrada (ex.: offset do glyph). 0 se a chave não existe. */
 int       hg__atlas_get_user(const hg_atlas* atlas, uint64_t key, uint64_t* out);
 void      hg__atlas_set_user(hg_atlas* atlas, uint64_t key, uint64_t user);
+/* Esquece todas as entradas (ex.: textura de GPU recriada na troca de backend). */
+void      hg__atlas_clear(hg_atlas* atlas);
+
+/* ---- Backends externos ------------------------------------------------ */
+/* Registra um backend implementado fora do core (ex.: WGPU em Rust). Ponteiro
+ * para `hg_backend_vtbl` (backend.h). Chamar antes do primeiro
+ * hg_enumerate_backends/hg_context_create; depois disso devolve HG_ERR_INVALID. */
+hg_result hg__backend_register(const void* vtbl);
 
 /* ---- Janela (testes) -------------------------------------------------- */
 void hg__window_inject_resize(hg_window* win, uint32_t width, uint32_t height);

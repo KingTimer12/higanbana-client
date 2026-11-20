@@ -90,6 +90,8 @@ hg_result hg_window_create(hg_context* ctx, const hg_window_desc* desc, hg_windo
     if (r != HG_OK) { DestroyWindow(win->hwnd); free(win); return r; }
     /* USERDATA só depois do attach: WM_SIZE antes disso não toca no backend. */
     SetWindowLongPtrW(win->hwnd, GWLP_USERDATA, (LONG_PTR)win);
+    win->next = ctx->windows;
+    ctx->windows = win;
     ShowWindow(win->hwnd, SW_SHOW);
     *out = win;
     return HG_OK;
@@ -98,6 +100,8 @@ hg_result hg_window_create(hg_context* ctx, const hg_window_desc* desc, hg_windo
 void hg_window_destroy(hg_window* win) {
     if (!win) return;
     SetWindowLongPtrW(win->hwnd, GWLP_USERDATA, 0);
+    for (hg_window** p = &win->ctx->windows; *p; p = &(*p)->next)
+        if (*p == win) { *p = win->next; break; }
     win->ctx->backend->detach(win->ctx, win);
     DestroyWindow(win->hwnd);
     free(win);
@@ -106,7 +110,7 @@ void hg_window_destroy(hg_window* win) {
 void hg__window_apply_size(hg_window* win, uint32_t width, uint32_t height) {
     win->width = width;
     win->height = height;
-    if (width > 0 && height > 0) win->ctx->backend->resize(win, width, height);
+    if (width > 0 && height > 0 && win->surface) win->ctx->backend->resize(win, width, height);
     hg_event ev = { .kind = HG_EVENT_RESIZE };
     ev.u.resize.width = width;
     ev.u.resize.height = height;
