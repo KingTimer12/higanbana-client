@@ -21,6 +21,10 @@ hg_result hg__atlas_get_or_insert(hg_atlas* atlas, uint64_t key, uint32_t w, uin
 int       hg__atlas_contains(const hg_atlas* atlas, uint64_t key);
 uint32_t  hg__atlas_entry_count(const hg_atlas* atlas);
 
+/* ---- Janela (testes) -------------------------------------------------- */
+void hg__window_inject_resize(hg_window* win, uint32_t width, uint32_t height);
+void hg__window_request_close(hg_window* win);
+
 #ifdef __cplusplus
 }
 #endif

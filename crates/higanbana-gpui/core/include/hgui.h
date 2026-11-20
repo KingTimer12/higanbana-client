@@ -69,6 +69,57 @@ hg_result       hg_context_create(hg_backend_kind preferred, hg_context** out);
 void            hg_context_destroy(hg_context* ctx);
 hg_backend_kind hg_context_backend(const hg_context* ctx);
 
+/* ---- Janela e eventos ------------------------------------------------- */
+typedef struct hg_window hg_window;
+
+typedef struct hg_window_desc {
+    const char* title_utf8;
+    uint32_t    width, height; /* em pixels lógicos */
+    int         resizable;
+} hg_window_desc;
+
+typedef enum hg_event_kind {
+    HG_EVENT_NONE = 0,
+    HG_EVENT_CLOSE,
+    HG_EVENT_RESIZE,
+    HG_EVENT_MOUSE_MOVE,
+    HG_EVENT_MOUSE_DOWN,
+    HG_EVENT_MOUSE_UP,
+    HG_EVENT_SCROLL,
+    HG_EVENT_KEY_DOWN,
+    HG_EVENT_KEY_UP,
+    HG_EVENT_CHAR
+} hg_event_kind;
+
+#define HG_MOD_SHIFT 1u
+#define HG_MOD_CTRL  2u
+#define HG_MOD_ALT   4u
+
+typedef struct hg_event {
+    hg_event_kind kind;
+    uint32_t      mods;
+    union {
+        struct { float x, y; uint32_t button; } mouse;
+        struct { float dx, dy; } scroll;
+        struct { uint32_t key; int repeat; } key; /* virtual key do Windows */
+        struct { uint32_t codepoint; } text;
+        struct { uint32_t width, height; float dpi_scale; } resize;
+    } u;
+} hg_event;
+
+hg_result hg_window_create(hg_context* ctx, const hg_window_desc* desc, hg_window** out);
+void      hg_window_destroy(hg_window* win);
+/* 1 = evento escrito em *out; 0 = fila vazia. Não bloqueia. */
+int       hg_window_poll_event(hg_window* win, hg_event* out);
+/* Bloqueia até chegar um evento (app ocioso não gasta CPU). */
+hg_result hg_window_wait_event(hg_window* win, hg_event* out);
+float     hg_window_dpi_scale(const hg_window* win);
+
+/* ---- Frame ------------------------------------------------------------ */
+hg_result hg_frame_begin(hg_window* win, hg_color clear);
+hg_result hg_frame_submit(hg_window* win, const hg_draw_list* dl);
+hg_result hg_frame_end(hg_window* win, int vsync);
+
 #ifdef __cplusplus
 }
 #endif

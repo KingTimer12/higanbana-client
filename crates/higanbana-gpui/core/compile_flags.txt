@@ -1,5 +1,8 @@
 -std=c11
+-DWIN32_LEAN_AND_MEAN
+-DUNICODE
 -Iinclude
 -Isrc
--DWIN32_LEAN_AND_MEAN
 -Isrc/atlas
+-Isrc/window
+-Isrc/backends/d3d11
