@@ -23,7 +23,14 @@ fn create(kind: hg_backend_kind) -> (*mut hg_context, hg_backend_kind) {
 
 #[test]
 fn unavailable_preferred_falls_back() {
-    let (ctx, real) = create(hg_backend_kind_HG_BACKEND_VULKAN);
+    let mut out = [empty_info(); 8];
+    let n = unsafe { hg_enumerate_backends(out.as_mut_ptr(), out.len() as i32) } as usize;
+    let available: Vec<_> = out[..n].iter().map(|i| i.kind).collect();
+    let missing = [hg_backend_kind_HG_BACKEND_D3D12, hg_backend_kind_HG_BACKEND_VULKAN,
+                   hg_backend_kind_HG_BACKEND_OPENGL, hg_backend_kind_HG_BACKEND_WGPU]
+        .into_iter().find(|k| !available.contains(k));
+    let Some(missing) = missing else { return };
+    let (ctx, real) = create(missing);
     assert_eq!(real, hg_backend_kind_HG_BACKEND_D3D11);
     unsafe { hg_context_destroy(ctx) };
 }
