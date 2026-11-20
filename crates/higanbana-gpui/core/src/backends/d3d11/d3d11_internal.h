@@ -73,6 +73,8 @@ typedef struct d3d11_device {
 hg_result d3d11_glyphs_prepare(d3d11_device* d, hg_context* ctx, const hg_draw_list* dl);
 void      d3d11_glyphs_bind(d3d11_device* d);
 void      d3d11_glyphs_release(d3d11_glyphs* g);
+/* Memória de GPU estimada: buffers dinâmicos + atlas (swapchains não contam). */
+uint64_t  d3d11_gpu_bytes(const d3d11_device* d);
 
 hg_result d3d11_device_create(d3d11_device* d, hg_backend_info* info);
 void      d3d11_device_release(d3d11_device* d);

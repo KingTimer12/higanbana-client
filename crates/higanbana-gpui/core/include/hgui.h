@@ -120,6 +120,17 @@ hg_result hg_frame_begin(hg_window* win, hg_color clear);
 hg_result hg_frame_submit(hg_window* win, const hg_draw_list* dl);
 hg_result hg_frame_end(hg_window* win, int vsync);
 
+/* ---- Estatísticas ----------------------------------------------------- */
+typedef struct hg_stats {
+    float    frame_ms;      /* intervalo entre os dois últimos hg_frame_end */
+    uint64_t gpu_bytes;     /* buffers + texturas do backend */
+    uint64_t arena_bytes;   /* memória reservada pela última draw list enviada */
+    uint32_t draw_calls;    /* do último frame */
+    uint32_t atlas_entries; /* glyphs residentes no atlas */
+} hg_stats;
+
+void hg_context_stats(const hg_context* ctx, hg_stats* out);
+
 /* ---- Texto ------------------------------------------------------------ */
 typedef uint32_t hg_font_id;
 

@@ -65,6 +65,7 @@ hg_result d3d11_render_draw_list(d3d11_device* d, hg_context* ctx, d3d11_surface
     if (r == HG_OK && dl->quad_count > 0) r = upload_quads(d, dl);
     if (r != HG_OK) return r;
     upload_globals(d, s);
+    ctx->stats.draw_calls = 0;
 
     /* Por lote: quads primeiro, texto por cima. */
     UINT quad_start = 0, glyph_start = 0, i = 0;
@@ -76,13 +77,16 @@ hg_result d3d11_render_draw_list(d3d11_device* d, hg_context* ctx, d3d11_surface
         if (b->quad_count) {
             bind_quad_pipeline(d, s);
             ID3D11DeviceContext_DrawInstanced(d->imm, 4, b->quad_count, 0, quad_start);
+            ctx->stats.draw_calls++;
             quad_start += b->quad_count;
         }
         if (glyphs) {
             d3d11_glyphs_bind(d);
             ID3D11DeviceContext_DrawInstanced(d->imm, 4, glyphs, 0, glyph_start);
+            ctx->stats.draw_calls++;
             glyph_start += glyphs;
         }
     }
+    ctx->stats.gpu_bytes = d3d11_gpu_bytes(d);
     return HG_OK;
 }

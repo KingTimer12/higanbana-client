@@ -9,5 +9,9 @@ struct hg_context {
     void*                  backend_data; /* dono: backend->create/destroy */
     uint64_t               frame_index;
     struct hg_text_system* text;         /* criado sob demanda (hg_font_load) */
+    hg_stats               stats;        /* backend preenche gpu_bytes/draw_calls */
+    long long              last_frame_ticks;
 };
+/* stats.c */
+void hg__stats_frame_end(hg_context* ctx);
 #endif

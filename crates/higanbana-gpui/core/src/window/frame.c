@@ -1,5 +1,6 @@
 /* frame.c — começo/envio/fim de frame, roteado para o backend da janela. */
 #include "window.h"
+#include "draw_list.h"
 #include "error.h"
 
 hg_result hg_frame_begin(hg_window* win, hg_color clear) {
@@ -12,6 +13,7 @@ hg_result hg_frame_begin(hg_window* win, hg_color clear) {
 hg_result hg_frame_submit(hg_window* win, const hg_draw_list* dl) {
     if (!win || !dl) return hg__fail(HG_ERR_INVALID, "hg_frame_submit: argumento nulo");
     if (win->skip_frame) return HG_OK;
+    win->ctx->stats.arena_bytes = hg_arena_capacity(&dl->arena);
     return win->ctx->backend->submit(win, dl);
 }
 
@@ -20,5 +22,6 @@ hg_result hg_frame_end(hg_window* win, int vsync) {
     if (win->skip_frame) return HG_OK;
     hg_result r = win->ctx->backend->end_frame(win, vsync);
     win->ctx->frame_index++;
+    hg__stats_frame_end(win->ctx);
     return r;
 }

@@ -55,3 +55,24 @@ fn close_event_after_request() {
         assert!(saw_close);
     }
 }
+
+#[test]
+fn stats_after_frame_have_draw_calls() {
+    let f = Fixture::new();
+    let family = std::ffi::CString::new("Segoe UI").unwrap();
+    let mut font = 0;
+    let white = hg_color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+    unsafe {
+        assert_eq!(hg_font_load(f.ctx, family.as_ptr(), 400.0, 0, &mut font), OK);
+        hg_draw_quad(f.dl, &quad(0));
+        let text = b"stats";
+        assert_eq!(hg_draw_text(f.dl, font, 16.0, 4.0, 4.0, 0.0, white, text.as_ptr().cast(), text.len()), OK);
+    }
+    assert_eq!(f.frame(), [OK; 3]);
+    let mut s: hg_stats = unsafe { std::mem::zeroed() };
+    unsafe { hg_context_stats(f.ctx, &mut s) };
+    assert!(s.draw_calls >= 2, "draw_calls = {}", s.draw_calls);
+    assert!(s.arena_bytes > 0);
+    assert!(s.gpu_bytes > 0);
+    assert!(s.atlas_entries > 0);
+}
