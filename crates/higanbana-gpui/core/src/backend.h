@@ -1,0 +1,28 @@
+/* backend.h — contrato que todo backend gráfico implementa. */
+#ifndef HG_BACKEND_H
+#define HG_BACKEND_H
+#include "hgui.h"
+
+struct hg_window;
+
+typedef struct hg_backend_vtbl {
+    hg_backend_kind kind;
+    const char*     name;
+    /* 1 = disponível; preenche adapter. Não deixa estado global vivo. */
+    int       (*probe)(hg_backend_info* info);
+    hg_result (*create)(hg_context* ctx);
+    void      (*destroy)(hg_context* ctx);
+    /* Superfície por janela. */
+    hg_result (*attach)(hg_context* ctx, struct hg_window* win);
+    void      (*detach)(hg_context* ctx, struct hg_window* win);
+    hg_result (*resize)(struct hg_window* win, uint32_t w, uint32_t h);
+    hg_result (*begin_frame)(struct hg_window* win, hg_color clear);
+    hg_result (*submit)(struct hg_window* win, const hg_draw_list* dl);
+    hg_result (*end_frame)(struct hg_window* win, int vsync);
+} hg_backend_vtbl;
+
+/* Registro: backends compilados nesta build, em ordem de fallback. */
+const hg_backend_vtbl* const* hg__backends(int* count);
+/* Disponível nesta máquina (probe cacheado). NULL se indisponível. */
+const hg_backend_vtbl* hg__backend_find(hg_backend_kind kind, hg_backend_info* info);
+#endif
