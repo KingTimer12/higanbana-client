@@ -9,7 +9,7 @@ mod shaders;
 #[path = "build/spirv.rs"]
 mod spirv;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 fn main() {
     let core_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../higanbana-gpui/core");
