@@ -539,6 +539,13 @@ impl AppState {
         .detach();
     }
 
+    /// Solta as imagens da interface (não as páginas do leitor, que são fixas).
+    pub fn release_all_images(&mut self, cx: &mut Context<Self>) {
+        let evicted = self.images.drain_weighted();
+        tracing::debug!(n = evicted.len(), "imagens soltas");
+        release_images(evicted, cx);
+    }
+
     pub fn cached_image(&self, key: &str) -> Option<Img> {
         self.images.get(key)
     }
