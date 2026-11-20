@@ -110,7 +110,7 @@ static hg_result draw_glyph(draw_ctx* c, const DWRITE_GLYPH_RUN* run, UINT16 ind
     uint64_t key = glyph_key(face, run->fontEmSize, index, sub);
 
     uint64_t user;
-    hg_rect uv;
+    hg_rect uv = { 0 };
     int inserted;
     hg_result r = HG_OK;
     if (!hg__atlas_contains(c->ts->atlas, key)) r = rasterize(c, run, index, sub, key);

@@ -124,6 +124,8 @@ VkDescriptorSet vk_texture_set(const struct hg_image* img);
 void      vk_textures_collect(vk_device* d); /* libera o lixo já concluído pela GPU */
 void      vk_images_release(vk_device* d);  /* device ocioso: libera lixo e sampler */
 
+struct hg_batch;
+
 /* vk_images.c — instâncias de imagem do frame e draws agrupados por textura. */
 hg_result vk_images_prepare(vk_device* d, vk_frame* f, const hg_draw_list* dl);
 uint32_t  vk_images_draw(vk_device* d, VkCommandBuffer cmd, vk_frame* f, const struct hg_batch* b, uint32_t start);

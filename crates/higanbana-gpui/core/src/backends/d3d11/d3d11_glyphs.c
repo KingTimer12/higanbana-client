@@ -85,7 +85,7 @@ hg_result d3d11_glyphs_prepare(d3d11_device* d, hg_context* ctx, const hg_draw_l
 
     UINT bytes = g->frame.count * (UINT)sizeof(hg_glyph_instance);
     r = d3d11_buffer_reserve(d->dev, &g->instances_gpu, bytes);
-    D3D11_MAPPED_SUBRESOURCE map;
+    D3D11_MAPPED_SUBRESOURCE map = { 0 };
     if (r == HG_OK &&
         FAILED(ID3D11DeviceContext_Map(d->imm, (ID3D11Resource*)g->instances_gpu.buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &map)))
         r = hg__fail(HG_ERR_DEVICE, "d3d11: Map de glyphs falhou");

@@ -82,7 +82,7 @@ hg_result d3d11_images_prepare(d3d11_device* d, const hg_draw_list* dl) {
         for (const hg_image_chunk* c = b->images_first; c && r == HG_OK; c = c->next)
             for (uint32_t i = 0; i < c->count && r == HG_OK; i++) r = hg__image_gpu(c->images[i]);
     if (r == HG_OK) r = d3d11_buffer_reserve(d->dev, &d->images.instances, dl->image_count * (UINT)sizeof(hg_image_draw));
-    D3D11_MAPPED_SUBRESOURCE map;
+    D3D11_MAPPED_SUBRESOURCE map = { 0 };
     if (r == HG_OK &&
         FAILED(ID3D11DeviceContext_Map(d->imm, (ID3D11Resource*)d->images.instances.buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &map)))
         r = hg__fail(HG_ERR_DEVICE, "d3d11: Map de imagens falhou");
