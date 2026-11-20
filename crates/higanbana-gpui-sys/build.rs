@@ -6,6 +6,8 @@ mod bindings;
 mod core;
 #[path = "build/shaders.rs"]
 mod shaders;
+#[path = "build/spirv.rs"]
+mod spirv;
 
 use std::path::{Path, PathBuf};
 
@@ -16,6 +18,7 @@ fn main() {
     println!("cargo:rerun-if-changed=wrapper.h");
 
     shaders::compile_all(&core_dir.join("src/shaders"), &out);
+    spirv::compile_all(&core_dir.join("src/shaders/vulkan"), &out);
     core::compile(&core_dir, &out);
     bindings::generate(&core_dir, &out);
 }

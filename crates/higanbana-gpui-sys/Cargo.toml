@@ -20,3 +20,5 @@ raw-window-handle = { version = "0.6.2", optional = true }
 [build-dependencies]
 cc.workspace = true
 bindgen.workspace = true
+# Mesma versão do Cargo.lock (via wgpu): WGSL -> SPIR-V para o backend Vulkan.
+naga = { version = "=30.0.1", default-features = false, features = ["wgsl-in", "spv-out"] }
