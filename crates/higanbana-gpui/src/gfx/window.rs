@@ -91,6 +91,19 @@ impl<'c> Window<'c> {
         }
     }
 
+    /// Espera um evento por até `timeout`. `Ok(None)` = prazo esgotado.
+    pub fn wait_event_timeout(&self, timeout: std::time::Duration) -> Result<Option<Event>> {
+        let ms = timeout.as_millis().min(u32::MAX as u128) as u32;
+        let mut ev: sys::hg_event = unsafe { std::mem::zeroed() };
+        check(unsafe { sys::hg_window_wait_event_timeout(self.raw.as_ptr(), ms, &mut ev) })?;
+        Ok(Event::from_raw(&ev).or_else(|| self.poll_event()))
+    }
+
+    /// Cursor do mouse sobre a área cliente.
+    pub fn set_cursor(&self, cursor: super::cursor::CursorStyle) {
+        unsafe { sys::hg_window_set_cursor(self.raw.as_ptr(), cursor.raw()) };
+    }
+
     /// Desenha um frame: limpa com `clear`, envia `list` e apresenta.
     pub fn present(&self, clear: Color, list: &DrawList<'_>, vsync: bool) -> Result<()> {
         self.present_with(clear, list, vsync, |_| Ok(()))
