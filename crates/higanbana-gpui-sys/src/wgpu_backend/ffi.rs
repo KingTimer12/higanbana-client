@@ -3,7 +3,7 @@
 
 use super::device::Gpu;
 use super::surface::Window;
-use super::{fail, guard, readback, render, Res};
+use super::{fail, guard, images, readback, render, Res};
 use crate::*;
 use std::os::raw::c_int;
 
@@ -96,6 +96,27 @@ pub unsafe extern "C" fn end_frame(win: *mut hg_window, vsync: c_int) -> hg_resu
         let (gpu, surface) = unsafe { window_of(win)? };
         surface.end(gpu, vsync != 0)
     })
+}
+
+/// Cria a textura de `img` no device do contexto (chamado pelo core, sob demanda).
+pub unsafe extern "C" fn texture_create(ctx: *mut hg_context, img: *mut hg_image) -> hg_result {
+    guard(|| {
+        let gpu = unsafe { gpu_of(ctx)? };
+        let bytes = images::create(&gpu.device, &gpu.queue, &gpu.pipes, img);
+        gpu.images.texture_bytes += bytes;
+        Ok(())
+    })
+}
+
+/// Solta a textura de `img` (troca de backend, destroy do contexto ou da imagem).
+pub unsafe extern "C" fn texture_destroy(ctx: *mut hg_context, img: *mut hg_image) {
+    guard(|| {
+        let bytes = images::destroy(img);
+        if let Ok(gpu) = unsafe { gpu_of(ctx) } {
+            gpu.images.texture_bytes = gpu.images.texture_bytes.saturating_sub(bytes);
+        }
+        Ok(())
+    });
 }
 
 pub unsafe extern "C" fn read_pixel(win: *mut hg_window, x: u32, y: u32, out: *mut u32) -> hg_result {

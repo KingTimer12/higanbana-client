@@ -1,24 +1,31 @@
-//! Shaders WGSL, layouts e pipelines fixos (quads e glyphs) + uniform `Globals`.
+//! Shaders WGSL, layouts e pipelines fixos (quads, imagens e glyphs) + uniform `Globals`.
 
 use super::device::SURFACE_FORMAT;
 use crate::hg_quad;
 
 /// Tamanho de `hg_glyph_instance` (rect, uv, color).
 pub const GLYPH_STRIDE: u64 = 48;
+const IMAGE_STRIDE: u64 = std::mem::size_of::<crate::hg_image_draw>() as u64;
 const QUAD_STRIDE: u64 = std::mem::size_of::<hg_quad>() as u64;
 const _: () = assert!(QUAD_STRIDE == 88, "layout de hg_quad mudou: atualizar quad.wgsl");
 
 const QUAD_ATTRS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
     0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4, 4 => Float32x2, 5 => Float32x4
 ];
+const IMAGE_ATTRS: [wgpu::VertexAttribute; 4] =
+    wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4];
 const GLYPH_ATTRS: [wgpu::VertexAttribute; 3] =
     wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4];
 
 pub struct Pipelines {
     pub quad: wgpu::RenderPipeline,
     pub glyph: wgpu::RenderPipeline,
+    pub image: wgpu::RenderPipeline,
+    /// Textura + sampler (grupo 1): atlas de glyphs e imagens.
     pub atlas_layout: wgpu::BindGroupLayout,
     pub sampler: wgpu::Sampler,
+    /// Linear + clamp, para imagens.
+    pub linear: wgpu::Sampler,
     /// Uniform: viewport (w, h) + atlas (w, h), reescrito a cada submit.
     pub globals: wgpu::Buffer,
     pub globals_group: wgpu::BindGroup,
@@ -91,8 +98,13 @@ impl Pipelines {
         let quad = pipeline(device, include_str!("quad.wgsl"), &[Some(&globals_layout)], QUAD_STRIDE, &QUAD_ATTRS);
         let glyph = pipeline(device, include_str!("glyph.wgsl"), &[Some(&globals_layout), Some(&atlas_layout)],
                              GLYPH_STRIDE, &GLYPH_ATTRS);
+        let image = pipeline(device, include_str!("image.wgsl"), &[Some(&globals_layout), Some(&atlas_layout)],
+                             IMAGE_STRIDE, &IMAGE_ATTRS);
         // Point sampling + clamp (os padrões do descriptor).
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
-        Pipelines { quad, glyph, atlas_layout, sampler, globals, globals_group }
+        let linear = device.create_sampler(&wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..Default::default()
+        });
+        Pipelines { quad, glyph, image, atlas_layout, sampler, linear, globals, globals_group }
     }
 }

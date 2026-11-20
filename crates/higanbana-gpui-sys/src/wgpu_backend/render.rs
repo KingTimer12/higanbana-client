@@ -1,5 +1,5 @@
 //! Envio da draw list: sobe quads/glyphs/uniform e desenha um lote por clip
-//! (quads primeiro, texto por cima), num único render pass.
+//! (quads, imagens e texto por cima), num único render pass.
 
 use super::device::Gpu;
 use super::surface::Window;
@@ -43,6 +43,7 @@ pub fn draw_list(gpu: &mut Gpu, ctx: *mut hg_context, win: &mut Window, dl: *con
     if win.view.is_none() { return Ok(()) } // frame pulado (oclusão/timeout)
     let (w, h) = win.size();
     gpu.glyphs.prepare(&gpu.device, &gpu.queue, &gpu.pipes, ctx, dl)?;
+    gpu.images.prepare(&gpu.device, &gpu.queue, dl)?;
     upload_quads(gpu, dl);
     upload_globals(gpu, w, h);
 
@@ -52,21 +53,24 @@ pub fn draw_list(gpu: &mut Gpu, ctx: *mut hg_context, win: &mut Window, dl: *con
     {
         let mut pass = win.begin_pass(&mut enc);
         pass.set_bind_group(0, &gpu.pipes.globals_group, &[]);
-        let (mut quad_start, mut glyph_start, mut i) = (0u32, 0u32, 0u32);
-        let mut view = hg_batch_view { clip: hg_rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }, has_clip: 0, quad_count: 0 };
+        let (mut quad_start, mut image_start, mut glyph_start, mut i) = (0u32, 0u32, 0u32, 0u32);
+        let mut view = hg_batch_view { clip: hg_rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }, has_clip: 0, quad_count: 0, image_count: 0 };
         let mut cursor = std::ptr::null();
         loop {
             cursor = unsafe { hg__draw_list_next_batch(dl, cursor, &mut view) };
             if cursor.is_null() { break }
-            let (quads, glyphs) = (view.quad_count, gpu.glyphs.batch_count(i));
+            let (quads, images, glyphs) = (view.quad_count, view.image_count, gpu.glyphs.batch_count(i));
             i += 1;
-            if let Some((x, y, sw, sh)) = scissor(&view, w, h).filter(|_| quads + glyphs > 0) {
+            if let Some((x, y, sw, sh)) = scissor(&view, w, h).filter(|_| quads + images + glyphs > 0) {
                 pass.set_scissor_rect(x, y, sw, sh);
                 if quads > 0 {
                     pass.set_pipeline(&gpu.pipes.quad);
                     pass.set_vertex_buffer(0, gpu.quads.get().unwrap().slice(..));
                     pass.draw(0..4, quad_start..quad_start + quads);
                     stats.draw_calls += 1;
+                }
+                if images > 0 {
+                    stats.draw_calls += gpu.images.draw(&mut pass, &gpu.pipes, image_start, images);
                 }
                 if glyphs > 0 {
                     pass.set_pipeline(&gpu.pipes.glyph);
@@ -77,6 +81,7 @@ pub fn draw_list(gpu: &mut Gpu, ctx: *mut hg_context, win: &mut Window, dl: *con
                 }
             }
             quad_start += quads;
+            image_start += images;
             glyph_start += glyphs;
         }
     }

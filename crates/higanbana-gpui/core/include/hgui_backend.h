@@ -30,12 +30,26 @@ typedef struct hg_batch_view {
     hg_rect  clip;
     int      has_clip;
     uint32_t quad_count;
+    uint32_t image_count;
 } hg_batch_view;
 
 /* Itera os lotes: prev = NULL começa; devolve NULL no fim. */
 const void* hg__draw_list_next_batch(const hg_draw_list* dl, const void* prev, hg_batch_view* out);
 /* Copia todos os quads, em ordem de lote, para `dst` (hg_draw_list_quad_count itens). */
 void        hg__draw_list_copy_quads(const hg_draw_list* dl, hg_quad* dst);
+/* Total de imagens da draw list (todos os lotes). */
+uint32_t    hg__draw_list_image_count(const hg_draw_list* dl);
+/* Copia, em ordem de lote, os desenhos para `items` e as imagens para `images`
+ * (hg__draw_list_image_count itens cada). */
+void        hg__draw_list_copy_images(const hg_draw_list* dl, hg_image_draw* items, hg_image** images);
+/* Garante a textura do backend em todas as imagens da draw list. */
+hg_result   hg__draw_list_prepare_images(const hg_draw_list* dl);
+
+/* ---- Imagens ----------------------------------------------------------- */
+/* Pixels RGBA8 pré-multiplicados, compactos (stride = largura*4); ver hg_image_size. */
+const uint8_t* hg__image_pixels(const hg_image* img);
+void*          hg__image_gpu_data(const hg_image* img);
+void           hg__image_set_gpu_data(hg_image* img, void* gpu);
 
 /* ---- Glyphs ------------------------------------------------------------ */
 typedef struct hg_glyph_frame hg_glyph_frame;
