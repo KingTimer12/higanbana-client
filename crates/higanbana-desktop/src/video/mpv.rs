@@ -86,6 +86,8 @@ struct Api {
     observe_property: unsafe extern "C" fn(Handle, u64, *const c_char, c_int) -> c_int,
     wait_event: unsafe extern "C" fn(Handle, f64) -> *mut RawEvent,
     error_string: unsafe extern "C" fn(c_int) -> *const c_char,
+    get_property_string: unsafe extern "C" fn(Handle, *const c_char) -> *mut c_char,
+    free: unsafe extern "C" fn(*mut c_void),
     #[cfg(target_os = "macos")]
     render: RenderApi,
 }
@@ -140,6 +142,8 @@ fn api() -> Result<&'static Api, String> {
                 observe_property: sym!("mpv_observe_property"),
                 wait_event: sym!("mpv_wait_event"),
                 error_string: sym!("mpv_error_string"),
+                get_property_string: sym!("mpv_get_property_string"),
+                free: sym!("mpv_free"),
                 #[cfg(target_os = "macos")]
                 render: RenderApi {
                     create: sym!("mpv_render_context_create"),
@@ -303,6 +307,22 @@ impl Mpv {
         let api = api()?;
         let (n, v) = (cstr(name), cstr(value));
         check(unsafe { (api.set_property_string)(self.inner.handle, n.as_ptr(), v.as_ptr()) })
+    }
+
+    /// Valor de uma propriedade como texto (`None` se não existir agora).
+    pub fn get(&self, name: &str) -> Option<String> {
+        let api = api().ok()?;
+        let n = cstr(name);
+        // SAFETY: a libmpv devolve uma string nova (ou nulo), liberada com mpv_free.
+        unsafe {
+            let p = (api.get_property_string)(self.inner.handle, n.as_ptr());
+            if p.is_null() {
+                return None;
+            }
+            let v = std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned();
+            (api.free)(p as *mut c_void);
+            Some(v)
+        }
     }
 
     pub fn set_flag(&self, name: &str, value: bool) -> Result<(), String> {

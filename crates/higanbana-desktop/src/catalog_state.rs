@@ -315,8 +315,13 @@ impl AppState {
         (resolved, total)
     }
 
-    pub fn set_playing(&mut self, playing: bool, _cx: &mut Context<Self>) {
+    pub fn set_playing(&mut self, playing: bool, cx: &mut Context<Self>) {
         self.cat.playing = playing;
+        if playing {
+            // O player cobre a janela toda: capas e banners só ocupam memória.
+            // Voltam a carregar quando as telas pedirem de novo.
+            self.release_all_images(cx);
+        }
         self.core.set_index_paused(playing);
     }
 

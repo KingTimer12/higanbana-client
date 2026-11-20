@@ -76,6 +76,21 @@ impl<V: Clone> ImageCache<V> {
         self.insert(key, value, 0)
     }
 
+    /// Tira tudo que conta no teto (fica só o fixado com `insert_pinned`) e devolve
+    /// os valores para serem soltos.
+    pub fn drain_weighted(&mut self) -> Vec<V> {
+        let keys: Vec<String> = self.map.iter().filter(|(_, e)| e.weight > 0).map(|(k, _)| k.clone()).collect();
+        keys.into_iter().filter_map(|k| self.remove(&k)).collect()
+    }
+
+    pub fn total_mb(&self) -> u64 {
+        self.total >> 20
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
     pub fn remove(&mut self, key: &str) -> Option<V> {
         let e = self.map.remove(key)?;
         self.total -= e.weight;
@@ -83,10 +98,11 @@ impl<V: Clone> ImageCache<V> {
     }
 }
 
-/// Maior lado de imagens da interface: capas em pé até `PORTRAIT_MAX` de altura,
+/// Maior lado de imagens da interface: capas em pé até `PORTRAIT_MAX` de altura
+/// (o maior pôster na tela tem ~24 rem; 480 px cobre escala de 125%),
 /// banners/stills até `LANDSCAPE_MAX` de largura. Fanart e TMDB chegam bem maiores
 /// do que o card mostra, e decodificado cada pixel custa 4 bytes.
-pub const PORTRAIT_MAX: u32 = 640;
+pub const PORTRAIT_MAX: u32 = 480;
 pub const LANDSCAPE_MAX: u32 = 1600;
 /// Páginas do leitor: precisam de nitidez em tela cheia.
 pub const PAGE_MAX: u32 = 2400;
@@ -130,6 +146,22 @@ fn try_decode(bytes: &[u8], portrait_max: u32, landscape_max: u32) -> Result<(Ar
         }
     }
     Ok((Arc::new(RenderImage::new(frames)), weight))
+}
+
+#[cfg(test)]
+mod drain_tests {
+    use super::*;
+
+    #[test]
+    fn drain_keeps_pinned() {
+        let mut c = ImageCache::new(100);
+        c.insert("a".into(), 1, 10);
+        c.insert_pinned("p".into(), 2);
+        assert_eq!(c.drain_weighted(), vec![1]);
+        assert_eq!(c.total_mb(), 0);
+        assert_eq!(c.get("p"), Some(2));
+        assert_eq!(c.get("a"), None);
+    }
 }
 
 #[cfg(test)]

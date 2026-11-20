@@ -37,6 +37,10 @@ pub struct Settings {
     pub thumbnails: bool,
     /// Núcleos que o decodificador de vídeo pode usar; 0 deixa o mpv escolher.
     pub decode_threads: u8,
+    /// Quanto do que já passou fica guardado para voltar sem baixar de novo (MiB).
+    pub back_cache_mib: u32,
+    /// Guarda o buffer em arquivo temporário em vez da RAM (grava no disco).
+    pub disk_cache: bool,
 }
 
 impl Default for Settings {
@@ -47,9 +51,11 @@ impl Default for Settings {
             show_skip_intro: true,
             sub_lang: "por".into(),
             audio_lang: "jpn".into(),
-            cache_mib: 150,
+            cache_mib: 100,
             thumbnails: true,
             decode_threads: 0,
+            back_cache_mib: 32,
+            disk_cache: false,
         }
     }
 }
@@ -123,9 +129,11 @@ mod tests {
         assert!(s.show_skip_intro);
         assert_eq!(s.sub_lang, "por");
         assert_eq!(s.audio_lang, "jpn");
-        assert_eq!(s.cache_mib, 150);
+        assert_eq!(s.cache_mib, 100);
         assert!(s.thumbnails);
         assert_eq!(s.decode_threads, 0);
+        assert_eq!(s.back_cache_mib, 32);
+        assert!(!s.disk_cache);
     }
 
     #[test]
@@ -137,6 +145,8 @@ mod tests {
         assert_eq!(data.settings.cache_mib, 300);
         assert!(data.settings.thumbnails);
         assert_eq!(data.settings.decode_threads, 0);
+        assert_eq!(data.settings.back_cache_mib, 32);
+        assert!(!data.settings.disk_cache);
     }
 
     #[test]
@@ -165,7 +175,9 @@ mod tests {
     #[test]
     fn camel_case_json() {
         let json = serde_json::to_value(PlayerData::default()).unwrap();
-        assert_eq!(json["settings"]["cacheMib"], 150);
+        assert_eq!(json["settings"]["cacheMib"], 100);
+        assert_eq!(json["settings"]["backCacheMib"], 32);
+        assert_eq!(json["settings"]["diskCache"], false);
         assert_eq!(json["settings"]["autoNext"], true);
     }
 }

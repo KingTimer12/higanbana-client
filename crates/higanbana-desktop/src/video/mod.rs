@@ -6,4 +6,4 @@ mod thumbs;
 mod view;
 
 pub use surface::Surface;
-pub use view::{PlayTarget, PlayerEvent, PlayerView};
+pub use view::{BACK_CACHES, CACHES, PlayTarget, PlayerEvent, PlayerView};
