@@ -89,14 +89,39 @@ hg_result hg_window_create(hg_context* ctx, const hg_window_desc* desc, hg_windo
     win->width = (uint32_t)(client.right - client.left);
     win->height = (uint32_t)(client.bottom - client.top);
 
+    ShowWindow(win->hwnd, SW_SHOW);
     hg_result r = ctx->backend->attach(ctx, win);
     if (r != HG_OK) { DestroyWindow(win->hwnd); free(win); return r; }
     /* USERDATA só depois do attach: WM_SIZE antes disso não toca no backend. */
     SetWindowLongPtrW(win->hwnd, GWLP_USERDATA, (LONG_PTR)win);
     win->next = ctx->windows;
     ctx->windows = win;
-    ShowWindow(win->hwnd, SW_SHOW);
     *out = win;
+    return HG_OK;
+}
+
+/* Troca a HWND por uma nova igual (posição, estado, título, estilo). Usado antes de
+ * prender o OpenGL numa troca de backend: uma HWND que já teve swapchain flip-model
+ * (DXGI ou Vulkan) não volta a mostrar o SwapBuffers do GL — a imagem congelava. */
+hg_result hg__window_recreate_hwnd(hg_window* win) {
+    HWND old = win->hwnd;
+    WINDOWPLACEMENT place = { sizeof place };
+    GetWindowPlacement(old, &place);
+    WCHAR title[256];
+    GetWindowTextW(old, title, (int)(sizeof title / sizeof title[0]));
+    DWORD style = (DWORD)GetWindowLongPtrW(old, GWL_STYLE) & ~WS_VISIBLE;
+    DWORD ex = (DWORD)GetWindowLongPtrW(old, GWL_EXSTYLE);
+    HWND fresh = CreateWindowExW(ex, k_class_name, title, style, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                                 CW_USEDEFAULT, NULL, NULL, GetModuleHandleW(NULL), NULL);
+    if (!fresh) return hg__fail(HG_ERR_DEVICE, "recreate_hwnd: CreateWindowExW falhou");
+    int active = GetForegroundWindow() == old;
+    SetWindowPlacement(fresh, &place); /* mostra no mesmo lugar e estado */
+    if (active) SetForegroundWindow(fresh);
+    /* USERDATA só agora: as mensagens da criação não tocam no backend (que está trocando). */
+    SetWindowLongPtrW(fresh, GWLP_USERDATA, (LONG_PTR)win);
+    SetWindowLongPtrW(old, GWLP_USERDATA, 0);
+    win->hwnd = fresh;
+    DestroyWindow(old);
     return HG_OK;
 }
 

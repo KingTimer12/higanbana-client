@@ -62,3 +62,37 @@ fn switch_through_every_available_backend_keeps_window_drawing() {
     unsafe { assert_eq!(hg_context_switch_backend(f.ctx, hg_backend_kind_HG_BACKEND_D3D11), OK) };
     assert_eq!(f.frame(), [OK; 3]);
 }
+
+#[link(name = "user32")]
+unsafe extern "system" {
+    fn IsWindow(h: *mut std::ffi::c_void) -> i32;
+    fn IsWindowVisible(h: *mut std::ffi::c_void) -> i32;
+}
+
+/// Regressão: D3D11 -> OpenGL congelava a imagem (HWND que já teve swapchain
+/// flip-model não mostra o SwapBuffers). Entrar no GL troca a HWND por uma nova.
+#[test]
+fn switch_to_opengl_gets_fresh_visible_hwnd() {
+    let f = Fixture::new();
+    let mut infos = [hg_backend_info { kind: 0, name: [0; 32], adapter: [0; 128] }; 8];
+    let n = unsafe { hg_enumerate_backends(infos.as_mut_ptr(), 8) } as usize;
+    if !infos[..n].iter().any(|i| i.kind == hg_backend_kind_HG_BACKEND_OPENGL) {
+        return;
+    }
+    assert_eq!(f.frame(), [OK; 3]);
+    unsafe {
+        let old = hg__window_hwnd(f.win);
+        assert_eq!(hg_context_switch_backend(f.ctx, hg_backend_kind_HG_BACKEND_OPENGL), OK);
+        let fresh = hg__window_hwnd(f.win);
+        assert_ne!(old, fresh, "HWND devia ser recriada para o GL");
+        assert_eq!(IsWindow(old), 0, "HWND antiga devia ter sido destruída");
+        assert_ne!(IsWindowVisible(fresh), 0);
+    }
+    assert_eq!(f.frame(), [OK; 3]);
+    let mut ev: hg_event = unsafe { std::mem::zeroed() };
+    while unsafe { hg_window_poll_event(f.win, &mut ev) } != 0 {
+        assert_ne!(ev.kind, hg_event_kind_HG_EVENT_CLOSE, "trocar a HWND não pode fechar a janela");
+    }
+    unsafe { assert_eq!(hg_context_switch_backend(f.ctx, hg_backend_kind_HG_BACKEND_D3D11), OK) };
+    assert_eq!(f.frame(), [OK; 3]);
+}

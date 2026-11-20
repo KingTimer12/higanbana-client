@@ -47,6 +47,10 @@ hg_result hg_context_switch_backend(hg_context* ctx, hg_backend_kind kind) {
     hg__images_release_gpu(ctx); /* recriadas sob demanda no backend novo */
     prev->destroy(ctx);
     if (ctx->text) hg__atlas_clear(ctx->text->atlas); /* textura do atlas morreu com o backend */
+    /* HWND que já teve swapchain flip-model (DXGI/Vulkan) não mostra o SwapBuffers
+     * do GL: a imagem congelava. Entrando no GL, a janela ganha uma HWND nova. */
+    if (kind == HG_BACKEND_OPENGL)
+        for (hg_window* w = ctx->windows; w; w = w->next) hg__window_recreate_hwnd(w);
 
     hg_result r = bring_up(ctx, next, &info);
     if (r == HG_OK) return HG_OK;

@@ -23,6 +23,8 @@ void hg__window_apply_size(hg_window* win, uint32_t width, uint32_t height);
 int  hg__window_translate(hg_window* win, UINT msg, WPARAM wp, LPARAM lp);
 /* WM_SETCURSOR: aplica o cursor da janela na área cliente; 1 se tratou. */
 int  hg__window_on_setcursor(hg_window* win, LPARAM lp);
+/* Troca a HWND por uma idêntica (antes de prender o OpenGL depois de outro backend). */
+hg_result hg__window_recreate_hwnd(hg_window* win);
 /* Ativa DPI Per-Monitor V2 uma única vez por processo. */
 void hg__dpi_enable_awareness(void);
 float hg__dpi_scale_for(HWND hwnd);
