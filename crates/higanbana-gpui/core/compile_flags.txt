@@ -1,0 +1,4 @@
+-std=c11
+-Iinclude
+-Isrc
+-DWIN32_LEAN_AND_MEAN

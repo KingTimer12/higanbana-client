@@ -1,0 +1,11 @@
+[package]
+name = "higanbana-gpui-sys"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+links = "hgui"
+description = "FFI cru para o core C do higanbana-gpui"
+
+[build-dependencies]
+cc.workspace = true
+bindgen.workspace = true

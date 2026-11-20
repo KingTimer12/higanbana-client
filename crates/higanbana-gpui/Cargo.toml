@@ -1,0 +1,9 @@
+[package]
+name = "higanbana-gpui"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+
+higanbana-gpui-sys.workspace = true
