@@ -16,6 +16,13 @@ pub(crate) enum FocusRequest {
     Prev,
 }
 
+/// Pedido de rolagem feito por um handler (aplicado depois do layout do frame).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ScrollRequest {
+    To(ElementId, f32),
+    IntoView(ElementId, ElementId),
+}
+
 /// Contexto entregue a todo handler (`on_click`, `on_key_down`, timers...).
 #[derive(Default)]
 pub struct EventCx {
@@ -31,6 +38,7 @@ pub struct EventCx {
     pub(crate) window_commands: Vec<crate::gfx::WindowCommand>,
     pub(crate) tasks: Vec<super::task::TaskReq>,
     pub(crate) cancelled_tasks: Vec<super::task::TaskId>,
+    pub(crate) scroll_requests: Vec<ScrollRequest>,
 }
 
 impl EventCx {
@@ -114,6 +122,16 @@ impl EventCx {
     /// Cancela um timer ainda pendente (sem efeito se já rodou).
     pub fn cancel_timer(&mut self, id: TimerId) {
         self.cancelled.push(id);
+    }
+
+    /// Rola o contêiner `id` para `offset` (preso em `[0, máximo]`).
+    pub fn scroll_to(&mut self, id: impl Into<ElementId>, offset: f32) {
+        self.scroll_requests.push(ScrollRequest::To(id.into(), offset));
+    }
+
+    /// Rola `container` o mínimo para `child` ficar inteiro à vista.
+    pub fn scroll_into_view(&mut self, container: impl Into<ElementId>, child: impl Into<ElementId>) {
+        self.scroll_requests.push(ScrollRequest::IntoView(container.into(), child.into()));
     }
 
     /// Roda `work` numa thread do pool e depois `done` na thread da UI com a view.

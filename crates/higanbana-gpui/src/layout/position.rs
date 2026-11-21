@@ -31,7 +31,9 @@ pub(crate) fn position<V>(
             let clip = if p.style.overflow == Overflow::Visible { p.clip } else { p.clip.intersect(&padding_box(p)) };
             (p.rect.origin.x, p.rect.origin.y, clip, scroll)
         };
-        let rect = Rect::new(origin_x + l.location.x, origin_y + l.location.y - scroll, l.size.width, l.size.height);
+        let horizontal = parent != NO_PARENT && nodes[parent as usize].style.overflow == Overflow::ScrollX;
+        let (sx, sy) = if horizontal { (scroll, 0.0) } else { (0.0, scroll) };
+        let rect = Rect::new(origin_x + l.location.x - sx, origin_y + l.location.y - sy, l.size.width, l.size.height);
         let inset_l = l.border.left + l.padding.left;
         let inset_t = l.border.top + l.padding.top;
         let content = Rect::new(
@@ -44,7 +46,7 @@ pub(crate) fn position<V>(
         n.rect = rect;
         n.content = content;
         n.clip = clip;
-        if n.style.overflow == Overflow::Scroll {
+        if n.style.overflow.is_scroll() {
             let max = scroll_extent(engine, nodes, i);
             nodes[i].scroll_max = max;
             if let Some(id) = nodes[i].id {
@@ -67,9 +69,18 @@ pub(crate) fn padding_box<V>(n: &Node<V>) -> Rect {
     )
 }
 
-/// Quanto o conteúdo passa da altura visível do contêiner `i`.
+/// Quanto o conteúdo passa do tamanho visível do contêiner `i` (no eixo que rola).
 fn scroll_extent<V>(engine: &LayoutEngine, nodes: &[Node<V>], i: usize) -> f32 {
     let l = engine.layout(i);
+    if nodes[i].style.overflow == Overflow::ScrollX {
+        let right = children(nodes, i)
+            .map(|c| {
+                let cl = engine.layout(c);
+                cl.location.x + cl.size.width + cl.margin.right
+            })
+            .fold(0.0f32, f32::max);
+        return (right + l.padding.right + l.border.right - l.size.width).max(0.0);
+    }
     let bottom = children(nodes, i)
         .map(|c| {
             let cl = engine.layout(c);

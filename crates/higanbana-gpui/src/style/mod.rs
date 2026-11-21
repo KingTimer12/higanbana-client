@@ -101,6 +101,15 @@ pub enum Overflow {
     Hidden,
     /// Recorta e rola verticalmente (precisa de `id`).
     Scroll,
+    /// Recorta e rola horizontalmente (precisa de `id`).
+    ScrollX,
+}
+
+impl Overflow {
+    /// Contêiner de rolagem (qualquer eixo)?
+    pub fn is_scroll(self) -> bool {
+        matches!(self, Overflow::Scroll | Overflow::ScrollX)
+    }
 }
 
 /// Sombra difusa ao redor da caixa (sem deslocamento, como o core).

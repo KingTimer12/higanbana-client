@@ -7,7 +7,7 @@ mod task;
 mod tests_task;
 
 pub(crate) use event::FocusRequest;
-pub use event::EventCx;
+pub use event::{EventCx, ScrollRequest};
 pub use render::{FocusInfo, RenderCx};
 pub use task::{TaskId, Tasks};
 pub use timer::{TimerId, Timers};

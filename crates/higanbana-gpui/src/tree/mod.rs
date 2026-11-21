@@ -7,7 +7,10 @@ mod tests_transform;
 #[cfg(test)]
 mod tests_hit_regions;
 mod hit_regions;
+#[cfg(test)]
+mod tests_scroll;
 mod icons;
+mod scroll;
 mod transform;
 
 use crate::element::{Element, ElementId};

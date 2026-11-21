@@ -40,6 +40,8 @@ pub(super) struct Runner<'c, V> {
     pub timers: Timers,
     /// Tarefas em segundo plano aguardando resultado.
     pub tasks: Tasks,
+    /// Rolagens pedidas por handlers, aplicadas depois do layout do frame.
+    pub scrolls: Vec<crate::cx::ScrollRequest>,
     /// Reconstrução pedida para um instante (animação, `request_redraw_in`).
     pub wake: Option<Instant>,
     /// Próxima troca do cursor piscando (só repinta).
@@ -70,6 +72,7 @@ pub(super) fn run<V: View>(app: App, options: WindowOptions, view: V) -> Result<
         animator: Animator::default(),
         timers: Timers::default(),
         tasks: Tasks::default(),
+        scrolls: Vec::new(),
         wake: None,
         blink: None,
         window_state: WindowState::default(),
@@ -113,6 +116,7 @@ impl<V: View> Runner<'_, V> {
         cx.now = now;
         cx.window = self.window_state;
         cx.waker = self.win.waker();
+        cx.scroll = self.tree.scroll_states();
         let root = self.view.render(&mut cx);
         let wake = cx.wake;
         let waker = cx.waker.clone();
@@ -151,6 +155,9 @@ impl<V: View> Runner<'_, V> {
             Dirty::Rebuild => self.render(now, &mut measurer),
             Dirty::Relayout => self.tree.relayout(self.viewport, &mut measurer),
             _ => {}
+        }
+        for r in std::mem::take(&mut self.scrolls) {
+            self.tree.apply_scroll(r);
         }
         if self.dirty != Dirty::Repaint {
             self.publish_regions();

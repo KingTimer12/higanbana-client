@@ -103,15 +103,30 @@ impl<V> Tree<V> {
     /// Rola o contêiner de rolagem mais próximo sob o mouse.
     /// `delta_y` em entalhes (positivo = roda para cima). Devolve `true` se mudou.
     pub fn scroll(&mut self, delta_y: f32) -> bool {
+        self.scroll_by(0.0, delta_y, false)
+    }
+
+    /// Roda em x e y (entalhes). Com `shift`, a roda vertical rola contêineres horizontais.
+    /// Vai para o contêiner mais próximo que rola no eixo com movimento.
+    pub fn scroll_by(&mut self, dx: f32, dy: f32, shift: bool) -> bool {
         let Some(p) = self.mouse else { return false };
         let Some(hit) = self.hit_test(p) else { return false };
-        let target = self.nearest(hit, |n| n.style.overflow == Overflow::Scroll && n.id.is_some() && n.scroll_max > 0.0);
+        let (hx, vy) = if shift { (dx + dy, 0.0) } else { (dx, dy) };
+        let target = self.nearest(hit, |n| {
+            let delta = match n.style.overflow {
+                Overflow::Scroll => vy,
+                Overflow::ScrollX => hx,
+                _ => 0.0,
+            };
+            delta != 0.0 && n.id.is_some() && n.scroll_max > 0.0
+        });
         let Some(t) = target else { return false };
         let n = &self.nodes[t];
         let id = n.id.expect("filtrado acima");
         let max = n.scroll_max;
+        let delta = if n.style.overflow == Overflow::ScrollX { hx } else { vy };
         let off = self.offsets.entry(id).or_insert(0.0);
-        let new = (*off - delta_y * SCROLL_STEP).clamp(0.0, max);
+        let new = (*off - delta * SCROLL_STEP).clamp(0.0, max);
         if new == *off {
             return false;
         }

@@ -31,8 +31,8 @@ impl<V: View> Runner<'_, V> {
             Event::MouseUp { position, button, mods } => {
                 self.tree.mouse_up(position, button, mods, &mut self.view, &mut cx);
             }
-            Event::Scroll { delta, .. } => {
-                if self.tree.scroll(delta.y) {
+            Event::Scroll { delta, mods } => {
+                if self.tree.scroll_by(delta.x, delta.y, mods.shift) {
                     self.mark(Dirty::Repaint);
                 }
             }

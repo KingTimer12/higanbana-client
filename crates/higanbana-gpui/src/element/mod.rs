@@ -71,6 +71,13 @@ pub fn scroll<V>(id: impl Into<ElementId>) -> Element<V> {
     e
 }
 
+/// Linha com rolagem horizontal (roda com Shift, ou roda horizontal do touchpad).
+pub fn scroll_x<V>(id: impl Into<ElementId>) -> Element<V> {
+    let mut e = div().flex_row().id(id);
+    e.style.overflow = Overflow::ScrollX;
+    e
+}
+
 impl<V> Element<V> {
     /// Identidade estável (estado de rolagem, hover) entre reconstruções.
     pub fn id(mut self, id: impl Into<ElementId>) -> Self {

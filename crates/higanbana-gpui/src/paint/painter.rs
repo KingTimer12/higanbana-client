@@ -129,8 +129,9 @@ impl<V> Tree<V> {
         if clips {
             out.pop_clip();
         }
-        if n.style.overflow == Overflow::Scroll && n.scroll_max > 0.0 {
-            out.quad(&scrollbar(n.rect, n.scroll_max, self.scroll_offset_of(i), opacity));
+        if n.style.overflow.is_scroll() && n.scroll_max > 0.0 {
+            let horizontal = n.style.overflow == Overflow::ScrollX;
+            out.quad(&scrollbar(n.rect, n.scroll_max, self.scroll_offset_of(i), opacity, horizontal));
         }
     }
 
@@ -175,12 +176,17 @@ fn scaled(mut q: Quad, k: f32) -> Quad {
     q
 }
 
-fn scrollbar(rect: Rect, max: f32, offset: f32, opacity: f32) -> Quad {
-    let h = rect.size.height;
-    let thumb = (h * h / (h + max)).max(16.0).min(h);
-    let y = rect.origin.y + (h - thumb) * (offset / max);
+fn scrollbar(rect: Rect, max: f32, offset: f32, opacity: f32, horizontal: bool) -> Quad {
+    let len = if horizontal { rect.size.width } else { rect.size.height };
+    let thumb = (len * len / (len + max)).max(16.0).min(len);
+    let at = (len - thumb) * (offset / max);
+    let r = if horizontal {
+        Rect::new(rect.origin.x + at, rect.bottom() - SCROLLBAR_W - 2.0, thumb, SCROLLBAR_W)
+    } else {
+        Rect::new(rect.right() - SCROLLBAR_W - 2.0, rect.origin.y + at, SCROLLBAR_W, thumb)
+    };
     Quad {
-        rect: Rect::new(rect.right() - SCROLLBAR_W - 2.0, y, SCROLLBAR_W, thumb),
+        rect: r,
         fill: SCROLLBAR.fade(opacity),
         radius: Corners::all(SCROLLBAR_W / 2.0),
         ..Quad::default()

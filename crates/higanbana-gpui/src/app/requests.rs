@@ -30,6 +30,10 @@ impl<V: View> Runner<'_, V> {
         }
         self.timers.absorb(&mut cx, now);
         self.tasks.absorb(&mut cx, &self.win.waker());
+        if !cx.scroll_requests.is_empty() {
+            self.scrolls.append(&mut cx.scroll_requests);
+            self.mark(Dirty::Repaint);
+        }
         if cx.animation_frame {
             self.request_frame(now);
         }
