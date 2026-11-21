@@ -11,6 +11,7 @@ mod images;
 mod lookup;
 mod nav;
 mod notify;
+mod search;
 mod session;
 mod updates;
 
@@ -23,7 +24,8 @@ use higanbana_gpui::EventCx;
 pub use downloads::{DlStatus, Download, Downloads};
 pub use images::Img;
 pub use nav::Nav;
-pub use session::{User, user_of};
+pub use search::{kind_heading, Search};
+pub use session::User;
 pub use updates::UpdateState;
 
 /// Trabalho que volta à UI com o estado e o contexto de evento.
@@ -55,6 +57,14 @@ pub struct AppState {
     pub downloads: Downloads,
     pub update: UpdateState,
     pub player_data: PlayerData,
+    pub search: Search,
+    /// Seções da raiz da nuvem (barra lateral), em ordem de leitura.
+    pub sections: Vec<String>,
+    /// Capas da temporada (parede da tela de login).
+    pub season: Vec<higanbana_core::anilist::types::MediaSummary>,
+    /// Fim do login pelo navegador: `Some(erro)` quando falhou.
+    pub login_result: Option<Option<String>>,
+    sections_loading: bool,
     images: images::Images,
     lookups: lookup::Lookups,
     events: Vec<AppEvent>,
@@ -72,6 +82,11 @@ impl AppState {
             downloads: Downloads::default(),
             update: UpdateState::default(),
             player_data,
+            search: Search::default(),
+            sections: Vec::new(),
+            season: Vec::new(),
+            login_result: None,
+            sections_loading: false,
             images: images::Images::default(),
             lookups: lookup::Lookups::default(),
             events: Vec::new(),
@@ -135,6 +150,20 @@ impl AppState {
 
     fn navigated(&mut self) {
         self.emit(AppEvent::Navigated);
+    }
+
+    /// Lista a raiz da nuvem uma vez (só a raiz; nada de varrer pastas).
+    pub fn load_sections(&mut self) {
+        if self.sections_loading || !self.sections.is_empty() || self.user.is_none() {
+            return;
+        }
+        self.sections_loading = true;
+        let core = self.core.clone();
+        self.run(async move { core.cloud().list("").await.map(|l| l.files).unwrap_or_default() }, |s, files, _| {
+            s.sections_loading = false;
+            let names = files.into_iter().filter(|f| f.is_directory).map(|f| f.name).collect();
+            s.sections = crate::chrome::sort_sections(names);
+        });
     }
 
     pub fn refresh_player_data(&mut self) {

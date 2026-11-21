@@ -1,17 +1,22 @@
 // Sem console extra no Windows em release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// Migração (Planos 3 e 4): motion, imagens e estado já trazem o que as telas vão usar.
+#![allow(dead_code)]
 
 mod avif;
+mod chrome;
 mod image_cache;
+mod login;
 mod logging;
 mod mem;
 mod motion;
+mod pages;
 mod root;
 mod state;
 mod theme;
 mod ui;
 // Em migração para a higanbana-gpui (Planos 3 e 4): fora do build até lá.
-// mod app; mod catalog_state; mod chrome; mod components; mod interact; mod music;
+// mod app; mod catalog_state; mod components; mod interact; mod music;
 // mod reader; mod series; mod settings_dialog; mod updater; mod video; mod views;
 
 use std::sync::Arc;

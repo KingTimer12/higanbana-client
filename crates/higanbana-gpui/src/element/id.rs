@@ -27,6 +27,19 @@ impl From<(&str, usize)> for ElementId {
     }
 }
 
+impl From<String> for ElementId {
+    fn from(s: String) -> Self {
+        ElementId::from(s.as_str())
+    }
+}
+
+/// Prefixo + chave de texto (`("pagina", caminho)`), distinto de `"prefixo" + "chave"` colados.
+impl From<(&str, &str)> for ElementId {
+    fn from((a, b): (&str, &str)) -> Self {
+        ElementId(fnv(fnv(fnv(FNV_OFFSET, a.as_bytes()), &[0xff]), b.as_bytes()))
+    }
+}
+
 impl From<u64> for ElementId {
     fn from(v: u64) -> Self {
         ElementId(v)
@@ -42,5 +55,8 @@ mod tests {
         assert_eq!(ElementId::from("a"), ElementId::from("a"));
         assert_ne!(ElementId::from("a"), ElementId::from("b"));
         assert_ne!(ElementId::from(("item", 1)), ElementId::from(("item", 2)));
+        assert_eq!(ElementId::from(String::from("a")), ElementId::from("a"));
+        assert_ne!(ElementId::from(("ab", "c")), ElementId::from(("a", "bc")));
+        assert_eq!(ElementId::from(("p", "x/y")), ElementId::from(("p", "x/y")));
     }
 }

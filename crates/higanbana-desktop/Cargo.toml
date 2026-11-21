@@ -13,7 +13,6 @@ path = "src/main.rs"
 higanbana-core.workspace = true
 higanbana-gpui = { path = "../higanbana-gpui" }
 raw-window-handle.workspace = true
-futures.workspace = true
 libloading.workspace = true
 serde_json.workspace = true
 base64.workspace = true
