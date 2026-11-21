@@ -3,7 +3,7 @@
 use higanbana_core::nuvem::FileEntry;
 
 /// `dir` é a pasta do release (chave das faixas lembradas).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlayTarget {
     pub dir: String,
     pub file: FileEntry,

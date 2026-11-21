@@ -182,3 +182,22 @@ fn opcoes_sem_superficie() {
     assert!(o.pairs().any(|p| p == ("hwdec", "auto-copy")));
     assert!(o.pairs().any(|p| p == ("demuxer-max-bytes", "100MiB")));
 }
+
+#[test]
+fn fechar_salva_progresso() {
+    let (mut s, t0) = session();
+    s.on_state(&playing(42.0, 1400.0), t0);
+    match s.close(t0) {
+        Some(Action::SaveProgress { progress, .. }) => assert_eq!(progress.position, 42.0),
+        a => panic!("{a:?}"),
+    }
+}
+
+#[test]
+fn fechar_carregando_sem_duracao_nao_salva() {
+    let (mut s, t0) = session();
+    let mut st = PlayerState::default();
+    st.status = Status::Loading;
+    s.on_state(&st, t0);
+    assert_eq!(s.close(t0), None);
+}

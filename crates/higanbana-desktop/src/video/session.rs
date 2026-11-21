@@ -105,6 +105,11 @@ impl PlayerSession {
         self.net_error
     }
 
+    /// Quando a próxima re-tentativa vence (para agendar o redesenho).
+    pub fn retry_at(&self) -> Option<Instant> {
+        self.retry_at
+    }
+
     pub fn fatal(&self) -> bool {
         self.fatal
     }

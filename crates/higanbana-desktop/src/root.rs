@@ -21,6 +21,12 @@ pub struct Higanbana {
     pub login: Login,
     /// Configurações (diálogo provisório até o Plano 4).
     pub settings_open: bool,
+    /// Player aberto: a janela mostra só ele.
+    pub player: Option<crate::video::PlayerView>,
+    /// Pedido de abrir o player (criado no render, que tem o `Waker` da janela).
+    pending_play: Option<crate::video::PlayTarget>,
+    /// Espelho do estado da janela para os atalhos (o `EventCx` não lê a janela).
+    pub window_fullscreen: bool,
 }
 
 impl Higanbana {
@@ -33,6 +39,9 @@ impl Higanbana {
             notes: Toasts::new(),
             login: Login::default(),
             settings_open: false,
+            player: None,
+            pending_play: dev_play_target(),
+            window_fullscreen: false,
         }
     }
 
@@ -48,6 +57,28 @@ impl Higanbana {
             Event::MusicState(_) | Event::LoginReturned => return,
         }
         cx.notify();
+    }
+
+    /// Fecha o player: sai da tela cheia, grava o progresso e relê os dados do player.
+    pub fn close_player(&mut self, cx: &mut EventCx) {
+        if let Some(mut p) = self.player.take() {
+            p.close();
+        }
+        if self.window_fullscreen {
+            cx.window_command(WindowCommand::ExitFullscreen);
+        }
+        self.state.player_data = self.state.core.player().data();
+        cx.notify();
+    }
+
+    /// Cria o player pedido (precisa do `Waker` da janela).
+    fn open_pending(&mut self, cx: &mut RenderCx<'_, Self>) {
+        let Some(target) = self.pending_play.take() else { return };
+        if let Some(mut old) = self.player.take() {
+            old.close();
+        }
+        let data = self.state.core.player().data();
+        self.player = Some(crate::video::PlayerView::open(self.state.core.clone(), self.state.post(), target, data, cx.waker()));
     }
 
     /// Abre a paleta (só logado) e foca o campo.
@@ -81,6 +112,7 @@ impl Higanbana {
                     self.notes.push_error(m);
                 }
                 AppEvent::Navigated => {}
+                AppEvent::Play(t) => self.pending_play = Some(t),
             }
         }
     }
@@ -103,6 +135,11 @@ impl Higanbana {
 impl View for Higanbana {
     fn render(&mut self, cx: &mut RenderCx<'_, Self>) -> Element<Self> {
         self.drain_events();
+        self.window_fullscreen = cx.window_state().fullscreen;
+        self.open_pending(cx);
+        if self.player.is_some() {
+            return crate::video::view(self, cx);
+        }
         let t = cx.theme();
         let root = div()
             .size_full()
@@ -140,4 +177,15 @@ impl View for Higanbana {
             .render(cx);
         root.child(bar).child(div().flex_1().min_h(0.0).child(work)).child(palette).child(settings).child(notifier)
     }
+}
+
+/// Dev: `HIGANBANA_PLAY=<pasta>|<arquivo>` abre direto no player (conferência visual
+/// sem as telas do Plano 4). Só o arquivo pedido; nada de listar a pasta na nuvem.
+fn dev_play_target() -> Option<crate::video::PlayTarget> {
+    let raw = std::env::var("HIGANBANA_PLAY").ok()?;
+    let (dir, name) = raw.split_once('|')?;
+    let ext = name.rfind('.').map(|i| name[i..].to_owned());
+    let file = higanbana_core::nuvem::FileEntry { name: name.to_owned(), is_directory: false, size: 0, modified: String::new(), extension: ext };
+    let title = dir.rsplit('/').next().unwrap_or(dir).to_owned();
+    Some(crate::video::PlayTarget { dir: dir.to_owned(), files: vec![file.clone()], file, mal_id: None, is_anime: dir.starts_with("Animes"), anime_title: title })
 }

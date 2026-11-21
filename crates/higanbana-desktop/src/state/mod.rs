@@ -45,6 +45,8 @@ pub enum AppEvent {
     Navigated,
     /// Aviso curto para o usuário (vira notificação na janela).
     Notify(Tone, String),
+    /// Abrir o player.
+    Play(crate::video::PlayTarget),
 }
 
 /// Pausa antes de listar a raiz de novo depois de uma falha.
@@ -100,6 +102,8 @@ pub struct AppState {
     pub season: Vec<higanbana_core::anilist::types::MediaSummary>,
     /// Fim do login pelo navegador: `Some(erro)` quando falhou.
     pub login_result: Option<Option<String>>,
+    /// Respostas de outras threads para o player aberto.
+    pub player_inbox: Vec<crate::video::PlayerMsg>,
     sections_load: SectionsLoad,
     images: images::Images,
     lookups: lookup::Lookups,
@@ -122,6 +126,7 @@ impl AppState {
             sections: Vec::new(),
             season: Vec::new(),
             login_result: None,
+            player_inbox: Vec::new(),
             sections_load: SectionsLoad::default(),
             images: images::Images::default(),
             lookups: lookup::Lookups::default(),
@@ -130,6 +135,16 @@ impl AppState {
         s.load_session();
         s.check_update();
         s
+    }
+
+    /// Canal para a thread da UI (player e miniaturas).
+    pub fn post(&self) -> Post {
+        self.post.clone()
+    }
+
+    /// Pede para abrir o player (a raiz cria na próxima renderização).
+    pub fn play(&mut self, target: crate::video::PlayTarget) {
+        self.events.push(AppEvent::Play(target));
     }
 
     /// Roda `fut` no runtime do núcleo; `done` roda depois na UI.
