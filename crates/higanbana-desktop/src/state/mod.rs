@@ -222,6 +222,8 @@ impl AppState {
 
     fn navigated(&mut self) {
         // Só a listagem da tela nova fica na memória.
+        // Fanart que falhou tenta de novo na próxima navegação.
+        self.covers.retry_failed();
         if !self.path().is_empty() {
             self.home = home::HomeData::default();
         }

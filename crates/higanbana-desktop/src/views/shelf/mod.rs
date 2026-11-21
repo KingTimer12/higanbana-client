@@ -38,6 +38,27 @@ pub fn titles(files: &[FileEntry], query: &str) -> Vec<FileEntry> {
 #[derive(Default)]
 pub struct ShelfUi {
     pub filter: TextInputState,
+    /// Títulos filtrados em cache: (listagem, busca) → lista (não reordena a cada quadro).
+    cache: Option<(Arc<[FileEntry]>, String, Arc<Vec<FileEntry>>)>,
+}
+
+impl ShelfUi {
+    pub fn new() -> Self {
+        ShelfUi { filter: TextInputState::new().placeholder("Filtrar"), cache: None }
+    }
+
+    /// `titles` com cache pela mesma listagem e o mesmo filtro.
+    pub fn titles(&mut self, files: &Arc<[FileEntry]>, query: &str) -> Arc<Vec<FileEntry>> {
+        if let Some((f, q, t)) = &self.cache
+            && Arc::ptr_eq(f, files)
+            && q == query
+        {
+            return t.clone();
+        }
+        let t = Arc::new(titles(files, query));
+        self.cache = Some((files.clone(), query.to_owned(), t.clone()));
+        t
+    }
 }
 
 fn header(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, path: &str, count: Option<usize>) -> Element<Higanbana> {
@@ -92,7 +113,7 @@ pub fn page(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, path: &str, med
     let listing = v.state.listing(path);
     let query = v.pages.shelf().filter.text().to_owned();
     let (count, list) = match &listing {
-        Listing::Ready(f) => (Some(f.iter().filter(|f| f.is_directory).count()), Some(titles(f, &query))),
+        Listing::Ready(f) => (Some(f.iter().filter(|f| f.is_directory).count()), Some(v.pages.shelf().titles(f, &query))),
         _ => (None, None),
     };
     let header_h = cx.bounds("estante-cabecalho").map_or(200.0, |r| r.size.height);
@@ -100,7 +121,6 @@ pub fn page(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, path: &str, med
     let n_rows = list.as_ref().map_or(0, |l| l.len().div_ceil(cols));
     let heights: Arc<[f32]> = std::iter::once(header_h).chain(std::iter::repeat_n(row_h, n_rows.max(1))).collect();
     let path_owned = path.to_owned();
-    let list = list.map(Arc::new);
     let body = VirtualList::new(("estante", path), heights).render(cx, |i, cx| {
         let inner = if i == 0 {
             header(v, cx, &path_owned, count)
@@ -146,6 +166,16 @@ mod tests {
         assert!(is_index_letter("0-9"));
         assert!(!is_index_letter("[Colecao Curtas]"));
         assert!(!is_index_letter("Letra Grande"));
+    }
+
+    #[test]
+    fn titulos_em_cache_ate_mudar() {
+        let d = |n: &str| FileEntry { name: n.into(), is_directory: true, size: 0, modified: String::new(), extension: None };
+        let files: Arc<[FileEntry]> = vec![d("B"), d("A")].into();
+        let mut ui = ShelfUi::default();
+        let a = ui.titles(&files, "");
+        assert!(Arc::ptr_eq(&a, &ui.titles(&files, "")), "mesma listagem e busca: sem refazer");
+        assert!(!Arc::ptr_eq(&a, &ui.titles(&files, "a")));
     }
 
     #[test]

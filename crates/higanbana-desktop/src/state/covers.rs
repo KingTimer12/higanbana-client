@@ -76,6 +76,15 @@ mod tests {
     }
 
     #[test]
+    fn falha_tenta_de_novo_depois() {
+        let mut c = Covers::default();
+        c.failed.insert(5);
+        assert!(c.key(&media(5, false), false).is_ok());
+        c.retry_failed();
+        assert_eq!(c.key(&media(5, false), false), Err(()), "volta a pedir o fanart");
+    }
+
+    #[test]
     fn manga_usa_anilist_direto() {
         let c = Covers::default();
         assert_eq!(c.key(&media(1, true), false), Ok(Some("https://a/1.jpg".into())));

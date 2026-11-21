@@ -16,7 +16,6 @@ mod tests;
 use higanbana_core::anilist::MediaType;
 use higanbana_core::library::{classify, Place};
 
-use higanbana_gpui::TextInputState;
 
 use crate::state::{AppState, CatalogChoice};
 
@@ -68,7 +67,7 @@ impl Pages {
     }
 
     pub fn shelf(&mut self) -> &mut shelf::ShelfUi {
-        self.shelf.get_or_insert_with(|| shelf::ShelfUi { filter: TextInputState::new().placeholder("Filtrar") })
+        self.shelf.get_or_insert_with(|| shelf::ShelfUi::new())
     }
 
     /// Estado do título (criado se faltar).
