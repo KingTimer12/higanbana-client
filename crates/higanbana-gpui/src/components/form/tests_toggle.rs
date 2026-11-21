@@ -95,3 +95,11 @@ fn switch_toggles_and_thumb_animates_then_idles() {
     assert!(!a.is_active(), "terminou: sem frames extras");
     assert_eq!(thumb_x(&end), 15.0);
 }
+
+#[test]
+fn switch_do_kit_polegar_na_cor_do_fundo() {
+    let mut a = Animator::default();
+    let e = with_cx(&mut a, |cx: &mut RenderCx<'_, V>| div().child(Switch::new("s", true).kit().on_change(|_: &mut V, _, _| {}).render(cx)));
+    let t = build(e);
+    assert_eq!(t.nodes[2].style.background, Some(crate::theme::Theme::dark().background));
+}

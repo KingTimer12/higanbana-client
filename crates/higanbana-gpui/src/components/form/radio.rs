@@ -87,7 +87,7 @@ impl<V: 'static> Component<V> for RadioGroup<V> {
         let keys = pick.clone();
         let mut group = div()
             .track_focus(id)
-            .gap(if self.horizontal { 16.0 } else { 12.0 })
+            .gap(if self.horizontal && !self.kit { 16.0 } else { 12.0 })
             .when(!self.horizontal, |e| e.flex_col())
             .when(self.horizontal, |e| e.flex_row().flex_wrap())
             .when(cx.focus().visible, |e| e.focus(ring(t.ring)))

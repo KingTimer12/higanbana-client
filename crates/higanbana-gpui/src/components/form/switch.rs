@@ -20,12 +20,19 @@ pub struct Switch<V> {
     id: ElementId,
     checked: bool,
     disabled: bool,
+    kit: bool,
     on_change: Option<ChangeFn<V, bool>>,
 }
 
 impl<V: 'static> Switch<V> {
     pub fn new(id: impl Into<ElementId>, checked: bool) -> Self {
-        Self { id: id.into(), checked, disabled: false, on_change: None }
+        Self { id: id.into(), checked, disabled: false, kit: false, on_change: None }
+    }
+
+    /// Visual do kit: polegar na cor do fundo (menus do player).
+    pub fn kit(mut self) -> Self {
+        self.kit = true;
+        self
     }
 
     pub fn disabled(mut self, disabled: bool) -> Self {
@@ -46,7 +53,7 @@ impl<V: 'static> Component<V> for Switch<V> {
         let p = cx.animate(self.id, target, Transition::ms(150).easing(Easing::EaseOut));
         let th = cx.theme();
         let off_track = if th.dark { th.input.alpha(0.8) } else { th.input };
-        let (thumb_off, thumb_on) = if th.dark { (th.foreground, th.primary_foreground) } else { (th.background, th.background) };
+        let (thumb_off, thumb_on) = if self.kit { (th.background, th.background) } else if th.dark { (th.foreground, th.primary_foreground) } else { (th.background, th.background) };
         let next = !self.checked;
         let cb = self.on_change;
         let thumb = div().size(THUMB).flex_shrink_0().rounded_full().bg(mix(thumb_off, thumb_on, p)).ml(px(p * TRAVEL));
