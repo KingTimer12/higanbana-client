@@ -172,7 +172,8 @@ typedef enum hg_cursor {
     HG_CURSOR_RESIZE_EW,
     HG_CURSOR_RESIZE_NS,
     HG_CURSOR_MOVE,
-    HG_CURSOR_WAIT
+    HG_CURSOR_WAIT,
+    HG_CURSOR_NONE  /* oculto (vídeo em tela cheia) */
 } hg_cursor;
 
 /* Cursor mostrado enquanto o mouse está na área cliente (aplicado via WM_SETCURSOR). */

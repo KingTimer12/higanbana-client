@@ -16,6 +16,8 @@ pub enum CursorStyle {
     ResizeVertical,
     Move,
     Wait,
+    /// Sem cursor (ex.: vídeo com os controles ocultos).
+    None,
 }
 
 impl CursorStyle {
@@ -30,6 +32,17 @@ impl CursorStyle {
             CursorStyle::ResizeVertical => sys::hg_cursor_HG_CURSOR_RESIZE_NS,
             CursorStyle::Move => sys::hg_cursor_HG_CURSOR_MOVE,
             CursorStyle::Wait => sys::hg_cursor_HG_CURSOR_WAIT,
+            CursorStyle::None => sys::hg_cursor_HG_CURSOR_NONE,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn none_maps_to_hidden_cursor() {
+        assert_eq!(CursorStyle::None.raw(), sys::hg_cursor_HG_CURSOR_NONE);
     }
 }
