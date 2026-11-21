@@ -48,6 +48,6 @@ pub mod prelude {
         auto, div, icon, img, overlay, pct, px, rgb, rgba, scroll, scroll_x, text, text_field, Anchor, AnchorAlign, App, BackendKind,
         Color, CursorStyle, Easing, Element, EventCx, ImageData, ImageSource, Key, KeyEvent, MouseEvent, PointerEvent,
         RenderCx, Side, Styled, TextInputState, Theme, Transition, View, WindowOptions, Decorations, HitKind,
-        WindowCommand, WindowState, IconSet,
+        WindowCommand, WindowState, IconSet, NavDirection,
     };
 }

@@ -64,6 +64,9 @@ int hg__window_translate(hg_window* win, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_RBUTTONUP:   push_mouse(win, HG_EVENT_MOUSE_UP, lp, 1); return 1;
     case WM_MBUTTONDOWN: push_mouse(win, HG_EVENT_MOUSE_DOWN, lp, 2); return 1;
     case WM_MBUTTONUP:   push_mouse(win, HG_EVENT_MOUSE_UP, lp, 2); return 1;
+    /* Laterais: XBUTTON1 = 3 (voltar), XBUTTON2 = 4 (avançar). */
+    case WM_XBUTTONDOWN: push_mouse(win, HG_EVENT_MOUSE_DOWN, lp, GET_XBUTTON_WPARAM(wp) == XBUTTON1 ? 3 : 4); return 1;
+    case WM_XBUTTONUP:   push_mouse(win, HG_EVENT_MOUSE_UP, lp, GET_XBUTTON_WPARAM(wp) == XBUTTON1 ? 3 : 4); return 1;
     case WM_MOUSEWHEEL:  push_scroll(win, 0, (float)GET_WHEEL_DELTA_WPARAM(wp) / WHEEL_DELTA); return 1;
     case WM_MOUSEHWHEEL: push_scroll(win, (float)GET_WHEEL_DELTA_WPARAM(wp) / WHEEL_DELTA, 0); return 1;
     case WM_KEYDOWN: case WM_SYSKEYDOWN: push_key(win, HG_EVENT_KEY_DOWN, wp, lp); return 0;

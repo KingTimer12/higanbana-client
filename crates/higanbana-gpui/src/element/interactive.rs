@@ -68,6 +68,13 @@ impl<V> Element<V> {
         self
     }
 
+    /// Botões laterais do mouse soltos sobre o elemento (voltar/avançar).
+    /// Sobe até o primeiro ancestral com handler.
+    pub fn on_navigate(mut self, f: impl Fn(&mut V, crate::gfx::NavDirection, &mut EventCx) + 'static) -> Self {
+        self.interact().on_navigate = Some(Box::new(f));
+        self
+    }
+
     /// Mouse moveu sobre o elemento, ou em qualquer lugar durante a captura.
     pub fn on_mouse_move(mut self, f: impl Fn(&mut V, &PointerEvent, &mut EventCx) + 'static) -> Self {
         self.interact().on_mouse_move = Some(Box::new(f));

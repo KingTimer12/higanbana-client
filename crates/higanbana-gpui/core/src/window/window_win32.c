@@ -45,6 +45,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_ERASEBKGND:
         return 1; /* evita flicker: backend pinta tudo */
+    case WM_XBUTTONDOWN: case WM_XBUTTONUP:
+        hg__window_translate(win, msg, wp, lp);
+        return TRUE; /* a documentação pede TRUE para os botões X */
     default:
         if (hg__window_translate(win, msg, wp, lp)) return 0;
         return DefWindowProcW(hwnd, msg, wp, lp);

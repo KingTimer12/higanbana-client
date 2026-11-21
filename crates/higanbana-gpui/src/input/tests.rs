@@ -91,3 +91,53 @@ fn scroll_hidden_items_not_hit() {
     // Rolado 48 px: o item 1 (nó 3) ocupa -18..12.
     assert_eq!(t.hit_test(point(10.0, 5.0)), Some(3));
 }
+
+#[derive(Default)]
+struct Nav {
+    log: Vec<crate::NavDirection>,
+}
+
+fn nav_tree() -> Tree<Nav> {
+    let root = div()
+        .w(200.0)
+        .h(200.0)
+        .on_navigate(|v: &mut Nav, d, _| v.log.push(d))
+        .child(div().w(50.0).h(50.0).on_click(|_: &mut Nav, _, _| {}));
+    let mut t = Tree::new();
+    t.rebuild(root, &TextStyle::default(), size(200.0, 200.0), &mut FakeMeasurer);
+    t
+}
+
+fn side(t: &mut Tree<Nav>, v: &mut Nav, b: MouseButton) {
+    let mut cx = EventCx::default();
+    t.mouse_down(point(10.0, 10.0), b, Modifiers::default(), v, &mut cx);
+    t.mouse_up(point(10.0, 10.0), b, Modifiers::default(), v, &mut cx);
+}
+
+#[test]
+fn xbutton1_chama_on_navigate_back() {
+    let (mut t, mut v) = (nav_tree(), Nav::default());
+    side(&mut t, &mut v, MouseButton::Back);
+    assert_eq!(v.log, vec![crate::NavDirection::Back]);
+}
+
+#[test]
+fn xbutton2_forward() {
+    let (mut t, mut v) = (nav_tree(), Nav::default());
+    side(&mut t, &mut v, MouseButton::Forward);
+    assert_eq!(v.log, vec![crate::NavDirection::Forward]);
+}
+
+#[test]
+fn sem_handler_nao_quebra() {
+    let mut t = build(div().w(100.0).h(100.0));
+    let mut cx = EventCx::default();
+    t.mouse_up(point(10.0, 10.0), MouseButton::Back, Modifiers::default(), &mut Counter::default(), &mut cx);
+}
+
+#[test]
+fn botao_esquerdo_nao_navega() {
+    let (mut t, mut v) = (nav_tree(), Nav::default());
+    side(&mut t, &mut v, MouseButton::Left);
+    assert!(v.log.is_empty());
+}

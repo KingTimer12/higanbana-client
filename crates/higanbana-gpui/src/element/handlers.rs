@@ -43,6 +43,7 @@ pub type KeyHandler<V> = Box<dyn Fn(&mut V, &KeyEvent, &mut EventCx)>;
 pub type CharHandler<V> = Box<dyn Fn(&mut V, char, &mut EventCx)>;
 pub type PointerHandler<V> = Box<dyn Fn(&mut V, &PointerEvent, &mut EventCx)>;
 pub type HoverHandler<V> = Box<dyn Fn(&mut V, bool, &mut EventCx)>;
+pub type NavHandler<V> = Box<dyn Fn(&mut V, crate::gfx::NavDirection, &mut EventCx)>;
 pub type DismissHandler<V> = Box<dyn Fn(&mut V, &mut EventCx)>;
 /// Transforma o estilo base num estilo de estado (hover, foco, desabilitado).
 pub type StyleFn = Box<dyn Fn(Style) -> Style>;
@@ -61,6 +62,7 @@ pub(crate) struct Interactivity<V> {
     pub on_mouse_up: Option<PointerHandler<V>>,
     pub on_mouse_move: Option<PointerHandler<V>>,
     pub on_hover: Option<HoverHandler<V>>,
+    pub on_navigate: Option<NavHandler<V>>,
 }
 
 impl<V> Default for Interactivity<V> {
@@ -76,6 +78,7 @@ impl<V> Default for Interactivity<V> {
             on_mouse_up: None,
             on_mouse_move: None,
             on_hover: None,
+            on_navigate: None,
         }
     }
 }

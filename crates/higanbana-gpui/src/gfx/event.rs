@@ -7,6 +7,17 @@ pub enum MouseButton {
     Left,
     Right,
     Middle,
+    /// Lateral de trás (XBUTTON1).
+    Back,
+    /// Lateral da frente (XBUTTON2).
+    Forward,
+}
+
+/// Sentido dos botões laterais do mouse (`Element::on_navigate`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NavDirection {
+    Back,
+    Forward,
 }
 
 /// Modificadores ativos no momento do evento.
@@ -48,6 +59,8 @@ fn button(b: u32) -> MouseButton {
     match b {
         1 => MouseButton::Right,
         2 => MouseButton::Middle,
+        3 => MouseButton::Back,
+        4 => MouseButton::Forward,
         _ => MouseButton::Left,
     }
 }
