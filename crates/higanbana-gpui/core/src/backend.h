@@ -8,8 +8,12 @@ struct hg_window;
 typedef struct hg_backend_vtbl {
     hg_backend_kind kind;
     const char*     name;
-    /* 1 = disponível; preenche adapter. Não deixa estado global vivo. */
+    /* 1 = disponível; preenche adapter. Pode carregar o driver: só roda quando
+     * o backend é pedido (criação de contexto ou troca). */
     int       (*probe)(hg_backend_info* info);
+    /* 1 = provavelmente disponível; preenche adapter. Barato: não carrega driver
+     * de GPU (usa hg__detect_*). Usado por hg_enumerate_backends. NULL = usa probe. */
+    int       (*detect)(hg_backend_info* info);
     hg_result (*create)(hg_context* ctx);
     void      (*destroy)(hg_context* ctx);
     /* Superfície por janela. */

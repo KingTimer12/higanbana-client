@@ -25,6 +25,11 @@ static int d3d12_probe(hg_backend_info* info) {
     return ok;
 }
 
+/* Sem criar device (que carrega o driver): runtime presente + GPU de hardware. */
+static int d3d12_detect(hg_backend_info* info) {
+    return hg__detect_dll(L"d3d12.dll") && hg__detect_adapter(info);
+}
+
 static hg_result d3d12_create(hg_context* ctx) {
     d3d12_device* d = calloc(1, sizeof *d);
     if (!d) return hg__fail(HG_ERR_OOM, "d3d12: sem memória");
@@ -98,6 +103,7 @@ const hg_backend_vtbl hg__d3d12_backend = {
     .kind = HG_BACKEND_D3D12,
     .name = "Direct3D 12",
     .probe = d3d12_probe,
+    .detect = d3d12_detect,
     .create = d3d12_create,
     .destroy = d3d12_destroy,
     .attach = d3d12_attach,

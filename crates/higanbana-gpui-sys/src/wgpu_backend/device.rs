@@ -27,13 +27,27 @@ pub struct Gpu {
     pub readback: wgpu::Buffer,
 }
 
+/// Só um backend do wgpu: DX12, ou Vulkan se não houver runtime D3D12.
+/// - Sem GL nem os outros: cada backend extra sobe um driver (dezenas de MB).
+/// - DX12 antes de Vulkan: uma `VkInstance` do wgpu criada depois que o backend
+///   Vulkan do core já criou/destruiu um device perde a configuração da superfície
+///   (driver AMD compartilha estado entre instâncias) e o primeiro frame falha.
+fn backends() -> wgpu::Backends {
+    let d3d12: Vec<u16> = "d3d12.dll".encode_utf16().chain([0]).collect();
+    if unsafe { hg__detect_dll(d3d12.as_ptr()) } != 0 { wgpu::Backends::DX12 } else { wgpu::Backends::VULKAN }
+}
+
 /// Instância única por processo, nunca destruída: o driver Vulkan da AMD
 /// compartilha estado entre instâncias e destruir uma enquanto outra thread
 /// apresenta derruba o processo (mesma correção de `vk_instance.c`).
 fn instance() -> wgpu::Instance {
     static INSTANCE: std::sync::OnceLock<SharedInstance> = std::sync::OnceLock::new();
     INSTANCE
-        .get_or_init(|| SharedInstance(wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle())))
+        .get_or_init(|| {
+            let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+            desc.backends = backends();
+            SharedInstance(wgpu::Instance::new(desc))
+        })
         .0
         .clone()
 }

@@ -31,6 +31,14 @@ pub unsafe extern "C" fn probe(info: *mut hg_backend_info) -> c_int {
     found as c_int
 }
 
+/// Checagem barata para a enumeração: não cria `wgpu::Instance` (que sobe os
+/// drivers DX12/Vulkan/GL e fica viva). Basta um runtime DX12 ou Vulkan e GPU de hardware.
+pub unsafe extern "C" fn detect(info: *mut hg_backend_info) -> c_int {
+    let wide = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let runtime = unsafe { hg__detect_dll(wide("d3d12.dll").as_ptr()) != 0 || hg__detect_dll(wide("vulkan-1.dll").as_ptr()) != 0 };
+    (runtime && unsafe { hg__detect_adapter(info) } != 0) as c_int
+}
+
 pub unsafe extern "C" fn create(ctx: *mut hg_context) -> hg_result {
     guard(|| {
         let gpu = Gpu::new(unsafe { &mut *hg__ctx_info(ctx) })?;
@@ -51,8 +59,7 @@ pub unsafe extern "C" fn destroy(ctx: *mut hg_context) {
 pub unsafe extern "C" fn attach(ctx: *mut hg_context, win: *mut hg_window) -> hg_result {
     guard(|| {
         let gpu = unsafe { gpu_of(ctx)? };
-        let (w, h) = window_size(win);
-        let surface = Window::new(gpu, unsafe { hg__window_hwnd(win) }, w, h)?;
+        let (w, h) = window_size(win);        let surface = Window::new(gpu, unsafe { hg__window_hwnd(win) }, w, h)?;
         unsafe { hg__window_set_surface(win, Box::into_raw(Box::new(surface)).cast()) };
         Ok(())
     })

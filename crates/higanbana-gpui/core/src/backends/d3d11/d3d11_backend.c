@@ -89,6 +89,7 @@ const hg_backend_vtbl hg__d3d11_backend = {
     .kind = HG_BACKEND_D3D11,
     .name = "Direct3D 11",
     .probe = d3d11_probe,
+    .detect = d3d11_probe, /* já é barato: só abre a d3d11.dll */
     .create = d3d11_create,
     .destroy = d3d11_destroy,
     .attach = d3d11_attach,

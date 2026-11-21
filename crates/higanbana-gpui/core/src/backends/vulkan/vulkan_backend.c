@@ -16,6 +16,11 @@ static int vulkan_probe(hg_backend_info* info) {
            vk_pick_physical(&api, inst, &phys, &family, info ? info->adapter : NULL, info ? sizeof info->adapter : 0);
 }
 
+/* Sem VkInstance (que carrega o ICD e fica viva): loader presente + GPU de hardware. */
+static int vulkan_detect(hg_backend_info* info) {
+    return hg__detect_dll(L"vulkan-1.dll") && hg__detect_adapter(info);
+}
+
 static hg_result vulkan_create(hg_context* ctx) {
     vk_device* d = calloc(1, sizeof *d);
     if (!d) return hg__fail(HG_ERR_OOM, "vulkan: sem memória");
@@ -86,6 +91,7 @@ const hg_backend_vtbl hg__vulkan_backend = {
     .kind = HG_BACKEND_VULKAN,
     .name = "Vulkan",
     .probe = vulkan_probe,
+    .detect = vulkan_detect,
     .create = vulkan_create,
     .destroy = vulkan_destroy,
     .attach = vulkan_attach,

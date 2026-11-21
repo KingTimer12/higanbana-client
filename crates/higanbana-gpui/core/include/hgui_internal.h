@@ -32,6 +32,12 @@ void      hg__atlas_clear(hg_atlas* atlas);
  * hg_enumerate_backends/hg_context_create; depois disso devolve HG_ERR_INVALID. */
 hg_result hg__backend_register(const void* vtbl);
 
+/* Checagens baratas para o `detect` dos backends (não carregam driver de GPU). */
+/* 1 se a DLL de sistema `name` existe (carrega e solta, sem DllMain de driver). */
+int hg__detect_dll(const wchar_t* name);
+/* 1 se há adaptador de hardware; escreve o nome em info->adapter (info pode ser NULL). */
+int hg__detect_adapter(hg_backend_info* info);
+
 /* ---- Janela (testes) -------------------------------------------------- */
 void hg__window_inject_resize(hg_window* win, uint32_t width, uint32_t height);
 void hg__window_request_close(hg_window* win);

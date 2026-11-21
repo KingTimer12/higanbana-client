@@ -20,6 +20,12 @@ static int opengl_probe(hg_backend_info* info) {
     return ok;
 }
 
+/* Sem contexto GL (o ICD não descarrega depois): opengl32 sempre existe, então
+ * basta haver GPU de hardware, que traz o ICD do fabricante. */
+static int opengl_detect(hg_backend_info* info) {
+    return hg__detect_adapter(info);
+}
+
 static hg_result opengl_create(hg_context* ctx) {
     gl_device* d = calloc(1, sizeof *d);
     if (!d) return hg__fail(HG_ERR_OOM, "opengl: sem memória");
@@ -88,6 +94,7 @@ const hg_backend_vtbl hg__opengl_backend = {
     .kind = HG_BACKEND_OPENGL,
     .name = "OpenGL",
     .probe = opengl_probe,
+    .detect = opengl_detect,
     .create = opengl_create,
     .destroy = opengl_destroy,
     .attach = opengl_attach,

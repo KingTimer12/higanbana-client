@@ -48,6 +48,7 @@ static VTBL: SyncVtbl = SyncVtbl(hg_backend_vtbl {
     kind: hg_backend_kind_HG_BACKEND_WGPU,
     name: c"WGPU".as_ptr(),
     probe: Some(ffi::probe),
+    detect: Some(ffi::detect),
     create: Some(ffi::create),
     destroy: Some(ffi::destroy),
     attach: Some(ffi::attach),
