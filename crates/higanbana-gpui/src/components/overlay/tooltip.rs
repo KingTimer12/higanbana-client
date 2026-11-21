@@ -25,6 +25,7 @@ pub struct Tooltip<V> {
     label: Cow<'static, str>,
     side: Side,
     delay: Duration,
+    kit: bool,
 }
 
 impl<V: 'static> Tooltip<V> {
@@ -36,12 +37,19 @@ impl<V: 'static> Tooltip<V> {
         label: impl Into<Cow<'static, str>>,
     ) -> Self {
         let (id, visible) = (id.into(), state.visible);
-        Self { id, visible, lens: Rc::new(lens), trigger: trigger.into(), label: label.into(), side: Side::Top, delay: Duration::from_millis(500) }
+        Self { id, visible, lens: Rc::new(lens), trigger: trigger.into(), label: label.into(), side: Side::Top, delay: Duration::from_millis(500), kit: false }
     }
 
     /// Lado do balão (padrão: em cima; vira se não couber).
     pub fn side(mut self, side: Side) -> Self {
         self.side = side;
+        self
+    }
+
+    /// Visual do gpui-kit: balão `popover` com borda e sombra, texto sm, embaixo.
+    pub fn kit(mut self) -> Self {
+        self.kit = true;
+        self.side = Side::Bottom;
         self
     }
 
@@ -80,17 +88,26 @@ impl<V: 'static> Component<V> for Tooltip<V> {
         if t <= 0.001 {
             return wrapper;
         }
-        let bubble = div()
-            .id(sub(id, "balao"))
-            .px(12.0)
-            .py(6.0)
-            .rounded(theme.radius - 2.0)
-            .bg(theme.primary)
-            .text_color(theme.primary_foreground)
-            .text_size(theme.typography.xs)
-            .whitespace_nowrap()
-            .opacity(t)
-            .child(text(self.label));
+        let bubble = div().id(sub(id, "balao")).whitespace_nowrap().opacity(t).child(text(self.label));
+        let bubble = if self.kit {
+            bubble
+                .px(8.0)
+                .py(2.0)
+                .rounded(theme.radius)
+                .bg(theme.popover)
+                .text_color(theme.popover_foreground)
+                .border(1.0, theme.border)
+                .shadow(crate::color::Color::BLACK.alpha(0.15), 8.0)
+                .text_size(theme.typography.sm)
+        } else {
+            bubble
+                .px(12.0)
+                .py(6.0)
+                .rounded(theme.radius - 2.0)
+                .bg(theme.primary)
+                .text_color(theme.primary_foreground)
+                .text_size(theme.typography.xs)
+        };
         let anchor = match self.side {
             Side::Top => Anchor::above(id),
             Side::Bottom => Anchor::below(id),

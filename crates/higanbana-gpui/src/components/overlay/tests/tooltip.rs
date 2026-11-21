@@ -54,3 +54,22 @@ fn leaving_before_delay_cancels_timer() {
     assert!(h.timers.is_empty(), "timer cancelado");
     assert!(!v.tip.visible);
 }
+
+#[test]
+fn kit_usa_popover_com_borda() {
+    let (mut h, mut t) = (Harness::new(), Tree::new());
+    let v = V { tip: TooltipState { visible: true, ..Default::default() } };
+    let frame_kit = |h: &mut Harness, t: &mut Tree<V>| {
+        h.frame(t, |cx| {
+            let tip = Tooltip::new("tip", &v.tip, |v: &mut V| &mut v.tip, div().w(40.0).h(20.0), "Dica").kit().render(cx);
+            div().size_full().p(100.0).child(tip)
+        })
+    };
+    frame_kit(&mut h, &mut t);
+    h.advance(300);
+    frame_kit(&mut h, &mut t);
+    let rec = crate::components::form::test_util::paint(&t);
+    let th = Theme::dark();
+    assert!(rec.quads.iter().any(|(_, c)| *c == th.popover), "fundo popover");
+    assert!(!rec.quads.iter().any(|(_, c)| *c == th.primary), "não usa a cor primária");
+}

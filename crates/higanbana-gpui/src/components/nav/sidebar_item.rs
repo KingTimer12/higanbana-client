@@ -70,6 +70,6 @@ impl<V: 'static> SidebarItem<V> {
         let (state, lens) = tip;
         let id = self.id;
         let tip_id = ElementId(id.0.rotate_left(11) ^ ElementId::from("dica").0);
-        Tooltip::new(tip_id, state, move |v: &mut V| lens(v, id), e, self.label).side(Side::Right).render(cx)
+        Tooltip::new(tip_id, state, move |v: &mut V| lens(v, id), e, self.label).kit().side(Side::Right).render(cx)
     }
 }
