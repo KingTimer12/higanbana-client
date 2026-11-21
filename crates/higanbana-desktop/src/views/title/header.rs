@@ -31,8 +31,8 @@ pub fn backdrop(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, w: &Work) -
     if let Some(b) = banner {
         d = d.child(div().absolute().top(0.0).left(0.0).size_full().opacity(if has_banner { 0.45 } else { 0.25 }).child(remote_image(v, cx, Some(&b), 0.0)));
     }
-    let down = LinearGradient::new(GradientDir::Down, vec![(0.0, t.background.alpha(0.3)), (1.0, t.background)]);
-    let side = LinearGradient::new(GradientDir::Right, vec![(0.25, t.background.alpha(0.85)), (0.9, t.background.alpha(0.0))]);
+    let down = LinearGradient::new(GradientDir::Down, vec![(0.0, t.background.fade(0.3)), (1.0, t.background)]);
+    let side = LinearGradient::new(GradientDir::Right, vec![(0.25, t.background.fade(0.85)), (0.9, t.background.fade(0.0))]);
     d.child(div().absolute().top(0.0).left(0.0).size_full().bg_gradient(down)).child(div().absolute().top(0.0).left(0.0).size_full().bg_gradient(side))
 }
 
@@ -139,7 +139,7 @@ fn synopsis(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, w: &Work) -> Op
     }
     let long = paras.join(" ").len() > 300;
     let expanded = v.pages.title().expanded;
-    let mut text_col = div().flex_col().gap(12.0).text_color(t.foreground.alpha(0.85));
+    let mut text_col = div().flex_col().gap(12.0).text_color(t.foreground.fade(0.85));
     if long && !expanded {
         text_col = text_col.line_clamp(3).child(text(paras.join(" ")));
     } else {
@@ -235,6 +235,6 @@ pub fn head(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, w: &Work) -> El
         links = links.child(Link::new("titulo-site", if mal_only { "Ver no MyAnimeList" } else { "Página no AniList" }).on_click(move |_: &mut Higanbana, _| open_url(&url)).render(cx));
     }
     info = info.child(links);
-    let art = div().flex_shrink_0().rounded(t.radius_lg).shadow(Color::BLACK.alpha(0.25), SHADOW_LG).child(cover(v, cx, media, &w.model.lookup_name(), Some(184.0)));
+    let art = div().flex_shrink_0().rounded(t.radius_lg).shadow(Color::BLACK.fade(0.25), SHADOW_LG).child(cover(v, cx, media, &w.model.lookup_name(), Some(184.0)));
     div().mt(48.0).items_start().gap(32.0).child(art).child(info)
 }

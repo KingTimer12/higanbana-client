@@ -46,12 +46,12 @@ fn thumbs(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, items: &[(RankedM
             .translate_y(-4.0 * lift)
             .rounded(t.radius)
             .overflow_hidden()
-            .border(2.0, if on { t.foreground } else { t.foreground.alpha(0.2 * h) })
+            .border(2.0, if on { t.foreground } else { t.foreground.fade(0.2 * h) })
             .opacity(if on { 1.0 } else { 0.5 + 0.4 * h })
             .cursor_pointer()
             .child(remote_image(v, cx, url.as_deref(), t.radius));
         if on {
-            thumb = thumb.shadow(Color::BLACK.alpha(0.25), SHADOW_LG);
+            thumb = thumb.shadow(Color::BLACK.fade(0.25), SHADOW_LG);
         }
         let thumb = thumb.on_click(move |v: &mut Higanbana, _, cx| {
             v.pages.home().hero.go(i, std::time::Instant::now());
@@ -92,7 +92,7 @@ pub fn hero(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higa
     };
     // Luz ambiente na cor da capa, trocada com um fade a cada slide.
     let g = cx.animate_from(("hero-luz", active), 0.0, 1.0, transition(BASE));
-    let light = div().absolute().top(0.0).left(0.0).size_full().opacity(g).bg_gradient(LinearGradient::new(GradientDir::Right, vec![(0.0, glow.alpha(0.35)), (0.7, glow.alpha(0.0))]));
+    let light = div().absolute().top(0.0).left(0.0).size_full().opacity(g).bg_gradient(LinearGradient::new(GradientDir::Right, vec![(0.0, glow.fade(0.35)), (0.7, glow.fade(0.0))]));
     let mut card = div().relative().size_full().rounded(t.radius_lg - 1.0).overflow_hidden().bg(t.group_box).child(light).child(body);
     if items.len() > 1 {
         card = card.child(div().absolute().right(24.0).bottom(20.0).child(thumbs(v, cx, &items, active)));

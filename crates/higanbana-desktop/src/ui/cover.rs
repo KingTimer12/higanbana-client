@@ -37,7 +37,7 @@ fn type_poster(t: &Theme, name: &str) -> Element<Higanbana> {
         .p(12.0)
         .bg(t.muted)
         .child(icon("clapperboard").size(14.0).text_color(t.muted_foreground))
-        .child(div().flex_col().text_size(t.typography.base).font_weight(600).text_color(t.foreground.alpha(0.8)).line_clamp(5).child(text(folder_title(name))))
+        .child(div().flex_col().text_size(t.typography.base).font_weight(600).text_color(t.foreground.fade(0.8)).line_clamp(5).child(text(folder_title(name))))
 }
 
 /// Capa 2:3 de largura `width` (`None` = largura do pai).

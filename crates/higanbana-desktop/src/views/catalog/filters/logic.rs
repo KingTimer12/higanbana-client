@@ -368,8 +368,6 @@ mod tests {
 #[test]
 fn keeps_manga_works_inside_franchises() {
     use higanbana_core::nuvem::SearchKind;
-    use higanbana_core::anime_index::IndexEntry;
-    use higanbana_core::catalog_filter::{Filters, Sort};
     let r = |path: &str, kind| SearchResult { name: path.rsplit('/').next().unwrap().into(), path: path.into(), kind };
     let found = franchise_results(
         vec![

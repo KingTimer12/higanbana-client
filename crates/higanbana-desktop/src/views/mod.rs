@@ -3,6 +3,7 @@
 //! O que precisa sobreviver (filtros e posição do catálogo) fica no `AppState`.
 
 pub mod catalog;
+pub mod episodes;
 pub mod franchise;
 pub mod home;
 pub mod title;

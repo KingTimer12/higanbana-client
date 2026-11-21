@@ -45,7 +45,7 @@ pub fn version_card(cx: &mut RenderCx<'_, Higanbana>, id: impl Into<ElementId>, 
         .cursor_pointer()
         .child(truncate(label.name.clone()).text_size(t.typography.sm).font_weight(600))
         .child(row);
-    card = if selected { card.border(1.0, t.primary).bg(t.primary.alpha(0.1)) } else { card.border(1.0, t.border).bg(t.muted) };
+    card = if selected { card.border(1.0, t.primary).bg(t.primary.fade(0.1)) } else { card.border(1.0, t.border).bg(t.muted) };
     if !selected {
         card = card.child(hover::layer(hover::amount(cx, id), Corners::all(t.radius_lg), None, Some(t.ring)));
     }

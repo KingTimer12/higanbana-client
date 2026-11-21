@@ -47,7 +47,7 @@ impl Default for HomeUi {
 
 /// Título de bloco: ícone num selo da cor primária + nome.
 pub(super) fn eyebrow(t: &Theme, name: &'static str, title: impl Into<std::borrow::Cow<'static, str>>) -> Element<Higanbana> {
-    let badge = div().w(32.0).h(32.0).flex_shrink_0().items_center().justify_center().rounded_full().bg(t.primary.alpha(0.14)).child(icon(name).size(14.0).text_color(t.primary));
+    let badge = div().w(32.0).h(32.0).flex_shrink_0().items_center().justify_center().rounded_full().bg(t.primary.fade(0.14)).child(icon(name).size(14.0).text_color(t.primary));
     div().items_center().gap(10.0).child(badge).child(text(title).text_size(t.typography.xl).font_weight(600))
 }
 

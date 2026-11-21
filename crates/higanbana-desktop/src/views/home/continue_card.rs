@@ -79,8 +79,8 @@ pub fn featured(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, item: &Cont
         (false, true) => ("Ver episódios", "chevron-right"),
     };
     let glow = hex_color(m.as_ref().and_then(|m| m.color())).unwrap_or(t.primary);
-    let light = div().absolute().top(0.0).left(0.0).size_full().bg_gradient(LinearGradient::new(GradientDir::Right, vec![(0.0, glow.alpha(0.3)), (0.65, glow.alpha(0.0))]));
-    let art = div().flex_shrink_0().rounded(t.radius).overflow_hidden().shadow(Color::BLACK.alpha(0.25), SHADOW_LG).child(cover(v, cx, m.as_deref(), &title, Some(76.0)));
+    let light = div().absolute().top(0.0).left(0.0).size_full().bg_gradient(LinearGradient::new(GradientDir::Right, vec![(0.0, glow.fade(0.3)), (0.65, glow.fade(0.0))]));
+    let art = div().flex_shrink_0().rounded(t.radius).overflow_hidden().shadow(Color::BLACK.fade(0.25), SHADOW_LG).child(cover(v, cx, m.as_deref(), &title, Some(76.0)));
     let info = div()
         .flex_col()
         .flex_1()

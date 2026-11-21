@@ -61,9 +61,13 @@ pub fn files_tab(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, w: &Work, 
         None => Skeleton::new("titulo-arquivos").w(pct(100.0)).h(288.0).render(cx).rounded(t.radius_lg),
         Some(Ok(list)) => {
             let dir = w.files_path.clone().unwrap_or_default();
-            let rows = FileRows::new(&dir, sorted(list), false, play_action(w), read_action(w));
-            let _ = width;
-            file_list(v, cx, &rows)
+            match (play_action(w), w.model.media) {
+                (Some(play), higanbana_core::anilist::MediaType::Anime) => {
+                    let eps = w.episodes.as_ref().map(|e| e.as_deref());
+                    crate::views::episodes::episode_list(v, cx, &dir, list, eps, width, play, read_action(w))
+                }
+                (play, _) => file_list(v, cx, &FileRows::new(&dir, sorted(list), false, play, read_action(w))),
+            }
         }
     };
     let mut col = div().flex_col().gap(20.0).child(options).child(body);

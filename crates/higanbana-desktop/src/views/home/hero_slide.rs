@@ -51,9 +51,9 @@ pub fn slide(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, m: &RankedMedi
         .opacity(if has_banner { 0.65 } else { 0.3 })
         .child(remote_image(v, cx, banner.as_deref(), 0.0));
     // Véus do tema: texto legível sobre qualquer banner.
-    let veil_side = div().absolute().top(0.0).left(0.0).size_full().bg_gradient(LinearGradient::new(GradientDir::Right, vec![(0.2, t.background.alpha(0.95)), (0.9, t.background.alpha(0.0))]));
-    let veil_bottom = div().absolute().top(0.0).left(0.0).size_full().bg_gradient(LinearGradient::new(GradientDir::Down, vec![(0.45, t.background.alpha(0.0)), (1.0, t.background.alpha(0.75))]));
-    let cover_el = div().flex_shrink_0().rounded(t.radius_lg).shadow(Color::BLACK.alpha(0.25), SHADOW_2XL).child(cover(v, cx, Some(s), &title, Some(176.0)));
+    let veil_side = div().absolute().top(0.0).left(0.0).size_full().bg_gradient(LinearGradient::new(GradientDir::Right, vec![(0.2, t.background.fade(0.95)), (0.9, t.background.fade(0.0))]));
+    let veil_bottom = div().absolute().top(0.0).left(0.0).size_full().bg_gradient(LinearGradient::new(GradientDir::Down, vec![(0.45, t.background.fade(0.0)), (1.0, t.background.fade(0.75))]));
+    let cover_el = div().flex_shrink_0().rounded(t.radius_lg).shadow(Color::BLACK.fade(0.25), SHADOW_2XL).child(cover(v, cx, Some(s), &title, Some(176.0)));
     let title_el = div().flex_col().text_size(30.0).font_weight(700).line_clamp(2).child(text(title.clone()));
     let mut meta_el = div().gap(12.0).items_center().text_size(t.typography.sm).text_color(t.muted_foreground);
     if let Some(score) = s.average_score {
@@ -77,7 +77,7 @@ pub fn slide(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, m: &RankedMedi
     let mut text_col = div().flex_col().flex_1().min_w(0.0).max_w(640.0).gap(12.0);
     text_col = text_col.child(step(cx, title_el, 1)).child(step(cx, meta_el, 2)).child(step(cx, chips, 3));
     if !synopsis.is_empty() {
-        let syn = div().flex_col().text_size(t.typography.sm).text_color(t.foreground.alpha(0.85)).line_clamp(3).child(text(synopsis));
+        let syn = div().flex_col().text_size(t.typography.sm).text_color(t.foreground.fade(0.85)).line_clamp(3).child(text(synopsis));
         text_col = text_col.child(step(cx, syn, 4));
     }
     text_col = text_col.child(step(cx, open, 5));

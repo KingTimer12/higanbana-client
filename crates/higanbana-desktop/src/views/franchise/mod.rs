@@ -47,7 +47,7 @@ pub fn page(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, m: &Model) -> E
     });
     let names_col = div().flex_col().gap(4.0).child(div().flex_col().text_size(30.0).font_weight(700).child(text(folder_title(&franchise)))).child(div().text_size(t.typography.sm).text_color(t.muted_foreground).child(text(span)));
     let info = div().flex_col().flex_1().min_w(0.0).gap(12.0).child(names_col).child(div().child(folder.render(cx)));
-    let art = div().flex_shrink_0().rounded(t.radius_lg).shadow(Color::BLACK.alpha(0.25), SHADOW_LG).child(cover(v, cx, hero_media.as_deref(), &franchise, Some(144.0)));
+    let art = div().flex_shrink_0().rounded(t.radius_lg).shadow(Color::BLACK.fade(0.25), SHADOW_LG).child(cover(v, cx, hero_media.as_deref(), &franchise, Some(144.0)));
     let hero = div().items_end().gap(24.0).child(art).child(info);
     let mut section = div().flex_col().gap(24.0);
     // Uma aba só dispensa a barra.
