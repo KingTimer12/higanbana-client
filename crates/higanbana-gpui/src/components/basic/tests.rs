@@ -108,3 +108,15 @@ fn kbd_formata_atalho() {
     assert_eq!(Kbd::label("shift-pagedown"), "Shift+Page Down");
     assert_eq!(Kbd::label("a"), "A");
 }
+
+#[test]
+fn esqueleto_pulsa_a_24_qps_sem_vsync() {
+    let mut anim = crate::anim::Animator::default();
+    let theme = crate::Theme::dark();
+    let mut cx: crate::RenderCx<'_, ()> = crate::RenderCx::new(&theme, crate::BackendKind::Auto, &[], crate::Stats::default(), &mut anim);
+    let now = cx.now();
+    let _ = super::Skeleton::new("s").render(&mut cx);
+    assert_eq!(cx.wake, Some(now + std::time::Duration::from_millis(41)));
+    drop(cx);
+    assert_ne!(anim.next_frame(), Some(std::time::Duration::ZERO), "nada de quadro imediato");
+}

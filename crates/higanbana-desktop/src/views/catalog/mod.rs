@@ -86,6 +86,8 @@ pub struct CatalogUi {
     /// Letra pedida pela rota (`Animes/Letra F`).
     route_letter: Option<usize>,
     restored: bool,
+    /// Índice e rastreio já pedidos nesta abertura (pedir a cada render recomeçaria o índice em laço).
+    started: bool,
     flat: Option<(FlatKey, Arc<[IndexEntry]>)>,
     found: Option<(String, usize, Vec<LetterSection>)>,
     pub genres: Option<((usize, usize), Vec<String>)>,
@@ -107,6 +109,7 @@ impl CatalogUi {
             upto: if route_letter.is_some() { 0 } else { saved.place.upto.min(LETTERS.len() - 1) },
             route_letter,
             restored: false,
+            started: false,
             flat: None,
             found: None,
             genres: None,
@@ -186,8 +189,10 @@ fn found_sections(v: &mut Higanbana, query: &str) -> Vec<LetterSection> {
 
 pub fn page(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higanbana> {
     let media = v.pages.catalog_media();
-    v.state.start_index(media);
-    v.state.start_metadata_crawl(media);
+    if !std::mem::replace(&mut v.pages.catalog(&v.state, media).started, true) {
+        v.state.start_index(media);
+        v.state.start_metadata_crawl(media);
+    }
     let width = (content_width(v, cx, 1280.0 + RAIL_W) - RAIL_W).max(200.0);
     let cols = columns(width, 160.0, GAP);
     let card_w = ((width - (cols as f32 - 1.0) * GAP) / cols as f32).floor();
@@ -237,7 +242,9 @@ pub fn page(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higa
                 }
             }
             Reopen::Offset(y) => cx.scroll_to(LIST, y),
-            Reopen::Top => v.state.want_catalog_letter(media, LETTERS[0]),
+            Reopen::Top => {
+                v.state.want_catalog_letter(media, LETTERS[0]);
+            }
         }
     } else {
         // Guarda onde está (ao voltar de uma obra).

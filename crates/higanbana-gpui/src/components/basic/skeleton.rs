@@ -11,6 +11,8 @@ use std::time::Duration;
 
 /// Meio ciclo da pulsação (1 -> 0.5 ou 0.5 -> 1), como `animate-pulse` (2 s o ciclo).
 pub const PULSE_MS: u64 = 1000;
+/// Quadros por segundo do pulso.
+pub const PULSE_FPS: u16 = 24;
 
 /// `Skeleton::new("capa").w(120.0).h(20.0)`; o `id` mantém a fase entre frames.
 pub struct Skeleton {
@@ -54,9 +56,10 @@ static EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new
 impl<V> Component<V> for Skeleton {
     fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
         let target = pulse_target(cx.now());
-        let tr = Transition::new(Duration::from_millis(PULSE_MS), Easing::EaseInOut);
+        // Pulso lento: 24 quadros/s bastam e poupam CPU (listas com vários esqueletos).
+        let tr = Transition::new(Duration::from_millis(PULSE_MS), Easing::EaseInOut).fps(PULSE_FPS);
         let opacity = cx.animate_from(self.id, 1.0, target, tr);
-        cx.request_animation_frame();
+        cx.request_redraw_in(Duration::from_millis(1000 / PULSE_FPS as u64));
         let theme = cx.theme();
         let radius = if self.round { 9999.0 } else { theme.radius - 2.0 };
         div().w(self.width).h(self.height).rounded(radius).bg(theme.muted).opacity(opacity)

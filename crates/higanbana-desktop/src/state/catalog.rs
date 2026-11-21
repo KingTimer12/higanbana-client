@@ -201,13 +201,14 @@ impl AppState {
     }
 
     /// Prioriza uma letra ainda não indexada (depois de falha, só após a espera).
-    pub fn want_catalog_letter(&mut self, media: MediaType, letter: &str) {
+    /// `true` se começou um pedido agora.
+    pub fn want_catalog_letter(&mut self, media: MediaType, letter: &str) -> bool {
         if self.catalog_letter(media, letter).is_some() || self.cat_lane(media).letters_loading.contains(letter) {
-            return;
+            return false;
         }
         let failed_at = self.cat_lane(media).letter_failed.get(letter).map(|(at, _)| *at);
         if !may_retry(failed_at, Instant::now(), LETTER_COOLDOWN) {
-            return;
+            return false;
         }
         let lane = self.cat_lane_mut(media);
         lane.letter_failed.remove(letter);
@@ -222,6 +223,7 @@ impl AppState {
             }
             cx.notify();
         });
+        true
     }
 
     pub fn catalog_letter_error(&self, media: MediaType, letter: &str) -> Option<String> {

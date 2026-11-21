@@ -86,8 +86,10 @@ pub fn row(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, r: &Row, ctx: &C
                 grid = grid.child(Skeleton::new(("catalogo-esqueleto", i)).w(m.card_w).h(m.card_w * 1.5).render(cx).rounded(t.radius_lg));
             }
             grid.child(on_visible(400.0, move |v: &mut Higanbana, cx| {
-                v.state.want_catalog_letter(media, letter);
-                cx.notify();
+                // Só avisa quando o pedido começa: avisar sempre reconstruiria em laço.
+                if v.state.want_catalog_letter(media, letter) {
+                    cx.notify();
+                }
             }))
         }
         Row::Failed { letter, error } => {
@@ -98,8 +100,9 @@ pub fn row(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, r: &Row, ctx: &C
                 .child(text(format!("Não foi possível carregar {}", header_label(name))).text_size(t.typography.sm).font_weight(500))
                 .child(div().text_size(t.typography.sm).text_color(t.muted_foreground).child(text(format!("{error}. Vamos tentar de novo em instantes."))));
             let card = div().relative().items_start().gap(12.0).p(16.0).rounded(t.radius_lg).border(1.0, t.border).child(icon("triangle-alert").size(16.0).text_color(t.warning)).child(text_col).child(on_visible(400.0, move |v: &mut Higanbana, cx| {
-                v.state.want_catalog_letter(media, name);
-                cx.notify();
+                if v.state.want_catalog_letter(media, name) {
+                    cx.notify();
+                }
             }));
             div().pt(ROW_GAP).child(card)
         }
