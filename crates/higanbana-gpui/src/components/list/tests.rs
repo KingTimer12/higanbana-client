@@ -88,3 +88,14 @@ fn on_visible_margem_alcanca() {
     let mut t = build::<V>(root);
     assert_eq!(t.take_visible().len(), 1);
 }
+
+#[test]
+fn ids_sob_o_mouse_com_on_hover() {
+    let root = div().flex_col().child(div().id("card").h(50.0).on_hover(|_: &mut V, _, _| {}).child(div().h(20.0)));
+    let mut t = build::<V>(root);
+    let mut v = V::default();
+    t.pointer_move(crate::point(5.0, 5.0), crate::Modifiers::default(), &mut v, &mut EventCx::default());
+    assert_eq!(t.hovered_ids(), vec![ElementId::from("card")]);
+    t.pointer_move(crate::point(5.0, 150.0), crate::Modifiers::default(), &mut v, &mut EventCx::default());
+    assert!(t.hovered_ids().is_empty());
+}

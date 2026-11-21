@@ -28,6 +28,11 @@ impl<V> Tree<V> {
         }
     }
 
+    /// Ids dos elementos com `on_hover` sob o mouse (do mais fundo para fora).
+    pub fn hovered_ids(&self) -> Vec<crate::element::ElementId> {
+        self.hover_owners.iter().filter_map(|k| self.resolve(*k)).filter_map(|i| self.nodes[i].id).collect()
+    }
+
     fn call_hover(&self, key: NodeKey, entered: bool, view: &mut V, cx: &mut EventCx) {
         let Some(i) = self.resolve(key) else { return };
         if let Some(h) = self.nodes[i].interact.as_ref().and_then(|x| x.on_hover.as_ref()) {

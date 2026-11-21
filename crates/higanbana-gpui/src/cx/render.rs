@@ -37,12 +37,14 @@ pub struct RenderCx<'a, V: ?Sized> {
     pub(crate) scroll_view: Vec<(ElementId, f32)>,
     /// Caixas dos elementos com `track_bounds` no último layout.
     pub(crate) bounds: Vec<(ElementId, crate::geometry::Rect)>,
+    /// Elementos com `on_hover` sob o mouse.
+    pub(crate) hovered: Vec<ElementId>,
     pub(crate) _view: PhantomData<fn(&mut V)>,
 }
 
 impl<'a, V: ?Sized> RenderCx<'a, V> {
     pub fn new(theme: &'a Theme, backend: BackendKind, backends: &'a [BackendInfo], stats: Stats, animator: &'a mut Animator) -> Self {
-        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), viewport: crate::geometry::Size::default(), waker: Waker::noop(), tasks: Vec::new(), scroll_view: Vec::new(), bounds: Vec::new(), scroll: Vec::new(), _view: PhantomData }
+        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), viewport: crate::geometry::Size::default(), waker: Waker::noop(), tasks: Vec::new(), scroll_view: Vec::new(), bounds: Vec::new(), hovered: Vec::new(), scroll: Vec::new(), _view: PhantomData }
     }
 
     pub(crate) fn with_focus(mut self, focus: FocusInfo) -> Self {
@@ -74,6 +76,12 @@ impl<'a, V: ?Sized> RenderCx<'a, V> {
     pub fn scroll_offset(&self, id: impl Into<ElementId>) -> f32 {
         let id = id.into();
         self.scroll.iter().find(|s| s.0 == id).map_or(0.0, |s| s.1)
+    }
+
+    /// O mouse está sobre o elemento `id` (que precisa de `on_hover`; um handler
+    /// que só chama `cx.notify()` basta para reconstruir na entrada e na saída).
+    pub fn is_hovered(&self, id: impl Into<ElementId>) -> bool {
+        self.hovered.contains(&id.into())
     }
 
     /// Caixa do elemento `id` (marcado com `track_bounds`) no último layout.
