@@ -4,7 +4,8 @@ use crate::Gallery;
 use higanbana_gpui::components::*;
 use higanbana_gpui::prelude::*;
 
-/// Logo, nome do app, Select de backend (troca em tempo real) e botão de tema.
+/// Barra de título customizada: logo, nome, Select de backend (troca em tempo real),
+/// botão de tema e os botões da janela.
 pub fn header(v: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Element<Gallery> {
     let kinds: Vec<BackendKind> = cx.backends().iter().map(|b| b.kind).collect();
     let mut state = v.backend_select;
@@ -25,14 +26,8 @@ pub fn header(v: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Element<Gallery> {
     let version = Badge::new("v0.1").variant(Variant::Secondary).render(cx);
     let theme = cx.theme();
     let logo = div().size(24.0).rounded(6.0).bg(rgb(0xdc2626)).items_center().justify_center().child(text("彼").text_size(13.0).text_color(rgb(0xffffff)));
-    div()
-        .h(60.0)
-        .px(24.0)
-        .flex_shrink_0()
-        .items_center()
-        .justify_between()
-        .child(div().items_center().gap(10.0).child(logo).child(text("Higanbana UI").text_size(17.0).font_bold()).child(version))
-        .child(div().items_center().gap(10.0).child(text("Backend").text_size(14.0).text_color(theme.muted_foreground)).child(select).child(toggle))
+    let actions = div().items_center().gap(10.0).child(text("Backend").text_size(14.0).text_color(theme.muted_foreground)).child(select).child(toggle);
+    TitleBar::new("Higanbana UI").leading(logo).content(version).trailing(actions).render(cx)
 }
 
 /// Lista rolável de seções agrupadas; a ativa fica destacada.

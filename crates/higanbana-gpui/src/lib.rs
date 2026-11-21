@@ -43,6 +43,7 @@ pub mod prelude {
     pub use crate::{
         auto, div, img, overlay, pct, px, rgb, rgba, scroll, text, text_field, Anchor, AnchorAlign, App, BackendKind,
         Color, CursorStyle, Easing, Element, EventCx, ImageData, ImageSource, Key, KeyEvent, MouseEvent, PointerEvent,
-        RenderCx, Side, Styled, TextInputState, Theme, Transition, View, WindowOptions,
+        RenderCx, Side, Styled, TextInputState, Theme, Transition, View, WindowOptions, Decorations, HitKind,
+        WindowCommand, WindowState,
     };
 }
