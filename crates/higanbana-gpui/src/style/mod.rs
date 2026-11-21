@@ -135,6 +135,8 @@ pub struct Style {
     pub translate: Point,
     /// Escala visual da subárvore em torno do centro (1 = normal).
     pub scale: f32,
+    /// Papel do elemento numa janela com barra customizada (arrastar, maximizar...).
+    pub window_hit: Option<crate::gfx::HitKind>,
     /// Cursor do mouse sobre o elemento (o mais profundo com cursor vence).
     pub cursor: Option<CursorStyle>,
     /// Propriedades de texto herdadas pelos descendentes.
@@ -174,6 +176,7 @@ impl Default for Style {
             opacity: 1.0,
             translate: Point { x: 0.0, y: 0.0 },
             scale: 1.0,
+            window_hit: None,
             cursor: None,
             text: TextStyleRefinement::default(),
         }

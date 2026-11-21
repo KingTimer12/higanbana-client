@@ -22,6 +22,9 @@ impl<V: View> Runner<'_, V> {
                 eprintln!("higanbana-gpui: troca para {} falhou: {e}", kind.label());
             }
         }
+        for c in cx.window_commands.drain(..) {
+            self.win.command(c);
+        }
         if let Some(req) = cx.focus {
             self.tree.apply_focus(req);
         }

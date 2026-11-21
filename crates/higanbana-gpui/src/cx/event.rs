@@ -27,6 +27,7 @@ pub struct EventCx {
     pub(crate) animation_frame: bool,
     pub(crate) timers: Vec<(Duration, TimerId, TimerFn)>,
     pub(crate) cancelled: Vec<TimerId>,
+    pub(crate) window_commands: Vec<crate::gfx::WindowCommand>,
 }
 
 impl EventCx {
@@ -37,6 +38,11 @@ impl EventCx {
 
     pub fn is_notified(&self) -> bool {
         self.notified
+    }
+
+    /// Minimizar, maximizar, fechar, fullscreen (aplicado depois do handler).
+    pub fn window_command(&mut self, c: crate::gfx::WindowCommand) {
+        self.window_commands.push(c);
     }
 
     /// Para a propagação de teclas/caracteres para os ancestrais.
@@ -105,5 +111,19 @@ impl EventCx {
     /// Cancela um timer ainda pendente (sem efeito se já rodou).
     pub fn cancel_timer(&mut self, id: TimerId) {
         self.cancelled.push(id);
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+    use crate::gfx::WindowCommand;
+
+    #[test]
+    fn window_command_queued() {
+        let mut cx = EventCx::default();
+        cx.window_command(WindowCommand::Minimize);
+        cx.window_command(WindowCommand::Close);
+        assert_eq!(cx.window_commands, vec![WindowCommand::Minimize, WindowCommand::Close]);
     }
 }

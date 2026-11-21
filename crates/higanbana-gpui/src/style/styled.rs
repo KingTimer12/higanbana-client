@@ -104,6 +104,10 @@ pub trait Styled: Sized {
     /// Escala a subárvore em torno do centro (texto, raios e bordas acompanham).
     /// Só vale no estilo base: em `.hover(..)`/foco é ignorado (anime com `cx.animate`).
     fn scale(self, v: f32) -> Self { self.with(|s| s.scale = v.max(0.0)) }
+    /// Área que arrasta a janela (barra customizada). Filhos clicáveis continuam clicáveis.
+    fn window_drag(self) -> Self { self.window_control(crate::gfx::HitKind::Caption) }
+    /// Papel do elemento para o sistema (ex.: `HitKind::Maximize` habilita snap layouts).
+    fn window_control(self, k: crate::gfx::HitKind) -> Self { self.with(|s| s.window_hit = Some(k)) }
     /// Cursor do mouse enquanto sobre o elemento.
     fn cursor(self, c: crate::gfx::CursorStyle) -> Self { self.with(|s| s.cursor = Some(c)) }
     fn cursor_pointer(self) -> Self { self.cursor(crate::gfx::CursorStyle::Pointer) }

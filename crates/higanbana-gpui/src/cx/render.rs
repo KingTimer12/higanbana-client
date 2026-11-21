@@ -1,7 +1,7 @@
 //! Contexto de `View::render`: tema, backends, foco e animações.
 use crate::anim::{Animatable, Animator, Transition};
 use crate::element::ElementId;
-use crate::gfx::{BackendInfo, BackendKind, Stats};
+use crate::gfx::{BackendInfo, BackendKind, Stats, WindowState};
 use crate::theme::Theme;
 use std::marker::PhantomData;
 use std::time::{Duration, Instant};
@@ -25,17 +25,23 @@ pub struct RenderCx<'a, V: ?Sized> {
     pub(crate) animator: &'a mut Animator,
     /// Próximo instante em que a view pediu para ser reconstruída.
     pub(crate) wake: Option<Instant>,
+    pub(crate) window: WindowState,
     pub(crate) _view: PhantomData<fn(&mut V)>,
 }
 
 impl<'a, V: ?Sized> RenderCx<'a, V> {
     pub fn new(theme: &'a Theme, backend: BackendKind, backends: &'a [BackendInfo], stats: Stats, animator: &'a mut Animator) -> Self {
-        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, _view: PhantomData }
+        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), _view: PhantomData }
     }
 
     pub(crate) fn with_focus(mut self, focus: FocusInfo) -> Self {
         self.focus = focus;
         self
+    }
+
+    /// Maximizada, fullscreen, com foco...
+    pub fn window_state(&self) -> WindowState {
+        self.window
     }
 
     pub fn theme(&self) -> &'a Theme {

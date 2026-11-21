@@ -6,7 +6,7 @@ use crate::anim::Animator;
 use crate::cx::{RenderCx, Timers};
 use crate::error::Result;
 use crate::geometry::Size;
-use crate::gfx::{enumerate, BackendInfo, Context, DrawList, FontSpec, Window, WindowOptions, WindowState};
+use crate::gfx::{enumerate, BackendInfo, Context, DrawList, FontSpec, Window, WindowOptions, WindowState, HitRegion};
 use crate::paint::{GpuCanvas, ImageCache};
 use crate::style::TextStyle;
 use crate::theme::Theme;
@@ -44,6 +44,8 @@ pub(super) struct Runner<'c, V> {
     pub blink: Option<Instant>,
     /// Maximizada/fullscreen/foco (para a `TitleBar`).
     pub window_state: WindowState,
+    /// Últimas regiões publicadas (só republica se mudarem).
+    pub regions: Vec<HitRegion>,
 }
 
 pub(super) fn run<V: View>(app: App, options: WindowOptions, view: V) -> Result<()> {
@@ -68,6 +70,7 @@ pub(super) fn run<V: View>(app: App, options: WindowOptions, view: V) -> Result<
         wake: None,
         blink: None,
         window_state: WindowState::default(),
+        regions: Vec::new(),
     };
     r.window_state = r.win.state();
     loop {
@@ -105,6 +108,7 @@ impl<V: View> Runner<'_, V> {
         let mut cx = RenderCx::new(&self.theme, self.ctx.backend(), &self.backends, self.ctx.stats(), &mut self.animator)
             .with_focus(self.tree.focus_info());
         cx.now = now;
+        cx.window = self.window_state;
         let root = self.view.render(&mut cx);
         let wake = cx.wake;
         self.tree.rebuild(root, &base, self.viewport, measurer);
@@ -115,6 +119,16 @@ impl<V: View> Runner<'_, V> {
         }
         if active {
             self.request_frame(now);
+        }
+    }
+
+    /// Publica as regiões da barra customizada se mudaram desde o último layout.
+    fn publish_regions(&mut self) {
+        let mut fresh = Vec::with_capacity(self.regions.len());
+        self.tree.hit_regions(&mut fresh);
+        if fresh != self.regions {
+            self.win.set_hit_regions(&fresh);
+            self.regions = fresh;
         }
     }
 
@@ -129,6 +143,9 @@ impl<V: View> Runner<'_, V> {
             Dirty::Rebuild => self.render(now, &mut measurer),
             Dirty::Relayout => self.tree.relayout(self.viewport, &mut measurer),
             _ => {}
+        }
+        if self.dirty != Dirty::Repaint {
+            self.publish_regions();
         }
         self.dirty = Dirty::Clean;
         self.blink = self.tree.next_blink(now);

@@ -4,6 +4,9 @@ mod overlay;
 mod relayout;
 #[cfg(test)]
 mod tests_transform;
+#[cfg(test)]
+mod tests_hit_regions;
+mod hit_regions;
 mod transform;
 
 use crate::element::{Element, ElementId};
