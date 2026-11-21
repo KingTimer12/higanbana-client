@@ -27,7 +27,7 @@ impl<'c> ImageCache<'c> {
                 self.upload(&super::gradient::ramp(g));
             }
             match &n.kind {
-                NodeKind::Image(src) | NodeKind::Icon(_, Some(src)) => self.upload(src),
+                NodeKind::Image(src) | NodeKind::Icon(_, Some(src)) | NodeKind::Polygon(_, _, Some(src)) => self.upload(src),
                 _ => {}
             }
         }

@@ -89,8 +89,14 @@ impl<V> Tree<V> {
         if visible {
             match &n.kind {
                 NodeKind::Image(src) => {
-                    let dest = fit_rect(n.content, src.size(), style.object_fit);
                     let cover = style.object_fit == ObjectFit::Cover;
+                    if cover && (style.zoom.is_some() || style.radius != Corners::default()) {
+                        // Recorte por uv: os cantos arredondados ficam na própria caixa.
+                        let uv = super::shape::cover_uv((n.content.size.width, n.content.size.height), src.size(), style.zoom.unwrap_or(1.0));
+                        out.image_uv(src, n.content, uv, style.radius.map(|r| r * k), Color::WHITE.fade(opacity));
+                        return;
+                    }
+                    let dest = fit_rect(n.content, src.size(), style.object_fit);
                     if cover {
                         out.push_clip(n.content.intersect(&n.clip));
                     }
@@ -113,7 +119,8 @@ impl<V> Tree<V> {
                     let color = text_color.unwrap_or(n.text.color).fade(opacity);
                     out.image(src, n.content, Corners::default(), color);
                 }
-                NodeKind::Icon(_, None) | NodeKind::Div => {}
+                NodeKind::Polygon(_, color, Some(src)) => out.image(src, n.content, Corners::default(), color.fade(opacity)),
+                NodeKind::Icon(_, None) | NodeKind::Polygon(_, _, None) | NodeKind::Div => {}
             }
         }
         if n.end as usize == i + 1 {

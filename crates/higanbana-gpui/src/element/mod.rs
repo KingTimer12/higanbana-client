@@ -29,6 +29,8 @@ pub(crate) enum Kind<V> {
     Image(ImageSource),
     /// Ícone SVG registrado (ver `crate::icon`).
     Icon(&'static str),
+    /// Polígono preenchido: pontos em frações (0–1) da própria caixa.
+    Polygon(std::rc::Rc<[(f32, f32)]>, crate::color::Color),
     TextField(Box<FieldData>),
     /// Conteúdo (único filho) vai para a camada de overlays.
     Overlay(Box<OverlaySpec<V>>),
@@ -62,6 +64,12 @@ pub fn text<V>(content: impl Into<Cow<'static, str>>) -> Element<V> {
 /// Imagem; sem tamanho explícito usa o tamanho natural (proporção mantida).
 pub fn img<V>(source: ImageSource) -> Element<V> {
     element(Kind::Image(source), Style::default())
+}
+
+/// Polígono preenchido com `color`; `points` em frações (0–1) da própria caixa.
+/// Rasterizado na CPU (cache por tamanho e forma); dê tamanho com `w`/`h` ou `absolute`.
+pub fn polygon<V>(points: Vec<(f32, f32)>, color: crate::color::Color) -> Element<V> {
+    element(Kind::Polygon(points.into(), color), Style::default())
 }
 
 /// Coluna com rolagem vertical; o deslocamento persiste pelo `id` entre reconstruções.

@@ -163,6 +163,8 @@ pub struct Style {
     pub window_hit: Option<crate::gfx::HitKind>,
     /// Encaixe de imagens na caixa de conteúdo.
     pub object_fit: ObjectFit,
+    /// Ampliação de imagem `cover` a partir do centro (`None` = 1).
+    pub zoom: Option<f32>,
     /// Cursor do mouse sobre o elemento (o mais profundo com cursor vence).
     pub cursor: Option<CursorStyle>,
     /// Propriedades de texto herdadas pelos descendentes.
@@ -206,6 +208,7 @@ impl Default for Style {
             rotate: 0.0,
             window_hit: None,
             object_fit: ObjectFit::Fill,
+            zoom: None,
             cursor: None,
             text: TextStyleRefinement::default(),
         }

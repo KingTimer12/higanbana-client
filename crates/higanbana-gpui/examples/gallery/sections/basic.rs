@@ -139,3 +139,13 @@ pub fn line_clamp(_: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Ga
     let bloco = |n: u32| div().w(280.0).flex_col().line_clamp(n).child(text(SINOPSE));
     vec![preview(cx, "1 linha", bloco(1)), preview(cx, "2 linhas", bloco(2)), preview(cx, "3 linhas", bloco(3))]
 }
+
+pub fn shapes(_: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery>> {
+    let primary = cx.theme().primary;
+    let tri = div().w(120.0).h(72.0).rounded(8.0).bg(cx.theme().muted).child(polygon(vec![(0.6, 0.0), (1.0, 0.0), (1.0, 1.0)], primary).absolute().top(0.0).left(0.0).size_full());
+    // Xadrez 8×8 gerado na hora: mostra o recorte do zoom.
+    let px: Vec<u8> = (0..64u32 * 64).flat_map(|i| if ((i % 64) / 8 + (i / 64) / 8) % 2 == 0 { [235, 70, 90, 255] } else { [40, 40, 48, 255] }).collect();
+    let src = ImageData::from_rgba8(64, 64, px);
+    let foto = |k: f32| img(src.clone()).w(96.0).h(96.0).rounded(12.0).object_fit(higanbana_gpui::ObjectFit::Cover).zoom(k);
+    vec![preview(cx, "Polígono", tri), preview(cx, "Imagem com zoom 1× e 1,5×", row().child(foto(1.0)).child(foto(1.5)))]
+}

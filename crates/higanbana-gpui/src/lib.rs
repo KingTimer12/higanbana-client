@@ -29,7 +29,7 @@ pub use color::{premultiply_rgba8, rgb, rgba, Color};
 pub use anim::{Easing, Transition};
 pub use cx::{EventCx, FocusInfo, RenderCx, TimerId};
 pub use element::{
-    div, img, overlay, scroll, scroll_x, text, text_field, Anchor, AnchorAlign, Element, ElementId, ImageData, ImageSource,
+    div, img, overlay, polygon, scroll, scroll_x, text, text_field, Anchor, AnchorAlign, Element, ElementId, ImageData, ImageSource,
     MouseEvent, Overlay, PointerEvent, Side,
 };
 pub use icon::{icon, IconSet};
@@ -45,7 +45,7 @@ pub use tree::Tree;
 /// Tudo que uma view costuma precisar.
 pub mod prelude {
     pub use crate::{
-        auto, div, icon, img, overlay, pct, px, rgb, rgba, scroll, scroll_x, text, text_field, Anchor, AnchorAlign, App, BackendKind,
+        auto, div, icon, img, overlay, polygon, pct, px, rgb, rgba, scroll, scroll_x, text, text_field, Anchor, AnchorAlign, App, BackendKind,
         Color, CursorStyle, Easing, Element, EventCx, ImageData, ImageSource, Key, KeyEvent, MouseEvent, PointerEvent,
         RenderCx, Side, Styled, TextInputState, Theme, Transition, View, WindowOptions, Decorations, HitKind,
         WindowCommand, WindowState, IconSet, NavDirection,

@@ -143,7 +143,7 @@ fn measure_leaf<V>(
             let m = cache.measure(measurer, shown, &node.text, None);
             taffy::Size { width: known.width.unwrap_or(m.width + 2.0), height: known.height.unwrap_or(m.height) }
         }
-        NodeKind::Div => taffy::Size::ZERO,
+        NodeKind::Div | NodeKind::Polygon(..) => taffy::Size::ZERO,
         NodeKind::Icon(..) => taffy::Size {
             width: known.width.unwrap_or(crate::icon::DEFAULT_SIZE),
             height: known.height.unwrap_or(crate::icon::DEFAULT_SIZE),

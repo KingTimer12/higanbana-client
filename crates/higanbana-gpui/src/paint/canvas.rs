@@ -11,6 +11,11 @@ pub trait Canvas {
     fn quad(&mut self, q: &Quad);
     /// `tint` multiplica a imagem (opacidade no alfa; cor nos ícones).
     fn image(&mut self, src: &ImageSource, rect: Rect, radius: Corners<f32>, tint: Color);
+    /// Só a parte `uv` (0–1) da imagem, esticada em `rect` (zoom/cover com cantos certos).
+    fn image_uv(&mut self, src: &ImageSource, rect: Rect, uv: Rect, radius: Corners<f32>, tint: Color) {
+        let _ = uv;
+        self.image(src, rect, radius, tint);
+    }
     fn text(&mut self, text: &str, style: &TextStyle, origin: Point, max_width: Option<f32>, color: Color);
     fn push_clip(&mut self, r: Rect);
     fn pop_clip(&mut self);
@@ -67,6 +72,14 @@ impl<'a> Layered<'a> {
             self.new_layer();
         }
         self.inner.image(src, rect, radius, tint);
+        grow(&mut self.images, rect);
+    }
+
+    pub fn image_uv(&mut self, src: &ImageSource, rect: Rect, uv: Rect, radius: Corners<f32>, tint: Color) {
+        if hits(self.text, &rect) {
+            self.new_layer();
+        }
+        self.inner.image_uv(src, rect, uv, radius, tint);
         grow(&mut self.images, rect);
     }
 

@@ -6,6 +6,7 @@ mod gpu;
 pub(crate) mod gradient;
 mod images;
 mod painter;
+pub(crate) mod shape;
 
 #[cfg(test)]
 mod tests;
@@ -15,6 +16,8 @@ mod tests_state;
 mod tests_fit;
 #[cfg(test)]
 mod tests_gradient;
+#[cfg(test)]
+mod tests_shape;
 
 pub use canvas::Canvas;
 pub use gpu::GpuCanvas;

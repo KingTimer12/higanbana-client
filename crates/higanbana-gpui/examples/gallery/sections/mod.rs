@@ -33,6 +33,7 @@ pub const SECTIONS: &[Section] = &[
     s("Básicos", "Separator", "Linha fina que divide conteúdo na horizontal ou vertical.", basic::separator),
     s("Básicos", "Skeleton", "Placeholder pulsante enquanto o conteúdo carrega.", basic::skeleton),
     s("Básicos", "Texto cortado", "line_clamp: limita o texto a N linhas e termina em reticências.", basic::line_clamp),
+    s("Básicos", "Formas", "polygon preenchido e imagem cover com zoom e cantos.", basic::shapes),
     s("Básicos", "Avatar", "Imagem do usuário com iniciais como alternativa.", basic::avatar),
     s("Básicos", "Ícones", "Ícones Lucide em SVG, na cor do texto, e gradientes de fundo.", icons::icons),
     s("Básicos", "Progress", "Barra de progresso em quatro alturas e o indicador girando.", progress::progress),

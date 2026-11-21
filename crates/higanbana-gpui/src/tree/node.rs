@@ -23,6 +23,8 @@ pub(crate) enum NodeKind {
     /// Ícone e a rasterização para a escala atual (`Tree::resolve_icons`).
     Icon(&'static str, Option<ImageSource>),
     TextField(Box<FieldNode>),
+    /// Polígono, cor e a máscara rasterizada (`Tree::resolve_icons`).
+    Polygon(std::rc::Rc<[(f32, f32)]>, crate::color::Color, Option<ImageSource>),
 }
 
 pub(crate) struct Node<V> {
@@ -90,6 +92,7 @@ fn push<V>(e: Element<V>, parent: u32, inherited: &TextStyle, disabled: bool, ou
         Kind::Text(s) => NodeKind::Text(s),
         Kind::Image(src) => NodeKind::Image(src),
         Kind::Icon(name) => NodeKind::Icon(name, None),
+        Kind::Polygon(points, color) => NodeKind::Polygon(points, color, None),
         Kind::TextField(data) => NodeKind::TextField(Box::new(FieldNode { data: *data, carets: Vec::new(), scroll: 0.0, line_h: 0.0 })),
     };
     let index = out.len() as u32;

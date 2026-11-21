@@ -58,6 +58,14 @@ impl<'a, 'c> Canvas for GpuCanvas<'_, 'a, 'c> {
         self.record(r);
     }
 
+    fn image_uv(&mut self, src: &ImageSource, rect: Rect, uv: Rect, radius: Corners<f32>, tint: Color) {
+        let images: &'a ImageCache<'c> = self.images;
+        let Some(img) = images.get(src) else { return };
+        let (dest, radius) = (rect.scale(self.scale), self.corners(radius));
+        let r = self.list.image(img, dest, uv, tint, radius);
+        self.record(r);
+    }
+
     fn text(&mut self, text: &str, style: &TextStyle, origin: Point, max_width: Option<f32>, color: Color) {
         let s = self.scale;
         let r = self.ctx.font(&style.font).and_then(|font| {

@@ -126,6 +126,8 @@ pub trait Styled: Sized {
     fn italic(self) -> Self { self.with(|s| s.text.italic = Some(true)) }
     fn font_family(self, f: &str) -> Self { let f: std::rc::Rc<str> = f.into(); self.with(|s| s.text.family = Some(f)) }
     fn whitespace_nowrap(self) -> Self { self.with(|s| s.text.wrap = Some(false)) }
+    /// Amplia a imagem (`cover`) `k` vezes a partir do centro, recortada na própria caixa.
+    fn zoom(self, k: f32) -> Self { self.with(|s| s.zoom = Some(k)) }
     /// Corta o texto em `lines` linhas, terminando em "…".
     fn line_clamp(self, lines: u32) -> Self { self.with(|s| s.text.max_lines = Some(lines.max(1))) }
 }
