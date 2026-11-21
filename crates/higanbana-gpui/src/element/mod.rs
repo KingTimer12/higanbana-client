@@ -113,6 +113,14 @@ impl<V> Element<V> {
         if cond { f(self) } else { self }
     }
 
+    /// Aplica `f` com o valor quando `opt` é `Some`.
+    pub fn when_some<T>(self, opt: Option<T>, f: impl FnOnce(Self, T) -> Self) -> Self {
+        match opt {
+            Some(v) => f(self, v),
+            None => self,
+        }
+    }
+
     pub fn style(&self) -> &Style {
         &self.style
     }

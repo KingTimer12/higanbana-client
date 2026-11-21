@@ -5,6 +5,7 @@
 //! na view do usuário e é alterado por callbacks ou por uma lente `|v| &mut v.campo`.
 mod common;
 mod dialog;
+mod popover;
 mod select;
 mod select_state;
 mod tabs;
@@ -16,6 +17,7 @@ mod tooltip;
 pub(crate) mod tests;
 
 pub use dialog::Dialog;
+pub use popover::{Popover, PopoverAnchor, PopoverState};
 pub use select::Select;
 pub use select_state::SelectState;
 pub use tabs::Tabs;
