@@ -138,12 +138,17 @@ impl<V: View> Runner<'_, V> {
             self.tasks.submit(req, &waker);
         }
         self.tree.rebuild(root, &base, self.viewport, measurer);
-        let active = self.animator.is_active();
+        let next = self.animator.next_frame();
         self.animator.end();
+        let wake = match next {
+            // Animações lentas (`fps`): o próximo quadro vem por timer, sem vsync contínuo.
+            Some(d) if !d.is_zero() => Some(wake.map_or(now + d, |w| w.min(now + d))),
+            _ => wake,
+        };
         if let Some(w) = wake {
             self.wake = Some(self.wake.map_or(w, |x| x.min(w)));
         }
-        if active {
+        if next == Some(std::time::Duration::ZERO) {
             self.request_frame(now);
         }
     }
