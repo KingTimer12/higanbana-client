@@ -33,12 +33,14 @@ pub struct RenderCx<'a, V: ?Sized> {
     pub(crate) tasks: Vec<super::task::TaskReq>,
     /// Rolagem do último layout: `(id, deslocamento, máximo)`.
     pub(crate) scroll: Vec<(ElementId, f32, f32)>,
+    /// Altura visível de cada contêiner de rolagem no último layout.
+    pub(crate) scroll_view: Vec<(ElementId, f32)>,
     pub(crate) _view: PhantomData<fn(&mut V)>,
 }
 
 impl<'a, V: ?Sized> RenderCx<'a, V> {
     pub fn new(theme: &'a Theme, backend: BackendKind, backends: &'a [BackendInfo], stats: Stats, animator: &'a mut Animator) -> Self {
-        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), viewport: crate::geometry::Size::default(), waker: Waker::noop(), tasks: Vec::new(), scroll: Vec::new(), _view: PhantomData }
+        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), viewport: crate::geometry::Size::default(), waker: Waker::noop(), tasks: Vec::new(), scroll_view: Vec::new(), scroll: Vec::new(), _view: PhantomData }
     }
 
     pub(crate) fn with_focus(mut self, focus: FocusInfo) -> Self {
@@ -70,6 +72,12 @@ impl<'a, V: ?Sized> RenderCx<'a, V> {
     pub fn scroll_offset(&self, id: impl Into<ElementId>) -> f32 {
         let id = id.into();
         self.scroll.iter().find(|s| s.0 == id).map_or(0.0, |s| s.1)
+    }
+
+    /// Altura visível do contêiner de rolagem `id` no último layout.
+    pub fn scroll_view(&self, id: impl Into<ElementId>) -> Option<f32> {
+        let id = id.into();
+        self.scroll_view.iter().find(|s| s.0 == id).map(|s| s.1)
     }
 
     /// Rolagem máxima do contêiner `id` no último layout (0 = não rola).

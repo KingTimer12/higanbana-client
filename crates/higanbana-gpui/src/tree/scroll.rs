@@ -22,6 +22,16 @@ impl<V> Tree<V> {
             .collect()
     }
 
+    /// `(id, altura visível)` de cada contêiner de rolagem com id.
+    pub fn scroll_views(&self) -> Vec<(ElementId, f32)> {
+        self.nodes.iter().filter(|n| n.style.overflow.is_scroll()).filter_map(|n| n.id.map(|id| (id, n.content.size.height))).collect()
+    }
+
+    /// Uma rolagem mexeu num contêiner `rerender_on_scroll` desde a última chamada.
+    pub fn take_scroll_rerender(&mut self) -> bool {
+        std::mem::take(&mut self.scroll_rerender)
+    }
+
     /// Rolagem máxima do contêiner `id` (0 se não rola ou não existe).
     pub fn scroll_max(&self, id: impl Into<ElementId>) -> f32 {
         self.find(id).map_or(0.0, |i| self.nodes[i].scroll_max)
@@ -36,6 +46,7 @@ impl<V> Tree<V> {
         if old == new {
             return false;
         }
+        self.scroll_rerender |= self.nodes[i].style.rerender_on_scroll;
         self.reposition();
         true
     }

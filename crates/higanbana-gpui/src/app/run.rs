@@ -128,6 +128,7 @@ impl<V: View> Runner<'_, V> {
         cx.viewport = self.viewport;
         cx.waker = self.win.waker();
         cx.scroll = self.tree.scroll_states();
+        cx.scroll_view = self.tree.scroll_views();
         let root = self.view.render(&mut cx);
         let wake = cx.wake;
         let waker = cx.waker.clone();
@@ -174,6 +175,18 @@ impl<V: View> Runner<'_, V> {
             self.publish_regions();
         }
         self.dirty = Dirty::Clean;
+        // Listas virtuais roladas por código mudam os itens: reconstrói no próximo frame.
+        if self.tree.take_scroll_rerender() {
+            self.mark(Dirty::Rebuild);
+        }
+        let visible = self.tree.take_visible();
+        if !visible.is_empty() {
+            let mut cx = crate::cx::EventCx::default();
+            for f in visible {
+                f(&mut self.view, &mut cx);
+            }
+            self.apply(cx);
+        }
         self.blink = self.tree.next_blink(now);
         self.tree.resolve_icons(self.scale);
         self.images.prepare(&self.tree);

@@ -37,6 +37,7 @@ pub const SECTIONS: &[Section] = &[
     s("Básicos", "Avatar", "Imagem do usuário com iniciais como alternativa.", basic::avatar),
     s("Básicos", "Ícones", "Ícones Lucide em SVG, na cor do texto, e gradientes de fundo.", icons::icons),
     s("Básicos", "Progress", "Barra de progresso em quatro alturas e o indicador girando.", progress::progress),
+    s("Básicos", "VirtualList", "Lista que só constrói os itens visíveis; alturas variáveis.", basic::virtual_list),
     s("Formulário", "Input", "Campo de texto de uma linha, com senha, inválido e desabilitado.", form::input),
     s("Formulário", "Checkbox", "Marca uma opção; aceita estado indeterminado.", form::checkbox),
     s("Formulário", "Switch", "Liga e desliga uma configuração na hora.", form::switch),

@@ -11,6 +11,7 @@ mod hit_regions;
 mod tests_scroll;
 mod icons;
 mod scroll;
+mod visible;
 mod transform;
 
 use crate::element::{Element, ElementId};
@@ -48,6 +49,8 @@ pub struct Tree<V> {
     pub(crate) captured: Option<NodeKey>,
     /// Botão esquerdo está segurado.
     pub(crate) button_down: bool,
+    /// Rolagem num contêiner `rerender_on_scroll` pede reconstrução.
+    pub(crate) scroll_rerender: bool,
     /// Elementos com `on_hover` atualmente sob o mouse.
     pub(crate) hover_owners: Vec<NodeKey>,
     pub(crate) focused: Option<ElementId>,
@@ -74,6 +77,7 @@ impl<V> Default for Tree<V> {
             focused: None,
             focus_visible: false,
             barrier: 0,
+            scroll_rerender: false,
         }
     }
 }

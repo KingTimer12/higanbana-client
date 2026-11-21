@@ -126,6 +126,8 @@ pub trait Styled: Sized {
     fn italic(self) -> Self { self.with(|s| s.text.italic = Some(true)) }
     fn font_family(self, f: &str) -> Self { let f: std::rc::Rc<str> = f.into(); self.with(|s| s.text.family = Some(f)) }
     fn whitespace_nowrap(self) -> Self { self.with(|s| s.text.wrap = Some(false)) }
+    /// Rolar este contêiner reconstrói a view (os itens dependem do deslocamento).
+    fn rerender_on_scroll(self) -> Self { self.with(|s| s.rerender_on_scroll = true) }
     /// Amplia a imagem (`cover`) `k` vezes a partir do centro, recortada na própria caixa.
     fn zoom(self, k: f32) -> Self { self.with(|s| s.zoom = Some(k)) }
     /// Corta o texto em `lines` linhas, terminando em "…".

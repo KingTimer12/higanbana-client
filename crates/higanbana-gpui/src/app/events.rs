@@ -33,7 +33,8 @@ impl<V: View> Runner<'_, V> {
             }
             Event::Scroll { delta, mods } => {
                 if self.tree.scroll_by(delta.x, delta.y, mods.shift) {
-                    self.mark(Dirty::Repaint);
+                    let d = if self.tree.take_scroll_rerender() { Dirty::Rebuild } else { Dirty::Repaint };
+                    self.mark(d);
                 }
             }
             Event::KeyDown { key, repeat, mods } => {

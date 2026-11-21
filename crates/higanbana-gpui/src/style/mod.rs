@@ -163,6 +163,8 @@ pub struct Style {
     pub window_hit: Option<crate::gfx::HitKind>,
     /// Encaixe de imagens na caixa de conteúdo.
     pub object_fit: ObjectFit,
+    /// Rolar este contêiner reconstrói a view (listas virtuais).
+    pub rerender_on_scroll: bool,
     /// Ampliação de imagem `cover` a partir do centro (`None` = 1).
     pub zoom: Option<f32>,
     /// Cursor do mouse sobre o elemento (o mais profundo com cursor vence).
@@ -208,6 +210,7 @@ impl Default for Style {
             rotate: 0.0,
             window_hit: None,
             object_fit: ObjectFit::Fill,
+            rerender_on_scroll: false,
             zoom: None,
             cursor: None,
             text: TextStyleRefinement::default(),

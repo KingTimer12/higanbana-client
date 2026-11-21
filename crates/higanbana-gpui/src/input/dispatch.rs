@@ -153,6 +153,7 @@ impl<V> Tree<V> {
             return false;
         }
         *off = new;
+        self.scroll_rerender |= n.style.rerender_on_scroll;
         self.reposition();
         true
     }

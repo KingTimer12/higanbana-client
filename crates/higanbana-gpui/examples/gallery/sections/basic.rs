@@ -149,3 +149,15 @@ pub fn shapes(_: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Galler
     let foto = |k: f32| img(src.clone()).w(96.0).h(96.0).rounded(12.0).object_fit(higanbana_gpui::ObjectFit::Cover).zoom(k);
     vec![preview(cx, "Polígono", tri), preview(cx, "Imagem com zoom 1× e 1,5×", row().child(foto(1.0)).child(foto(1.5)))]
 }
+
+pub fn virtual_list(_: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery>> {
+    thread_local! {
+        static ALTURAS: std::sync::Arc<[f32]> = (0..10_000).map(|i| if i % 7 == 0 { 56.0 } else { 36.0 }).collect::<Vec<_>>().into();
+    }
+    let muted = cx.theme().muted_foreground;
+    let heights = ALTURAS.with(|h| h.clone());
+    let lista = VirtualList::new("galeria-lista", heights.clone()).gap(2.0).render(cx, |i, _| {
+        div().h(heights[i]).px(12.0).items_center().rounded(6.0).bg(rgba(0x8080_8014)).child(text(format!("Item {i}"))).child(div().ml(8.0).text_color(muted).child(text(if i % 7 == 0 { "alto" } else { "" })))
+    });
+    vec![preview(cx, "10.000 itens, só os visíveis construídos", div().w(320.0).h(280.0).child(lista))]
+}

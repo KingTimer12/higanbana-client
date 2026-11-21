@@ -8,7 +8,7 @@ mod text_field;
 
 pub use handlers::{
     CharHandler, ClickHandler, DismissHandler, HoverHandler, HoverStyle, KeyHandler, MouseEvent, PointerEvent,
-    PointerHandler, StyleFn,
+    PointerHandler, StyleFn, VisibleHandler,
 };
 pub use id::ElementId;
 pub use image_data::{ImageData, ImageSource};
@@ -64,6 +64,15 @@ pub fn text<V>(content: impl Into<Cow<'static, str>>) -> Element<V> {
 /// Imagem; sem tamanho explícito usa o tamanho natural (proporção mantida).
 pub fn img<V>(source: ImageSource) -> Element<V> {
     element(Kind::Image(source), Style::default())
+}
+
+/// Camada invisível que ocupa o pai e chama `f` uma vez (por construção da view)
+/// quando o pai fica a menos de `margin` px da área visível. Ex.: pedir uma imagem
+/// só quando ela vai aparecer.
+pub fn on_visible<V>(margin: f32, f: impl FnOnce(&mut V, &mut crate::cx::EventCx) + 'static) -> Element<V> {
+    let mut e = div().absolute().top(0.0).left(0.0).size_full();
+    e.interact().on_visible = Some((margin, Box::new(f)));
+    e
 }
 
 /// Polígono preenchido com `color`; `points` em frações (0–1) da própria caixa.
