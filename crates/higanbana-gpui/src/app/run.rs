@@ -125,6 +125,7 @@ impl<V: View> Runner<'_, V> {
             .with_focus(self.tree.focus_info());
         cx.now = now;
         cx.window = self.window_state;
+        cx.viewport = self.viewport;
         cx.waker = self.win.waker();
         cx.scroll = self.tree.scroll_states();
         let root = self.view.render(&mut cx);

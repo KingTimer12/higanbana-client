@@ -26,6 +26,8 @@ pub struct RenderCx<'a, V: ?Sized> {
     /// Próximo instante em que a view pediu para ser reconstruída.
     pub(crate) wake: Option<Instant>,
     pub(crate) window: WindowState,
+    /// Área cliente em pixels lógicos.
+    pub(crate) viewport: crate::geometry::Size,
     pub(crate) waker: Waker,
     /// Tarefas pedidas durante o render (enviadas ao pool depois dele).
     pub(crate) tasks: Vec<super::task::TaskReq>,
@@ -36,7 +38,7 @@ pub struct RenderCx<'a, V: ?Sized> {
 
 impl<'a, V: ?Sized> RenderCx<'a, V> {
     pub fn new(theme: &'a Theme, backend: BackendKind, backends: &'a [BackendInfo], stats: Stats, animator: &'a mut Animator) -> Self {
-        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), waker: Waker::noop(), tasks: Vec::new(), scroll: Vec::new(), _view: PhantomData }
+        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), viewport: crate::geometry::Size::default(), waker: Waker::noop(), tasks: Vec::new(), scroll: Vec::new(), _view: PhantomData }
     }
 
     pub(crate) fn with_focus(mut self, focus: FocusInfo) -> Self {
@@ -77,6 +79,11 @@ impl<'a, V: ?Sized> RenderCx<'a, V> {
     }
 
     /// Maximizada, fullscreen, com foco...
+    /// Tamanho da área cliente em pixels lógicos (layout que depende da janela).
+    pub fn viewport(&self) -> crate::geometry::Size {
+        self.viewport
+    }
+
     pub fn window_state(&self) -> WindowState {
         self.window
     }
