@@ -22,6 +22,13 @@ pub use worker::{MpvShooter, Shooter};
 /// Avisa a UI (outra thread): `(balde, quadro)`; a UI chama `Thumbs::finish`.
 pub type Done = Box<dyn Fn(u32, Option<Decoded>) + Send>;
 
+/// Pasta própria de cada gerador (um fechado ainda pode estar apagando a dele).
+pub fn thumbs_dir(seq: u64) -> PathBuf {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::env::temp_dir().join("higanbana-thumbs").join(format!("{}-{seq}-{n}", std::process::id()))
+}
+
 pub struct Thumbs {
     queue: Queue,
     jobs: Sender<u32>,

@@ -16,7 +16,7 @@ pub use session::{Action, PlayerSession};
 #[allow(unused_imports)]
 pub use target::PlayTarget;
 
-pub use view::{view, PlayerMsg, PlayerView};
+pub use view::{view, PlayerMsg, PlayerView, Spare};
 
 #[cfg(test)]
 mod tests_session;

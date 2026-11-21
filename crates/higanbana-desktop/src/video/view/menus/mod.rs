@@ -59,7 +59,7 @@ pub fn menus(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Vec<Element
         let trigger = tip(v, cx, format!("dica:{id}").as_str(), trigger, hint);
         let Some(p) = v.player.as_ref() else { break };
         let state = p.pops[i];
-        let pop = Popover::new(id, &state, move |v: &mut Higanbana| &mut v.player.as_mut().expect("player aberto").pops[i], trigger)
+        let pop = Popover::new(id, &state, move |v: &mut Higanbana| super::pop_of(&mut v.player, &mut v.player_spare, i), trigger)
             .anchor(PopoverAnchor::BottomRight)
             .w(w)
             .content(move |_| content)

@@ -23,6 +23,8 @@ pub struct Higanbana {
     pub settings_open: bool,
     /// Player aberto: a janela mostra só ele.
     pub player: Option<crate::video::PlayerView>,
+    /// Destino de handlers atrasados depois de fechar o player.
+    pub player_spare: crate::video::Spare,
     /// Pedido de abrir o player (criado no render, que tem o `Waker` da janela).
     pending_play: Option<crate::video::PlayTarget>,
     /// Espelho do estado da janela para os atalhos (o `EventCx` não lê a janela).
@@ -40,6 +42,7 @@ impl Higanbana {
             login: Login::default(),
             settings_open: false,
             player: None,
+            player_spare: Default::default(),
             pending_play: dev_play_target(),
             window_fullscreen: false,
         }

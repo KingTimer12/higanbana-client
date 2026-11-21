@@ -85,3 +85,13 @@ fn fim_com_erro_incrementa() {
     st.end_file(END_REASON_ERROR, -13);
     assert_eq!(st.end_error, 2);
 }
+
+#[test]
+fn eof_velho_durante_carregamento_ignorado() {
+    let mut st = PlayerState::default();
+    st.status = super::Status::Loading;
+    let mut f: std::ffi::c_int = 1;
+    let n = CString::new("eof-reached").unwrap();
+    unsafe { st.apply(&RawProperty { name: n.as_ptr(), format: super::api::FORMAT_FLAG, data: &mut f as *mut _ as *mut c_void }) };
+    assert_eq!(st.status, super::Status::Loading);
+}

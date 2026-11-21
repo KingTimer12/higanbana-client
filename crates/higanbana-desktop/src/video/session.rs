@@ -50,6 +50,8 @@ pub struct PlayerSession {
     last_tick: Instant,
     last_saved: Instant,
     errors_seen: u32,
+    /// Posição pedida no `load` ainda não confirmada pelo mpv (`time-pos` > 0).
+    pending_start: Option<f64>,
     retry_attempt: usize,
     retry_at: Option<Instant>,
     net_error: bool,
@@ -78,6 +80,7 @@ impl PlayerSession {
             last_tick: now,
             last_saved: now,
             errors_seen: 0,
+            pending_start: None,
             retry_attempt: 0,
             retry_at: None,
             net_error: false,
@@ -128,6 +131,7 @@ impl PlayerSession {
         self.playing_path = self.remote_path();
         let saved = self.data.progress.get(&self.playing_path).filter(|p| !p.watched).map(|p| p.position);
         let start = start_at.or(saved);
+        self.pending_start = start.filter(|s| *s > 1.0);
         self.loaded = false;
         self.tracks_applied = false;
         self.chapters_seen = 0;
@@ -179,6 +183,14 @@ impl PlayerSession {
             return out;
         }
         self.dur = st.duration;
+        // Logo depois do load o mpv ainda diz 0: mantém o início pedido até o time-pos chegar.
+        if self.pending_start.is_some() && st.position <= 0.0 {
+            if let Some(s) = self.pending_start {
+                self.pos = s;
+            }
+            return out;
+        }
+        self.pending_start = None;
         self.pos = st.position;
         let paused = st.status == Status::Paused;
         let just_paused = paused && !self.paused;
@@ -186,7 +198,12 @@ impl PlayerSession {
         out.extend(self.record_progress(just_paused, now));
         out.extend(self.resolve_skip(st));
         out.extend(self.apply_tracks(st));
-        out.extend(self.tick_countdown(now));
+        let ticked = self.tick_countdown(now);
+        if !ticked.is_empty() {
+            // A contagem já trocou de arquivo: `st` é do anterior.
+            out.extend(ticked);
+            return out;
+        }
         let go = can_auto_advance(&AdvanceState {
             loaded,
             eof: st.status == Status::Ended,

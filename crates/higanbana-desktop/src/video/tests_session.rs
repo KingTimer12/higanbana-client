@@ -201,3 +201,39 @@ fn fechar_carregando_sem_duracao_nao_salva() {
     s.on_state(&st, t0);
     assert_eq!(s.close(t0), None);
 }
+
+#[test]
+fn contagem_e_eof_no_mesmo_render_avanca_uma_vez() {
+    let (mut s, t0) = session3();
+    s.on_state(&playing(1396.0, 1400.0), t0);
+    let mut end = playing(1400.0, 1400.0);
+    end.status = Status::Ended;
+    let acts = s.on_state(&end, t0 + Duration::from_secs(6));
+    let loads: Vec<_> = acts.iter().filter_map(|a| match a {
+        Action::Load { path, .. } => Some(path.clone()),
+        _ => None,
+    }).collect();
+    assert_eq!(loads, vec!["Animes/Show/Show - 02.mkv".to_string()]);
+    assert!(!acts.iter().any(|a| matches!(a, Action::SaveProgress { path, .. } if path.ends_with("02.mkv"))), "02 não pode ser salvo");
+}
+
+#[test]
+fn retomada_nao_perde_posicao_antes_do_time_pos() {
+    let mut data = PlayerData::default();
+    data.progress.insert("Animes/Show/Show - 01.mkv".into(), Progress { position: 300.0, duration: 1400.0, watched: false, updated_at: 0 });
+    let t0 = Instant::now();
+    let mut s = PlayerSession::new(target(), data, t0);
+    s.start();
+    let acts = s.on_state(&playing(0.0, 1400.0), t0 + Duration::from_secs(10));
+    assert!(!acts.iter().any(|a| matches!(a, Action::SaveProgress { progress, .. } if progress.position == 0.0)));
+    assert_eq!(s.pos(), 300.0);
+}
+
+fn session3() -> (PlayerSession, Instant) {
+    let mut t = target();
+    t.files.push(file("Show - 03.mkv"));
+    let t0 = Instant::now();
+    let mut s = PlayerSession::new(t, PlayerData::default(), t0);
+    s.start();
+    (s, t0)
+}

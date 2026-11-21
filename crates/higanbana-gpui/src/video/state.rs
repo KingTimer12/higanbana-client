@@ -203,8 +203,8 @@ impl PlayerState {
                 }
             }
             "eof-reached" => {
-                if matches!(self.status, Status::Error(_)) {
-                    // erro do arquivo prevalece sobre "fim"
+                if matches!(self.status, Status::Error(_) | Status::Loading | Status::Idle) {
+                    // erro prevalece sobre "fim"; durante a carga, é evento do arquivo anterior
                 } else if flag() {
                     self.status = Status::Ended;
                 } else if self.status == Status::Ended {

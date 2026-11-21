@@ -31,7 +31,7 @@ pub fn seekbar(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<H
     }
     let frame = hover_t.and_then(|ht| p.thumb(ht));
     let state = p.seek;
-    Seekbar::new("player-barra", &state, |v: &mut Higanbana| &mut v.player.as_mut().expect("player aberto").seek)
+    Seekbar::new("player-barra", &state, |v: &mut Higanbana| super::seek_of(&mut v.player, &mut v.player_spare))
         .duration(dur)
         .position(pos)
         .buffered(pos + p.last.cache_ahead)

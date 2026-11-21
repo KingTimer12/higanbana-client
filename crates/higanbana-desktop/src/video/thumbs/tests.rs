@@ -67,3 +67,8 @@ fn mpv_tira_miniatura_de_320() {
     assert_eq!((f.width, f.height), (320, 180));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn pasta_unica_por_gerador() {
+    assert_ne!(super::thumbs_dir(1), super::thumbs_dir(1));
+}

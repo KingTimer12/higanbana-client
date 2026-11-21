@@ -150,7 +150,7 @@ impl PlayerView {
         let seq = self.load_seq;
         let path = self.session.remote_path();
         let url = self.core.player().preview_url(&path, self.session.target.file.size);
-        let dir = std::env::temp_dir().join("higanbana-thumbs").join(format!("{}-{seq}", std::process::id()));
+        let dir = super::thumbs::thumbs_dir(seq);
         let post = self.post.clone();
         let mut th = Thumbs::open(url, dir, move |b, frame| {
             post(Box::new(move |s: &mut AppState, cx| {
@@ -239,6 +239,35 @@ impl PlayerView {
     }
 }
 
+/// Campos de reserva para handlers que chegam depois do player fechar (sem pânico).
+#[derive(Default)]
+pub struct Spare {
+    pub seek: SeekbarState,
+    pub gate: ClickGate,
+    pub pop: PopoverState,
+}
+
+pub fn seek_of<'a>(p: &'a mut Option<PlayerView>, spare: &'a mut Spare) -> &'a mut SeekbarState {
+    match p {
+        Some(p) => &mut p.seek,
+        None => &mut spare.seek,
+    }
+}
+
+pub fn gate_of<'a>(p: &'a mut Option<PlayerView>, spare: &'a mut Spare) -> &'a mut ClickGate {
+    match p {
+        Some(p) => &mut p.gate,
+        None => &mut spare.gate,
+    }
+}
+
+pub fn pop_of<'a>(p: &'a mut Option<PlayerView>, spare: &'a mut Spare, i: usize) -> &'a mut PopoverState {
+    match p {
+        Some(p) => &mut p.pops[i],
+        None => &mut spare.pop,
+    }
+}
+
 pub fn view(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higanbana> {
     let inbox = std::mem::take(&mut v.state.player_inbox);
     let Some(p) = v.player.as_mut() else { return div() };
@@ -248,7 +277,7 @@ pub fn view(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higa
     let bg = cx.theme().background;
     let backdrop = cx.animate(ElementId::from("player-fundo"), if ready { 0.0 } else { 1.0 }, motion::transition(motion::BASE));
     let fade = cx.animate(ElementId::from("player-controles"), if hidden { 0.0 } else { 1.0 }, motion::transition(motion::QUICK));
-    let surface = VideoSurface::new("player-video", &mut p.player, |v: &mut Higanbana| &mut v.player.as_mut().expect("player aberto").gate).cursor_hidden(hidden).render(cx);
+    let surface = VideoSurface::new("player-video", &mut p.player, |v: &mut Higanbana| gate_of(&mut v.player, &mut v.player_spare)).cursor_hidden(hidden).render(cx);
     let top = top_bar::top_bar(v, cx, fade);
     let status = status::status(v, cx);
     let corner = corner::corner(v, cx, hidden);

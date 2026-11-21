@@ -87,3 +87,11 @@ fn nucleos() {
     assert_eq!(thread_label(1), "1 núcleo");
     assert_eq!(thread_label(4), "4 núcleos");
 }
+
+#[test]
+fn lente_sem_player_usa_reserva() {
+    let mut spare = super::Spare::default();
+    let mut none: Option<super::PlayerView> = None;
+    super::seek_of(&mut none, &mut spare).drag = Some(0.5);
+    assert_eq!(spare.seek.drag, Some(0.5));
+}
