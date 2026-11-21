@@ -195,3 +195,34 @@ fn scaled_text_field_click_maps_to_layout_space() {
     t.mouse_down(point(x0 + 14.0, t.nodes[i].content.center().y), MouseButton::Left, Modifiers::default(), &mut v, &mut cx);
     assert_eq!(v.name.caret(), 4);
 }
+
+fn ctrl(k: Key) -> KeyEvent {
+    KeyEvent::new(k, Modifiers { ctrl: true, ..Modifiers::default() })
+}
+
+fn root_with_shortcut(inner: Element<V>) -> Element<V> {
+    div()
+        .on_key_down(|v: &mut V, ev, _| {
+            if ev.mods.ctrl && ev.key == Key::Char('k') {
+                v.log.push("ctrl-k".into());
+            }
+        })
+        .child(inner)
+}
+
+#[test]
+fn tecla_sem_foco_chega_na_raiz() {
+    let mut t = build(root_with_shortcut(div().track_focus("a").w(20.0).h(20.0)));
+    let (mut v, mut cx) = (V::default(), EventCx::default());
+    t.key_down(&ctrl(Key::Char('k')), &mut v, &mut cx);
+    assert_eq!(v.log, vec!["ctrl-k"]);
+}
+
+#[test]
+fn tecla_com_foco_sobe_ate_raiz_uma_vez() {
+    let mut t = build(root_with_shortcut(div().track_focus("a").w(20.0).h(20.0)));
+    let (mut v, mut cx) = (V::default(), EventCx::default());
+    t.focus("a");
+    t.key_down(&ctrl(Key::Char('k')), &mut v, &mut cx);
+    assert_eq!(v.log, vec!["ctrl-k"]);
+}
