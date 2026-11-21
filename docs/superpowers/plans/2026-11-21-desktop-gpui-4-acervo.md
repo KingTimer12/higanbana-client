@@ -20,6 +20,7 @@
 - Motion: QUICK 160 ms, BASE 240 ms, RISE 420 ms, stagger 40 ms (máx 12), `ease_out_cubic`, via `motion.rs` (reduce-motion = 0). Mola do progresso do "Continuar": `Spring` da lib com rigidez 120, amortecimento 20, massa 1.
 - Genérico na lib (testes + galeria); específico do app no app.
 - CPU ociosa ~0% com app parado em qualquer tela (nada de `animate_loop` sem necessidade; carousel só agenda frame quando auto-avança).
+- RAM (pedido do usuário: CPU **e** RAM): imagens só pelo LRU de `state/images.rs` (teto `IMAGE_BUDGET`, decodificadas no tamanho máximo de exibição); listas grandes só via `VirtualList`; dados compartilhados por `Arc` (nada de clonar `Vec<FileEntry>`/índices por frame); `Pages` guarda estado só da tela atual + o pequeno `CatalogPlace` para voltar — ao trocar de tela o estado pesado da anterior é solto; elementos fora da tela não são construídos. Working set de cada tela medido e ≤ ao da master.
 - Não varrer pastas da nuvem Anitsu. Telas listam só a pasta aberta pelo usuário; o crawl de metadados do catálogo é o que a master já faz (mesmos limites de lote e cooldown de `catalog_state.rs`).
 
 ## Review Focus
@@ -29,6 +30,7 @@
 3. Carousel com 0 ou 1 item, e auto-avanço com janela sem foco/tela trocada → sem pânico e sem frame agendado depois de sair da tela (teste na Task 4).
 4. Imagem que falha ao baixar → fundo neutro, nunca esqueleto eterno (teste na Task 6).
 5. Voltar/avançar do mouse restaura posição de rolagem e filtros do catálogo (`CatalogPlace`) (teste na Task 9).
+6. Navegar por muitas telas seguidas → memória não cresce sem limite: estado da tela anterior solto, imagens presas ao teto do LRU, textura liberada quando a imagem sai do cache (teste `trocar_tela_solta_estado` na Task 7; `textura_solta_ao_evictar` na Task 6).
 
 ---
 
@@ -235,5 +237,5 @@
 
 - [ ] **Step 1:** worktree temporária da master (`git worktree add ../hb-master master`), copiar `.env` e a libmpv; capturar 1280×800: home (hero + continuar + descobrir), catálogo de anime com um filtro aberto, um título (o mesmo aberto à mão), episódios grade e lista com hover num card, uma pasta, uma franquia, estante. Abrir cada tela clicando — sem scripts que listem pastas.
 - [ ] **Step 2:** mesmas capturas no branch; comparar lado a lado; cada diferença visível vira correção com teste (RED→GREEN) quando houver lógica, ou ajuste de valor copiado do kit.
-- [ ] **Step 3:** CPU com o app parado 30 s em cada tela (Process Explorer / `Get-Process`): esperado ~0%. Home com hero auto-avançando: reportar média.
+- [ ] **Step 3:** CPU com o app parado 30 s em cada tela (Process Explorer / `Get-Process`): esperado ~0%. Home com hero auto-avançando: reportar média. RAM: working set e private bytes em cada tela, branch vs master, e depois de visitar todas as telas 3 vezes (não pode crescer além do teto do LRU). Branch acima da master = investigar e corrigir antes de fechar.
 - [ ] **Step 4:** `cargo test --workspace` → PASS; `cargo clippy -p higanbana-desktop -p higanbana-gpui` sem warnings novos. Remover worktree. Commit final das correções `fix(desktop): ajustes visuais do acervo`.
