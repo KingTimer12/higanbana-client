@@ -1,6 +1,7 @@
 //! Pintura: árvore posicionada -> primitivas (quads, imagens, texto, clips, camadas).
 mod canvas;
 mod field;
+pub mod cache;
 mod gpu;
 pub(crate) mod gradient;
 mod images;

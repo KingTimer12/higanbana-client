@@ -68,3 +68,13 @@ fn same_gradient_cached() {
     assert_eq!(r.images.len(), 2);
     assert_eq!(r.images[0].0, r.images[1].0);
 }
+
+#[test]
+fn gradient_cache_evicts_unused() {
+    let g = LinearGradient::scrim(GradientDir::Left, Color::WHITE, rgb(0x123456));
+    let weak = std::rc::Rc::downgrade(&ramp(&g));
+    for _ in 0..super::cache::MAX_IDLE_FRAMES + 1 {
+        super::cache::end_frame();
+    }
+    assert!(weak.upgrade().is_none());
+}

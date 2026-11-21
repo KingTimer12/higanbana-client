@@ -61,6 +61,18 @@ impl<V> Tree<V> {
         let origin = place_overlay(&spec.anchor, spec.gap, size, self.anchor_rect(k), self.viewport);
         position(&self.engine, &mut self.nodes, root..end, origin, self.viewport, &mut self.offsets);
         self.apply_transforms(root..end);
+        // Âncora rolada para fora do recorte: o overlay some (sem pintura nem clique).
+        if self.anchor_clipped(k) {
+            for n in &mut self.nodes[root..end] {
+                n.clip = crate::geometry::Rect::new(0.0, 0.0, 0.0, 0.0);
+            }
+        }
+    }
+
+    /// A âncora do overlay `k` existe mas está fora da área visível dos ancestrais.
+    fn anchor_clipped(&self, k: usize) -> bool {
+        let Anchor::Element { id, .. } = self.overlays[k].spec.anchor else { return false };
+        self.find(id).is_some_and(|i| !self.nodes[i].clip.intersects(&self.nodes[i].rect))
     }
 
     /// x das fronteiras de caractere de cada campo de texto.

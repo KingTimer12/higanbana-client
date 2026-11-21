@@ -1,11 +1,11 @@
 //! SVG → máscara RGBA (branco com alfa) no tamanho físico; a cor vem do tint no desenho.
 use crate::element::{ImageData, ImageSource};
+use crate::paint::cache::{self, AgedMap};
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 thread_local! {
     /// (nome, lado em px físicos, passo de rotação) → imagem. Poucos ícones × tamanhos: sem despejo.
-    static CACHE: RefCell<HashMap<(String, u32, u32), Option<ImageSource>>> = RefCell::new(HashMap::new());
+    static CACHE: RefCell<AgedMap<(String, u32, u32)>> = RefCell::new(AgedMap::default());
 }
 
 /// Passos de rotação por volta (ícones girando, ex.: Spinner): 7.5° cada.
@@ -21,12 +21,17 @@ pub fn get_rotated(name: &str, px: u32, step: u32) -> Option<ImageSource> {
     let px = px.clamp(1, 1024);
     let step = step % ROTATION_STEPS;
     let key = (name.to_string(), px, step);
-    if let Some(hit) = CACHE.with(|c| c.borrow().get(&key).cloned()) {
+    if let Some(hit) = CACHE.with(|c| c.borrow_mut().get(&key)) {
         return hit;
     }
+    cache::register(sweep);
     let made = super::registry::svg(name).and_then(|svg| rasterize(svg, px, step));
     CACHE.with(|c| c.borrow_mut().insert(key, made.clone()));
     made
+}
+
+fn sweep(now: u64) {
+    CACHE.with(|c| c.borrow_mut().sweep(now));
 }
 
 pub(crate) fn clear() {

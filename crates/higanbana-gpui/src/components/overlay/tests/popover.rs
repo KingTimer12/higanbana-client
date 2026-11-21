@@ -85,3 +85,31 @@ fn popover_follows_anchor() {
     let after = t.rect(t.find("conteudo").unwrap()).origin.x;
     assert!((before - after - 300.0).abs() < 0.5, "moveu junto com o gatilho: {before} -> {after}");
 }
+
+#[test]
+fn popover_hidden_when_anchor_scrolled_out() {
+    let (mut h, mut t, mut v) = (Harness::new(), Tree::new(), V::default());
+    let build = |h: &mut Harness, t: &mut Tree<V>, v: &V| {
+        h.frame(t, |cx| {
+            let pop = Popover::new("menu", &v.p, |v: &mut V| &mut v.p, div().w(40.0).h(20.0).child(text("Abrir")))
+                .content(|_| div().id("conteudo").h(50.0).child(text("Itens")))
+                .render(cx);
+            let filler = div().h(400.0).flex_shrink_0();
+            div().size_full().child(scroll("lista").w(300.0).h(200.0).child(div().flex_shrink_0().child(pop)).child(filler))
+        })
+    };
+    build(&mut h, &mut t, &v);
+    let p = center(&t, "menu");
+    click(&mut t, &mut v, p);
+    build(&mut h, &mut t, &v);
+    h.advance(300);
+    build(&mut h, &mut t, &v);
+    let panel = center(&t, "conteudo");
+    assert!(t.hit_test(panel).is_some(), "visível com o gatilho à vista");
+    t.mouse_move(point(10.0, 100.0));
+    assert!(t.scroll(-10.0));
+    let panel = center(&t, "conteudo");
+    let hit = t.hit_test(panel).map(|i| t.rect(i));
+    let inside_panel = hit.is_some_and(|r| r == t.rect(t.find("conteudo").unwrap()));
+    assert!(!inside_panel, "gatilho rolado para fora: painel não recebe clique");
+}

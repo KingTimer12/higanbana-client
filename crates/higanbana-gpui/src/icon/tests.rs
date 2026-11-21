@@ -76,3 +76,18 @@ fn app_icon_set_registers() {
     let src = raster::get("ponto-app", 8).expect("registrado");
     assert_eq!(alpha(&src, 4, 4), 255);
 }
+
+#[test]
+fn icon_cache_evicts_unused_sizes() {
+    let weak = std::rc::Rc::downgrade(&raster::get("pause", 37).unwrap());
+    for _ in 0..crate::paint::cache::MAX_IDLE_FRAMES + 1 {
+        crate::paint::cache::end_frame();
+    }
+    assert!(weak.upgrade().is_none(), "tamanho sem uso há muitos frames sai do cache");
+    let kept = raster::get("pause", 38).unwrap();
+    for _ in 0..crate::paint::cache::MAX_IDLE_FRAMES + 1 {
+        let again = raster::get("pause", 38).unwrap();
+        assert_eq!(again.id(), kept.id(), "em uso: fica");
+        crate::paint::cache::end_frame();
+    }
+}

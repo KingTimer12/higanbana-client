@@ -1,14 +1,14 @@
 //! Rampa do gradiente rasterizada na CPU (256 amostras) e cacheada; a GPU estica com filtro linear.
 use crate::element::{ImageData, ImageSource};
 use crate::style::{GradientDir, LinearGradient};
+use super::cache::{self, AgedMap};
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 const N: u32 = 256;
 
 thread_local! {
-    static CACHE: RefCell<HashMap<u64, ImageSource>> = RefCell::new(HashMap::new());
+    static CACHE: RefCell<AgedMap<u64, ImageSource>> = RefCell::new(AgedMap::default());
 }
 
 fn key(g: &LinearGradient) -> u64 {
@@ -22,12 +22,17 @@ fn key(g: &LinearGradient) -> u64 {
     h.finish()
 }
 
+fn sweep(now: u64) {
+    CACHE.with(|c| c.borrow_mut().sweep(now));
+}
+
 /// Imagem da rampa (1×256 vertical, 256×1 horizontal), alfa reto.
 pub fn ramp(g: &LinearGradient) -> ImageSource {
     let k = key(g);
-    if let Some(src) = CACHE.with(|c| c.borrow().get(&k).cloned()) {
+    if let Some(src) = CACHE.with(|c| c.borrow_mut().get(&k)) {
         return src;
     }
+    cache::register(sweep);
     let mut px = Vec::with_capacity(N as usize * 4);
     for i in 0..N {
         let t = i as f32 / (N - 1) as f32;

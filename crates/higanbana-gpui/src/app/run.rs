@@ -181,5 +181,6 @@ impl<V: View> Runner<'_, V> {
             eprintln!("higanbana-gpui: present: {e}");
         }
         self.pool = Some(list.recycle());
+        crate::paint::cache::end_frame();
     }
 }
