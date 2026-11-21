@@ -57,6 +57,9 @@ pub(super) struct Runner<'c, V> {
 pub(super) fn run<V: View>(app: App, options: WindowOptions, view: V) -> Result<()> {
     let ctx = Context::new(app.backend)?;
     let win = Window::new(&ctx, &options)?;
+    if let Some(f) = app.on_window {
+        f(win.native_handle());
+    }
     let mut inbox = app.inbox.and_then(|b| b.downcast::<Inbox<V>>().ok()).map(|b| *b);
     if let Some(i) = inbox.as_mut() {
         i.attach(win.waker());

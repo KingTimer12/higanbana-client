@@ -19,11 +19,13 @@ pub struct WindowOptions {
     pub resizable: bool,
     /// Barra nativa ou desenhada pelo app.
     pub decorations: Decorations,
+    /// Tamanho mínimo da área cliente em pixels lógicos.
+    pub min_size: Option<Size>,
 }
 
 impl Default for WindowOptions {
     fn default() -> Self {
-        Self { title: "higanbana".into(), size: size(960.0, 640.0), resizable: true, decorations: Decorations::Native }
+        Self { title: "higanbana".into(), size: size(960.0, 640.0), resizable: true, decorations: Decorations::Native, min_size: None }
     }
 }
 
@@ -52,7 +54,16 @@ impl<'c> Window<'c> {
         if options.decorations == Decorations::Custom {
             check(unsafe { sys::hg_window_set_decorations(win.raw.as_ptr(), 1) })?;
         }
+        if let Some(m) = options.min_size {
+            check(unsafe { sys::hg_window_set_min_size(win.raw.as_ptr(), m.width, m.height) })?;
+        }
         Ok(win)
+    }
+
+    /// Handle nativo (HWND no Windows) para integrações do app: teclas de mídia,
+    /// atributos do DWM. Pode mudar se o backend trocar para OpenGL.
+    pub fn native_handle(&self) -> usize {
+        unsafe { sys::hg__window_hwnd(self.raw.as_ptr()) as usize }
     }
 
     /// Publica as regiões de hit test (arrastar, maximizar, cliente).

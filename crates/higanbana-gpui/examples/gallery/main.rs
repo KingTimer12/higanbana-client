@@ -151,7 +151,7 @@ fn main() {
         sections::overlay::push_demo_toasts(&mut view.toasts, &mut view.notes);
     }
     let theme = if env("HGUI_GALLERY_THEME") == "light" { Theme::light() } else { Theme::dark() };
-    let opts = WindowOptions { title: "higanbana-gpui · galeria".into(), size: size(1280.0, 800.0), resizable: true, decorations: Decorations::Custom };
+    let opts = WindowOptions { title: "higanbana-gpui · galeria".into(), size: size(1280.0, 800.0), resizable: true, decorations: Decorations::Custom, min_size: None };
     if let Err(e) = App::new().theme(theme).backend(backend_from_env()).run(opts, view) {
         eprintln!("erro: {e}");
     }

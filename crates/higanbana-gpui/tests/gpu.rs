@@ -87,3 +87,11 @@ fn switch_backend_at_runtime_keeps_drawing() {
     }
     ctx.switch_backend(BackendKind::D3D11).unwrap();
 }
+
+#[test]
+fn janela_tem_handle_nativo_e_aceita_minimo() {
+    let ctx = higanbana_gpui::Context::new(higanbana_gpui::BackendKind::Auto).expect("contexto");
+    let opts = WindowOptions { title: "mínimo".into(), size: higanbana_gpui::size(1000.0, 700.0), min_size: Some(higanbana_gpui::size(960.0, 600.0)), ..Default::default() };
+    let win = higanbana_gpui::Window::new(&ctx, &opts).expect("janela");
+    assert_ne!(win.native_handle(), 0, "HWND no Windows");
+}

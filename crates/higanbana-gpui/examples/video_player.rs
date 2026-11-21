@@ -45,7 +45,7 @@ impl View for App1 {
 
 fn main() {
     let source = std::env::args().nth(1).unwrap_or_else(|| TEST_SOURCE.to_string());
-    let opts = WindowOptions { title: "higanbana · vídeo".into(), size: size(1280.0, 760.0), resizable: true, decorations: Decorations::Custom };
+    let opts = WindowOptions { title: "higanbana · vídeo".into(), size: size(1280.0, 760.0), resizable: true, decorations: Decorations::Custom, min_size: None };
     let view = App1 { source, video: None, error: None };
     if let Err(e) = App::new().run(opts, view) {
         eprintln!("erro: {e}");

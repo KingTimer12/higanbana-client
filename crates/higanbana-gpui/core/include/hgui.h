@@ -180,6 +180,9 @@ typedef enum hg_cursor {
 hg_result hg_window_set_cursor(hg_window* win, hg_cursor cursor);
 hg_cursor hg_window_cursor(const hg_window* win);
 
+/* Tamanho mínimo da área cliente em pixels lógicos (0, 0 = sem limite). */
+hg_result hg_window_set_min_size(hg_window* win, float width, float height);
+
 /* ---- Área de transferência -------------------------------------------- */
 /* Copia `len` bytes UTF-8 como CF_UNICODETEXT. */
 hg_result hg_clipboard_set_text(const char* utf8, size_t len);

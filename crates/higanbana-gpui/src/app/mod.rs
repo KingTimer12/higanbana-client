@@ -26,11 +26,13 @@ pub struct App {
     pub(crate) vsync: bool,
     /// `Inbox<V>` criado por `mailbox` (tipo apagado até o `run`).
     pub(crate) inbox: Option<Box<dyn std::any::Any>>,
+    /// Chamado uma vez com o handle nativo logo depois de a janela abrir.
+    pub(crate) on_window: Option<Box<dyn FnOnce(usize)>>,
 }
 
 impl App {
     pub fn new() -> Self {
-        Self { backend: BackendKind::Auto, theme: Theme::dark(), show_stats: false, vsync: true, inbox: None }
+        Self { backend: BackendKind::Auto, theme: Theme::dark(), show_stats: false, vsync: true, inbox: None, on_window: None }
     }
 
     /// Backend preferido (cai para outro se indisponível).
@@ -56,6 +58,12 @@ impl App {
         let (tx, rx) = crate::cx::inbox::<V>();
         self.inbox = Some(Box::new(rx));
         tx
+    }
+
+    /// `f(handle)` roda uma vez com o handle nativo (HWND) da janela aberta.
+    pub fn on_window(mut self, f: impl FnOnce(usize) + 'static) -> Self {
+        self.on_window = Some(Box::new(f));
+        self
     }
 
     /// Desenha backend, tempo de frame e memória no canto da janela.
