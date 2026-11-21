@@ -91,7 +91,8 @@ impl<V: 'static> Component<V> for Sidebar<'_, V> {
             f.alpha(f.a * 0.7)
         };
         let xs = cx.theme().typography.xs;
-        let mut body = scroll(part(self.id, "grupos")).flex_1().flex_col().px(pad).gap(12.0);
+        // Kit: grupos colados (o `gap_y_3` dele fica num contêiner de um filho só).
+        let mut body = scroll(part(self.id, "grupos")).flex_1().flex_col().px(pad);
         let n = self.groups.len();
         for (i, g) in self.groups.into_iter().enumerate() {
             let mut col = div().flex_col().w_full();

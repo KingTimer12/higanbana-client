@@ -38,8 +38,9 @@ fn footer(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, collapsed: bool) 
     });
     let settings = settings.render(cx);
     let settings = tip(v, cx, "dica-settings", settings, "Configurações");
+    // `SidebarFooter` do kit: p-2 em volta do conteúdo.
     if collapsed {
-        return div().w_full().flex_col().items_center().gap(4.0).child(settings).child(face);
+        return div().w_full().p(8.0).flex_col().items_center().gap(4.0).child(settings).child(face);
     }
     let logout = Button::new("logout", "").variant(Variant::Ghost).size(ComponentSize::Compact).icon(icon("log-out").size(14.0)).on_click(|v: &mut Higanbana, _, _| {
         v.state.logout();
@@ -53,7 +54,7 @@ fn footer(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, collapsed: bool) 
         .min_w(0.0)
         .child(truncate(name).text_size(t.typography.sm).font_weight(600))
         .child(div().text_size(t.typography.xs).text_color(t.muted_foreground).child(text("Via Discord")));
-    div().w_full().items_center().gap(8.0).child(face).child(info).child(settings).child(logout)
+    div().w_full().p(8.0).items_center().gap(8.0).child(face).child(info).child(settings).child(logout)
 }
 
 pub fn sidebar(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higanbana> {
@@ -100,11 +101,13 @@ pub fn sidebar(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<H
         })
         .render(cx);
     let t = cx.theme();
+    // `SidebarHeader` do kit: p-2 em volta do conteúdo.
     let header = if collapsed {
-        div().w_full().items_center().justify_center().child(toggle)
+        div().w_full().p(8.0).items_center().justify_center().child(toggle)
     } else {
         div()
             .w_full()
+            .p(8.0)
             .items_center()
             .justify_between()
             .child(div().pl(8.0).text_size(t.typography.xs).font_weight(600).text_color(t.muted_foreground).child(text("Navegação")))
