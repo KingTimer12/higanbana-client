@@ -8,6 +8,7 @@
 //! - `window`: TitleBar (barra customizada).
 //! - `video` (feature `video`): VideoPlayer.
 pub mod basic;
+pub mod carousel;
 pub mod form;
 pub mod list;
 pub mod nav;
@@ -18,6 +19,7 @@ pub mod window;
 mod shared;
 
 pub use basic::*;
+pub use carousel::{Carousel, CarouselState};
 pub use form::*;
 pub use list::*;
 pub use nav::*;

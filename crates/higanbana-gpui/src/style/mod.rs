@@ -165,6 +165,8 @@ pub struct Style {
     pub object_fit: ObjectFit,
     /// Rolar este contêiner reconstrói a view (listas virtuais).
     pub rerender_on_scroll: bool,
+    /// A caixa deste elemento (com id) fica disponível no próximo render (`RenderCx::bounds`).
+    pub track_bounds: bool,
     /// Ampliação de imagem `cover` a partir do centro (`None` = 1).
     pub zoom: Option<f32>,
     /// Cursor do mouse sobre o elemento (o mais profundo com cursor vence).
@@ -211,6 +213,7 @@ impl Default for Style {
             window_hit: None,
             object_fit: ObjectFit::Fill,
             rerender_on_scroll: false,
+            track_bounds: false,
             zoom: None,
             cursor: None,
             text: TextStyleRefinement::default(),

@@ -129,6 +129,7 @@ impl<V: View> Runner<'_, V> {
         cx.waker = self.win.waker();
         cx.scroll = self.tree.scroll_states();
         cx.scroll_view = self.tree.scroll_views();
+        cx.bounds = self.tree.tracked_bounds();
         let root = self.view.render(&mut cx);
         let wake = cx.wake;
         let waker = cx.waker.clone();

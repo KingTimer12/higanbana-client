@@ -161,3 +161,12 @@ pub fn virtual_list(_: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<
     });
     vec![preview(cx, "10.000 itens, só os visíveis construídos", div().w(320.0).h(280.0).child(lista))]
 }
+
+pub fn carousel(v: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery>> {
+    let cores = [0xe04f5f, 0x4f8fe0, 0x4fe0a0, 0xe0c04f];
+    let slides = (0..4).map(|i| div().h(140.0).rounded(10.0).bg(rgb(cores[i])).items_center().justify_center().child(text(format!("Destaque {}", i + 1)))).collect();
+    let banner = Carousel::new("galeria-banner", &v.banner, |g: &mut Gallery| &mut g.banner).items(slides).render(cx);
+    let cards = (0..12).map(|i| div().h(96.0).rounded(8.0).bg(rgba(0x8080_8030)).items_center().justify_center().child(text(format!("{}", i + 1)))).collect();
+    let fileira = Carousel::new("galeria-fileira", &v.fileira, |g: &mut Gallery| &mut g.fileira).items(cards).item_width(72.0).gap(8.0).controls(true).render(cx);
+    vec![preview(cx, "Banner com auto-avanço (4 s)", div().w(420.0).child(banner)), preview(cx, "Fileira com setas", div().w(420.0).px(40.0).child(fileira))]
+}

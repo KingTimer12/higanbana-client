@@ -27,6 +27,11 @@ impl<V> Tree<V> {
         self.nodes.iter().filter(|n| n.style.overflow.is_scroll()).filter_map(|n| n.id.map(|id| (id, n.content.size.height))).collect()
     }
 
+    /// `(id, caixa)` dos elementos com `track_bounds`.
+    pub fn tracked_bounds(&self) -> Vec<(ElementId, crate::geometry::Rect)> {
+        self.nodes.iter().filter(|n| n.style.track_bounds).filter_map(|n| n.id.map(|id| (id, n.rect))).collect()
+    }
+
     /// Uma rolagem mexeu num contêiner `rerender_on_scroll` desde a última chamada.
     pub fn take_scroll_rerender(&mut self) -> bool {
         std::mem::take(&mut self.scroll_rerender)
