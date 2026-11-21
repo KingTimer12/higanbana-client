@@ -43,7 +43,7 @@ fn options<T: Clone + PartialEq + 'static>(cx: &mut RenderCx<'_, Higanbana>, pre
 fn menu_button(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, lens: Lens, name: &'static str, count: usize, content: impl FnOnce(&mut Higanbana, &mut RenderCx<'_, Higanbana>) -> Element<Higanbana>) -> Element<Higanbana> {
     let state = *lens(ui(v));
     let accent = cx.theme().accent;
-    let trigger = Button::new(("filtro", name), trigger_label(name, count)).variant(Variant::Outline).size(ComponentSize::Compact).icon(icon("chevron-down").size(12.0)).render(cx);
+    let trigger = Button::new(("filtro", name), trigger_label(name, count)).variant(Variant::Outline).size(ComponentSize::Compact).trailing_icon(icon("chevron-down").size(12.0)).render(cx);
     let trigger = if count > 0 { trigger.bg(accent) } else { trigger };
     let body = if state.open { content(v, cx) } else { div() };
     Popover::new(("filtro-menu", name), &state, move |v: &mut Higanbana| lens(ui(v)), trigger).content(move |_| body).render(cx)

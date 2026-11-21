@@ -30,6 +30,7 @@ pub struct Input<'a, V, L> {
     invalid: bool,
     height: f32,
     prefix: Option<&'static str>,
+    kit: bool,
     cbs: Callbacks<V>,
 }
 
@@ -49,6 +50,7 @@ where
             invalid: false,
             height: 36.0,
             prefix: None,
+            kit: false,
             cbs: Callbacks { change: None, submit: None },
         }
     }
@@ -68,6 +70,13 @@ where
     /// Ícone à esquerda dentro do campo (ex.: `"search"`), 14 px.
     pub fn prefix(mut self, icon: &'static str) -> Self {
         self.prefix = Some(icon);
+        self
+    }
+
+    /// Visual do kit: fundo transparente e 32 px de altura.
+    pub fn kit(mut self) -> Self {
+        self.kit = true;
+        self.height = 32.0;
         self
     }
 
@@ -115,7 +124,7 @@ where
         let t = cx.theme();
         let accent = if self.invalid { t.destructive } else { t.ring };
         let border = if self.invalid { t.destructive } else { t.input };
-        let bg = if t.dark { t.input.alpha(0.3) } else { Color::TRANSPARENT };
+        let bg = if t.dark && !self.kit { t.input.alpha(0.3) } else { Color::TRANSPARENT };
         let (width, prefix, muted) = (self.width, self.prefix, t.muted_foreground);
         let mut e = text_field(self.id, self.state, self.lens.clone())
             .w(if prefix.is_some() { pct(100.0) } else { width })

@@ -44,7 +44,7 @@ fn header(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, path: &str, count
     let t = cx.theme().clone();
     let name = base_name(path).to_owned();
     let parent = parent_path(path);
-    let filter = Input::new("estante-filtro", &v.pages.shelf().filter, |v: &mut Higanbana| &mut v.pages.shelf().filter).width(288.0).prefix("search").on_change(|_: &mut Higanbana, _, cx| cx.notify()).render(cx);
+    let filter = Input::new("estante-filtro", &v.pages.shelf().filter, |v: &mut Higanbana| &mut v.pages.shelf().filter).width(288.0).kit().prefix("search").on_change(|_: &mut Higanbana, _, cx| cx.notify()).render(cx);
     let mut names = div().flex_col().gap(4.0).child(text(name.clone()).text_size(t.typography.xxl).font_weight(600));
     if let Some(n) = count {
         names = names.child(div().text_size(t.typography.sm).text_color(t.muted_foreground).child(text(format!("{n} títulos"))));

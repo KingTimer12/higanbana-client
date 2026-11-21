@@ -17,6 +17,7 @@ pub struct Button<V> {
     variant: Variant,
     size: ComponentSize,
     icon: Option<Element<V>>,
+    trailing: Option<Element<V>>,
     disabled: bool,
     full_width: bool,
     on_click: Option<ClickHandler<V>>,
@@ -29,7 +30,7 @@ impl<V> Button<V> {
             label: label.into(),
             variant: Variant::Default,
             size: ComponentSize::Md,
-            icon: None,
+            icon: None, trailing: None,
             disabled: false,
             full_width: false,
             on_click: None,
@@ -49,6 +50,12 @@ impl<V> Button<V> {
     /// Elemento à esquerda do rótulo (ícone).
     pub fn icon(mut self, icon: impl Into<Element<V>>) -> Self {
         self.icon = Some(icon.into());
+        self
+    }
+
+    /// Ícone depois do rótulo (ex.: a seta `chevron-down` de um menu suspenso).
+    pub fn trailing_icon(mut self, icon: impl Into<Element<V>>) -> Self {
+        self.trailing = Some(icon.into());
         self
     }
 
@@ -120,6 +127,6 @@ impl<V: 'static> Component<V> for Button<V> {
             }
         }
         e.on_click = self.on_click;
-        e.children(self.icon).when(!self.label.is_empty(), |e| e.child(text(self.label)))
+        e.children(self.icon).when(!self.label.is_empty(), |e| e.child(text(self.label))).children(self.trailing)
     }
 }

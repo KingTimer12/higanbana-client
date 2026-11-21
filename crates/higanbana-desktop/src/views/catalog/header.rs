@@ -14,7 +14,7 @@ use crate::ui::cover::title_card;
 use crate::ui::paths::breadcrumbs;
 
 fn caret_button(cx: &mut RenderCx<'_, Higanbana>, id: &'static str, label: String, disabled: bool) -> Element<Higanbana> {
-    let b = Button::new(id, label).variant(Variant::Outline).icon(icon("chevron-down").size(14.0)).disabled(disabled);
+    let b = Button::new(id, label).variant(Variant::Outline).size(higanbana_gpui::components::ComponentSize::Sm).trailing_icon(icon("chevron-down").size(14.0)).disabled(disabled);
     b.render(cx)
 }
 
@@ -55,7 +55,7 @@ pub fn header(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, ctx: &Ctx) ->
     let c = ui(v);
     let (series, query) = (c.series, c.query());
     let media = series.media;
-    let search = Input::new("catalogo-busca", &c.search, |v: &mut Higanbana| &mut ui(v).search).prefix("search").on_change(|v: &mut Higanbana, _, cx| restart(v, cx)).render(cx);
+    let search = Input::new("catalogo-busca", &c.search, |v: &mut Higanbana| &mut ui(v).search).kit().prefix("search").on_change(|v: &mut Higanbana, _, cx| restart(v, cx)).render(cx);
     let (indexed, total) = v.state.index_progress(media);
     let mut col = div()
         .id("catalogo-cabecalho")

@@ -120,3 +120,15 @@ fn esqueleto_pulsa_a_24_qps_sem_vsync() {
     drop(cx);
     assert_ne!(anim.next_frame(), Some(std::time::Duration::ZERO), "nada de quadro imediato");
 }
+
+#[test]
+fn icone_final_vem_depois_do_rotulo() {
+    let mut anim = crate::anim::Animator::default();
+    let theme = crate::Theme::dark();
+    let mut cx: crate::RenderCx<'_, ()> = crate::RenderCx::new(&theme, crate::BackendKind::Auto, &[], crate::Stats::default(), &mut anim);
+    let b = super::Button::new("b", "Ordenar").trailing_icon(crate::icon::icon("chevron-down").size(14.0)).render(&mut cx);
+    let t = crate::components::form::test_util::build(crate::element::div().flex_col().child(b));
+    let xs: Vec<f32> = (1..t.len()).map(|i| t.rect(i).origin.x).collect();
+    let icon_x = (1..t.len()).find(|&i| t.rect(i).size.width == 14.0).map(|i| t.rect(i).origin.x).unwrap();
+    assert!(icon_x > xs[1], "ícone à direita do texto: {xs:?}");
+}
