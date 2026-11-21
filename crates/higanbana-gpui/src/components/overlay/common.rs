@@ -28,7 +28,7 @@ pub(super) const PRESENCE: Transition = Transition::ms(150);
 /// Presença 0..1 de algo que abre/fecha: entra de 0 e sai animando até 0.
 /// Enquanto > 0 o componente continua desenhado (animação de saída).
 pub(super) fn presence<V>(cx: &mut RenderCx<'_, V>, key: ElementId, open: bool) -> f32 {
-    cx.animate_from(key, 0.0, if open { 1.0 } else { 0.0 }, PRESENCE)
+    cx.presence(key, open, PRESENCE).unwrap_or(0.0)
 }
 
 /// Placeholder invisível para quando nada deve aparecer.

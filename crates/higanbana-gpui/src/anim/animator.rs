@@ -1,16 +1,19 @@
 //! Tweens de valores por chave (id de elemento), consultados durante o render.
 use super::easing::Transition;
+use super::lerp::Animatable;
 use super::repeat::{phase, Repeat};
 use super::spring::Spring;
 use crate::element::ElementId;
 use std::collections::HashMap;
 use std::time::Instant;
 
+type V4 = [f32; 4];
+
 struct Tween {
-    from: f32,
-    to: f32,
-    /// Velocidade inicial (molas: herdada no retarget).
-    v0: f32,
+    from: V4,
+    to: V4,
+    /// Velocidade inicial por componente (molas: herdada no retarget).
+    v0: V4,
     start: Instant,
     transition: Transition,
     /// Geração do último render que consultou (descarta tweens órfãos).
@@ -19,20 +22,26 @@ struct Tween {
 
 impl Tween {
     /// Valor, velocidade e se terminou, em `now`.
-    fn sample(&self, now: Instant) -> (f32, f32, bool) {
+    fn sample(&self, now: Instant) -> (V4, V4, bool) {
         let tr = &self.transition;
         let t = now.saturating_duration_since(self.start).as_secs_f32();
         if let Some(s) = tr.spring {
             let t = t - tr.delay.as_secs_f32();
             if t <= 0.0 { return (self.from, self.v0, false) }
-            let (x, v) = s.sample(self.from, self.to, self.v0, t);
-            let done = self.from == self.to && self.v0 == 0.0 || Spring::settled(x, v, self.from, self.to);
-            return if done { (self.to, 0.0, true) } else { (x, v, false) };
+            let (mut x, mut v, mut done) = ([0.0; 4], [0.0; 4], true);
+            for i in 0..4 {
+                let (xi, vi) = s.sample(self.from[i], self.to[i], self.v0[i], t);
+                let still = self.from[i] == self.to[i] && self.v0[i] == 0.0;
+                done &= still || Spring::settled(xi, vi, self.from[i], self.to[i]);
+                (x[i], v[i]) = (xi, vi);
+            }
+            return if done { (self.to, [0.0; 4], true) } else { (x, v, false) };
         }
-        if self.from == self.to { return (self.to, 0.0, true) }
+        if self.from == self.to { return (self.to, [0.0; 4], true) }
         let (p, done) = phase(t, tr.duration.as_secs_f32(), tr.delay.as_secs_f32(), tr.repeat, tr.yoyo);
-        if done && tr.repeat == Repeat::Once { return (self.to, 0.0, true) }
-        (self.from + (self.to - self.from) * tr.easing.apply(p), 0.0, done)
+        if done && tr.repeat == Repeat::Once { return (self.to, [0.0; 4], true) }
+        let e = tr.easing.apply(p);
+        (std::array::from_fn(|i| self.from[i] + (self.to[i] - self.from[i]) * e), [0.0; 4], done)
     }
 }
 
@@ -73,8 +82,14 @@ impl Animator {
     /// Valor animado de `key` em direção a `target`. Na primeira consulta parte de `from`
     /// (use `from == target` para não animar a entrada). Mudar o alvo reinicia do valor atual.
     pub fn value(&mut self, key: ElementId, from: f32, target: f32, transition: Transition, now: Instant) -> f32 {
+        self.animate(key, from, target, transition, now)
+    }
+
+    /// Como `value`, para qualquer `Animatable` (cor, ponto, retângulo...).
+    pub fn animate<T: Animatable>(&mut self, key: ElementId, from: T, target: T, transition: Transition, now: Instant) -> T {
+        let (from, target) = (from.to_arr(), target.to_arr());
         let g = self.generation;
-        let t = self.tweens.entry(key).or_insert(Tween { from, to: target, v0: 0.0, start: now, transition, seen: g });
+        let t = self.tweens.entry(key).or_insert(Tween { from, to: target, v0: [0.0; 4], start: now, transition, seen: g });
         t.seen = g;
         if t.to != target {
             let (x, v, _) = t.sample(now);
@@ -86,7 +101,7 @@ impl Animator {
         }
         let (x, _, done) = t.sample(now);
         self.active |= !done;
-        x
+        T::from_arr(x)
     }
 }
 

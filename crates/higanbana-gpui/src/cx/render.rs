@@ -1,5 +1,5 @@
 //! Contexto de `View::render`: tema, backends, foco e animações.
-use crate::anim::{Animator, Transition};
+use crate::anim::{Animatable, Animator, Transition};
 use crate::element::ElementId;
 use crate::gfx::{BackendInfo, BackendKind, Stats};
 use crate::theme::Theme;
@@ -81,6 +81,22 @@ impl<'a, V: ?Sized> RenderCx<'a, V> {
     /// Como `animate`, mas a primeira consulta parte de `from` (animação de entrada).
     pub fn animate_from(&mut self, key: impl Into<ElementId>, from: f32, target: f32, transition: Transition) -> f32 {
         self.animator.value(key.into(), from, target, transition, self.now)
+    }
+
+    /// `animate` para cor, ponto, tamanho ou retângulo.
+    pub fn animate_value<T: Animatable>(&mut self, key: impl Into<ElementId>, target: T, transition: Transition) -> T {
+        self.animator.animate(key.into(), target, target, transition, self.now)
+    }
+
+    /// `animate_from` para qualquer `Animatable`.
+    pub fn animate_value_from<T: Animatable>(&mut self, key: impl Into<ElementId>, from: T, target: T, transition: Transition) -> T {
+        self.animator.animate(key.into(), from, target, transition, self.now)
+    }
+
+    /// Presença 0..1 de algo que aparece/some (entra de 0, sai animando até 0).
+    /// `None` = não renderizar (invisível e saída concluída).
+    pub fn presence(&mut self, key: impl Into<ElementId>, visible: bool, transition: Transition) -> Option<f32> {
+        self.animator.presence(key.into(), visible, transition, self.now)
     }
 
     /// Progresso 0..1 que se repete para sempre (spinners, pulsos). Força `Repeat::Forever`;
