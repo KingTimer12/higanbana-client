@@ -40,6 +40,8 @@ pub struct Gallery {
     pub subtitle: Option<usize>,
     pub quality: Option<usize>,
     pub progress: f32,
+    pub side: SidebarState,
+    pub side_active: usize,
 }
 
 impl View for Gallery {
@@ -135,6 +137,8 @@ fn main() {
         subtitle: Some(1),
         quality: Some(2),
         progress: 40.0,
+        side: SidebarState::default(),
+        side_active: 0,
     };
     view.tip.visible = state == "tooltip";
     if state == "toast" {

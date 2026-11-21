@@ -7,6 +7,7 @@ pub mod overlay;
 pub mod popover;
 pub mod progress;
 pub mod radio;
+pub mod sidebar;
 
 use crate::Gallery;
 use higanbana_gpui::prelude::*;
@@ -44,6 +45,7 @@ pub const SECTIONS: &[Section] = &[
     s("Sobreposição", "Popover", "Painel preso a um botão; fecha com Escape ou clique fora.", popover::popover),
     s("Sobreposição", "Tooltip", "Dica curta que aparece ao parar o mouse em cima.", overlay::tooltip),
     s("Sobreposição", "Toast", "Aviso temporário no canto da tela.", overlay::toast),
+    s("Navegação", "Sidebar", "Menu lateral com grupos; recolhe para só ícones.", sidebar::sidebar),
     s("Movimento", "Animações", "Presença, molas, repetição e cores animadas.", anim::anim),
 ];
 

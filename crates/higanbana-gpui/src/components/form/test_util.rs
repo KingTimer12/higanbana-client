@@ -5,18 +5,18 @@ use crate::paint::Canvas;
 use crate::prelude::*;
 use crate::{size, Corners, Modifiers, Point, Quad, Rect, Stats, TextStyle, Tree};
 
-pub(super) fn build<V>(root: Element<V>) -> Tree<V> {
+pub(crate) fn build<V>(root: Element<V>) -> Tree<V> {
     let mut t = Tree::new();
     t.rebuild(root, &TextStyle::default(), size(300.0, 200.0), &mut FakeMeasurer);
     t
 }
 
-pub(super) fn key(k: Key) -> KeyEvent {
+pub(crate) fn key(k: Key) -> KeyEvent {
     KeyEvent::new(k, Modifiers::default())
 }
 
 /// Monta um `RenderCx` de teste e chama `f` com ele.
-pub(super) fn with_cx<V, R>(anim: &mut Animator, f: impl FnOnce(&mut RenderCx<'_, V>) -> R) -> R {
+pub(crate) fn with_cx<V, R>(anim: &mut Animator, f: impl FnOnce(&mut RenderCx<'_, V>) -> R) -> R {
     let theme = Theme::dark();
     let mut cx = RenderCx::new(&theme, BackendKind::Auto, &[], Stats::default(), anim);
     f(&mut cx)
@@ -24,7 +24,7 @@ pub(super) fn with_cx<V, R>(anim: &mut Animator, f: impl FnOnce(&mut RenderCx<'_
 
 /// Textos e quads pintados.
 #[derive(Default)]
-pub(super) struct Rec {
+pub(crate) struct Rec {
     pub texts: Vec<String>,
     pub quads: Vec<(Rect, Color)>,
 }
@@ -42,7 +42,7 @@ impl Canvas for Rec {
     fn layer(&mut self) {}
 }
 
-pub(super) fn paint<V>(t: &Tree<V>) -> Rec {
+pub(crate) fn paint<V>(t: &Tree<V>) -> Rec {
     let mut r = Rec::default();
     t.paint(&mut r);
     r

@@ -13,7 +13,7 @@ mod style;
 mod switch;
 
 #[cfg(test)]
-mod test_util;
+pub(crate) mod test_util;
 #[cfg(test)]
 mod tests_input;
 #[cfg(test)]
