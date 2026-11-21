@@ -3,11 +3,14 @@
 mod auto_hide;
 mod controls;
 mod player_view;
+mod seekbar;
 mod surface;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_pieces;
+#[cfg(test)]
+mod tests_seekbar;
 
 use crate::components::SelectState;
 use crate::element::ElementId;
@@ -17,6 +20,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 pub use auto_hide::AutoHide;
+pub use seekbar::{Seekbar, SeekbarState, SEEKBAR_HOVER_BOTTOM};
 pub use surface::{ClickGate, VideoSurface, DOUBLE_CLICK};
 
 /// Tempo sem mexer até os controles sumirem (tocando).

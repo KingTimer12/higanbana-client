@@ -20,6 +20,6 @@ pub use form::*;
 pub use nav::*;
 pub use overlay::*;
 #[cfg(feature = "video")]
-pub use video::{AutoHide, ClickGate, VideoSurface, DOUBLE_CLICK, HIDE_AFTER, VideoPlayer, VideoState};
+pub use video::{Seekbar, SeekbarState, SEEKBAR_HOVER_BOTTOM, AutoHide, ClickGate, VideoSurface, DOUBLE_CLICK, HIDE_AFTER, VideoPlayer, VideoState};
 pub use window::*;
 pub use shared::{ComponentSize, Variant};
