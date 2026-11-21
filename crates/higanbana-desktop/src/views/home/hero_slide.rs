@@ -69,7 +69,7 @@ pub fn slide(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, m: &RankedMedi
     }
     let synopsis = anitext::clean_description(m.description.as_deref()).0.join(" ");
     let target = path.to_owned();
-    let open = Button::new(("hero-abrir", id), "Abrir").variant(Variant::Default).size(ComponentSize::Sm).icon(icon("chevron-right").size(14.0)).on_click(move |v: &mut Higanbana, _, cx| {
+    let open = Button::new(("hero-abrir", id), "Abrir").variant(Variant::Outline).size(ComponentSize::Sm).icon(icon("chevron-right").size(14.0)).on_click(move |v: &mut Higanbana, _, cx| {
         v.state.go(target.clone());
         cx.notify();
     });

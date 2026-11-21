@@ -1284,6 +1284,7 @@ dependencies = [
  "image",
  "libloading",
  "objc2",
+ "open",
  "rav1d",
  "raw-window-handle",
  "rustc-hash 2.1.3",
