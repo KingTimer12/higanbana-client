@@ -176,6 +176,18 @@ mod tests {
     }
 
     #[test]
+    fn textura_solta_ao_evictar() {
+        // A lib só mantém a textura enquanto alguém além do cache dela segura o `ImageSource`.
+        let src = |n: u32| higanbana_gpui::ImageData::from_rgba8(n, 1, vec![0; n as usize * 4]);
+        let (a, b) = (src(1), src(2));
+        let mut c = ImageCache::new(100);
+        c.insert("a".into(), a.clone(), 60);
+        drop(c.insert("b".into(), b.clone(), 60));
+        assert_eq!(std::rc::Rc::strong_count(&a), 1, "a saiu do LRU: só o teste segura");
+        assert_eq!(std::rc::Rc::strong_count(&b), 2);
+    }
+
+    #[test]
     fn zero_weight_never_evicts() {
         let mut c = ImageCache::new(10);
         for i in 0..20 {

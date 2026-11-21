@@ -1,5 +1,13 @@
 //! Peças pequenas compartilhadas pelas telas, em cima dos componentes da lib.
 
+pub mod cover;
+pub mod download;
+pub mod files;
+pub mod hover;
+pub mod image;
+pub mod options;
+pub mod paths;
+
 use std::borrow::Cow;
 
 use higanbana_gpui::prelude::*;

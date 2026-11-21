@@ -5,6 +5,7 @@
 //! volta para a thread da UI pela `Mailbox` da janela (`Post`): nada prende as
 //! threads da lib, nem um download de minutos.
 
+mod covers;
 mod download_tasks;
 mod downloads;
 mod images;
@@ -106,6 +107,7 @@ pub struct AppState {
     pub player_inbox: Vec<crate::video::PlayerMsg>,
     sections_load: SectionsLoad,
     images: images::Images,
+    covers: covers::Covers,
     lookups: lookup::Lookups,
     events: Vec<AppEvent>,
 }
@@ -129,6 +131,7 @@ impl AppState {
             player_inbox: Vec::new(),
             sections_load: SectionsLoad::default(),
             images: images::Images::default(),
+            covers: covers::Covers::default(),
             lookups: lookup::Lookups::default(),
             events: Vec::new(),
         };
