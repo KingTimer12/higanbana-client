@@ -54,6 +54,11 @@ pub struct Theme {
     pub sidebar: Color,
     pub sidebar_foreground: Color,
     pub sidebar_border: Color,
+    /// Barra de título (o kit mistura 55% dela com 45% do fundo).
+    pub title_bar: Color,
+    pub title_bar_border: Color,
+    /// Hover de botões ghost/secundários e dos botões da janela (kit).
+    pub secondary_hover: Color,
     pub sidebar_accent: Color,
     pub sidebar_accent_foreground: Color,
     pub skeleton: Color,

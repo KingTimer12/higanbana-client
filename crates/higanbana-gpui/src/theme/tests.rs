@@ -19,6 +19,9 @@ fn parses_desktop_theme() {
     assert_eq!(t.base.red_light, rgb(0xff7a85));
     assert_eq!(t.radius, 8.0);
     assert_eq!(t.radius_lg, 12.0);
+    assert_eq!(t.title_bar, rgb(0x07070a));
+    assert_eq!(t.title_bar_border, rgba(0xffffff14));
+    assert_eq!(t.secondary_hover, rgb(0x1f1f28));
 }
 
 #[test]
