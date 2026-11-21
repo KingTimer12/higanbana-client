@@ -15,12 +15,13 @@ pub struct RadioGroup<V> {
     selected: Option<usize>,
     items: Vec<Cow<'static, str>>,
     horizontal: bool,
+    kit: bool,
     on_change: Option<ChangeFn<V, usize>>,
 }
 
 impl<V: 'static> RadioGroup<V> {
     pub fn new(id: impl Into<ElementId>, selected: Option<usize>) -> Self {
-        RadioGroup { id: id.into(), selected, items: Vec::new(), horizontal: false, on_change: None }
+        RadioGroup { id: id.into(), selected, items: Vec::new(), horizontal: false, kit: false, on_change: None }
     }
 
     pub fn item(mut self, label: impl Into<Cow<'static, str>>) -> Self {
@@ -39,6 +40,12 @@ impl<V: 'static> RadioGroup<V> {
         self
     }
 
+    /// Visual do kit: marcado = círculo cheio com ✓ (menus do player).
+    pub fn kit(mut self) -> Self {
+        self.kit = true;
+        self
+    }
+
     pub fn on_change(mut self, f: impl Fn(&mut V, usize, &mut EventCx) + 'static) -> Self {
         self.on_change = Some(Rc::new(f));
         self
@@ -52,7 +59,7 @@ impl<V: 'static> RadioGroup<V> {
 }
 
 /// Círculo: marcado = primária cheia com miolo claro.
-fn dot<V>(on: bool, t: &crate::theme::Theme) -> Element<V> {
+fn dot<V: 'static>(on: bool, kit: bool, t: &crate::theme::Theme) -> Element<V> {
     let idle = if t.dark { t.input.alpha(0.3) } else { Color::TRANSPARENT };
     div()
         .size(16.0)
@@ -62,13 +69,14 @@ fn dot<V>(on: bool, t: &crate::theme::Theme) -> Element<V> {
         .rounded_full()
         .border(1.0, if on { t.primary } else { t.input })
         .bg(if on { t.primary } else { idle })
-        .when(on, |e| e.child(div().size(6.0).rounded_full().bg(t.primary_foreground)))
+        .when(on && !kit, |e| e.child(div().size(6.0).rounded_full().bg(t.primary_foreground)))
+        .when(on && kit, |e| e.child(crate::icon::icon("check").size(12.0).text_color(t.primary_foreground)))
 }
 
 impl<V: 'static> Component<V> for RadioGroup<V> {
     fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
         let t = cx.theme();
-        let (id, n, sel) = (self.id, self.items.len(), self.selected);
+        let (id, n, sel, kit) = (self.id, self.items.len(), self.selected, self.kit);
         let change = self.on_change;
         let pick: Rc<dyn Fn(&mut V, usize, &mut EventCx)> = Rc::new(move |v, i, cx| {
             if let Some(f) = &change {
@@ -109,7 +117,7 @@ impl<V: 'static> Component<V> for RadioGroup<V> {
                         p(v, i, cx);
                         cx.focus(id);
                     })
-                    .child(dot(sel == Some(i), t))
+                    .child(dot(sel == Some(i), kit, t))
                     .child(text(label)),
             );
         }

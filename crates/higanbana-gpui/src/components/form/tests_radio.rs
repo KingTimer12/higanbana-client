@@ -66,3 +66,14 @@ fn horizontal_lays_out_row() {
     let c = vt.rect(vt.find(RadioGroup::<V>::item_id("legenda", 1)).unwrap());
     assert!(c.origin.y > a.bottom() - 0.5, "vertical empilha");
 }
+
+#[test]
+fn kit_marcado_tem_icone_de_check() {
+    let mut a = Animator::default();
+    let e = with_cx(&mut a, |cx| div().child(RadioGroup::new("rg", Some(0)).items(["a", "b"]).kit().on_change(|_: &mut V, _, _| {}).render(cx)));
+    let t = build(e);
+    let item = t.find(RadioGroup::<V>::item_id("rg", 0)).unwrap();
+    let dot = item + 1;
+    let child = dot + 1;
+    assert_eq!(t.rect(child).size, crate::size(12.0, 12.0), "ícone ✓ de 12 px no marcado");
+}
