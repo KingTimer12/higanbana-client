@@ -4,7 +4,7 @@ use crate::color::{rgba, Color};
 use crate::geometry::{Corners, Rect};
 use crate::gfx::Quad;
 use crate::layout::padding_box;
-use crate::style::{Display, Overflow, Style, TextStyle};
+use crate::style::{Display, ObjectFit, Overflow, Style, TextStyle};
 use crate::tree::node::{children, NodeKind};
 use crate::tree::Tree;
 use std::time::Instant;
@@ -85,7 +85,17 @@ impl<V> Tree<V> {
         };
         if visible {
             match &n.kind {
-                NodeKind::Image(src) => out.image(src, n.content, style.radius.map(|r| r * k), opacity),
+                NodeKind::Image(src) => {
+                    let dest = fit_rect(n.content, src.size(), style.object_fit);
+                    let cover = style.object_fit == ObjectFit::Cover;
+                    if cover {
+                        out.push_clip(n.content.intersect(&n.clip));
+                    }
+                    out.image(src, dest, style.radius.map(|r| r * k), opacity);
+                    if cover {
+                        out.pop_clip();
+                    }
+                }
                 NodeKind::Text(s) => {
                     let color = text_color.unwrap_or(n.text.color).fade(opacity);
                     let max_width = n.text.wrap.then_some(n.content.size.width + 0.5);
@@ -136,6 +146,18 @@ fn box_quad(s: &Style, rect: Rect, opacity: f32) -> Quad {
 }
 
 /// Polegar proporcional à fração visível, na borda direita do contêiner.
+/// Retângulo da imagem `(w, h)` dentro de `content` segundo o encaixe.
+fn fit_rect(content: Rect, (w, h): (u32, u32), fit: ObjectFit) -> Rect {
+    if fit == ObjectFit::Fill || w == 0 || h == 0 {
+        return content;
+    }
+    let (cw, ch) = (content.size.width, content.size.height);
+    let (sx, sy) = (cw / w as f32, ch / h as f32);
+    let s = if fit == ObjectFit::Contain { sx.min(sy) } else { sx.max(sy) };
+    let (iw, ih) = (w as f32 * s, h as f32 * s);
+    Rect::new(content.origin.x + (cw - iw) / 2.0, content.origin.y + (ch - ih) / 2.0, iw, ih)
+}
+
 /// Raio, borda e sombra acompanham a escala do transform.
 fn scaled(mut q: Quad, k: f32) -> Quad {
     if k != 1.0 {

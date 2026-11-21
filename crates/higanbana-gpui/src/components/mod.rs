@@ -4,14 +4,19 @@
 //! - `form`: Input, Checkbox, Switch, Slider.
 //! - `overlay`: Dialog, Tabs, Select, Tooltip, Toast.
 //! - `window`: TitleBar (barra customizada).
+//! - `video` (feature `video`): VideoPlayer.
 pub mod basic;
 pub mod form;
 pub mod overlay;
+#[cfg(feature = "video")]
+pub mod video;
 pub mod window;
 mod shared;
 
 pub use basic::*;
 pub use form::*;
 pub use overlay::*;
+#[cfg(feature = "video")]
+pub use video::{VideoPlayer, VideoState};
 pub use window::*;
 pub use shared::{ComponentSize, Variant};

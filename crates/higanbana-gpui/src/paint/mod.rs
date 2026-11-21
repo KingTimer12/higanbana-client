@@ -9,6 +9,8 @@ mod painter;
 mod tests;
 #[cfg(test)]
 mod tests_state;
+#[cfg(test)]
+mod tests_fit;
 
 pub use canvas::Canvas;
 pub use gpu::GpuCanvas;

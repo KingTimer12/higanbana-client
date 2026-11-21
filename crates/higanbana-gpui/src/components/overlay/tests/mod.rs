@@ -14,7 +14,7 @@ use crate::{size, Modifiers, MouseButton, Point, TextStyle, Tree};
 use std::time::{Duration, Instant};
 
 /// Monta a view com tempo falso, mantendo animações e timers entre frames.
-pub(super) struct Harness {
+pub(crate) struct Harness {
     theme: Theme,
     anim: Animator,
     pub t0: Instant,
@@ -51,12 +51,12 @@ impl Harness {
     }
 }
 
-pub(super) fn key(k: Key) -> KeyEvent {
+pub(crate) fn key(k: Key) -> KeyEvent {
     KeyEvent::new(k, Modifiers::default())
 }
 
 /// Clique completo (desce + sobe) em `p`.
-pub(super) fn click<V>(t: &mut Tree<V>, v: &mut V, p: Point) -> EventCx {
+pub(crate) fn click<V>(t: &mut Tree<V>, v: &mut V, p: Point) -> EventCx {
     let mut cx = EventCx::default();
     t.mouse_down(p, MouseButton::Left, Modifiers::default(), v, &mut cx);
     t.mouse_up(p, MouseButton::Left, Modifiers::default(), v, &mut cx);
@@ -64,7 +64,7 @@ pub(super) fn click<V>(t: &mut Tree<V>, v: &mut V, p: Point) -> EventCx {
 }
 
 /// Centro do elemento `id`.
-pub(super) fn center<V>(t: &Tree<V>, id: impl Into<crate::ElementId>) -> Point {
+pub(crate) fn center<V>(t: &Tree<V>, id: impl Into<crate::ElementId>) -> Point {
     let r = t.rect(t.find(id).expect("elemento na árvore"));
     crate::point(r.origin.x + r.size.width / 2.0, r.origin.y + r.size.height / 2.0)
 }

@@ -36,7 +36,7 @@ pub use text_input::{InputOutcome, TextInputState};
 pub use error::{Error, ErrorKind, Result};
 pub use geometry::{point, size, Corners, Edges, Point, Rect, Size};
 pub use gfx::*;
-pub use style::{auto, pct, px, Length, Style, Styled, TextStyle};
+pub use style::{auto, pct, px, Length, ObjectFit, Style, Styled, TextStyle};
 pub use theme::Theme;
 pub use tree::Tree;
 

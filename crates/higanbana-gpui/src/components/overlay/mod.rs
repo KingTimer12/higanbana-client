@@ -13,7 +13,7 @@ mod toaster;
 mod tooltip;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 pub use dialog::Dialog;
 pub use select::Select;

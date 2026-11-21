@@ -108,6 +108,8 @@ pub trait Styled: Sized {
     fn window_drag(self) -> Self { self.window_control(crate::gfx::HitKind::Caption) }
     /// Papel do elemento para o sistema (ex.: `HitKind::Maximize` habilita snap layouts).
     fn window_control(self, k: crate::gfx::HitKind) -> Self { self.with(|s| s.window_hit = Some(k)) }
+    /// Encaixe da imagem: `Fill` (padrão), `Contain` ou `Cover`.
+    fn object_fit(self, f: super::ObjectFit) -> Self { self.with(|s| s.object_fit = f) }
     /// Cursor do mouse enquanto sobre o elemento.
     fn cursor(self, c: crate::gfx::CursorStyle) -> Self { self.with(|s| s.cursor = Some(c)) }
     fn cursor_pointer(self) -> Self { self.cursor(crate::gfx::CursorStyle::Pointer) }

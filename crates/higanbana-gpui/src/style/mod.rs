@@ -9,6 +9,15 @@ use crate::color::Color;
 use crate::geometry::{Corners, Edges, Point};
 use crate::gfx::CursorStyle;
 
+/// Como uma imagem ocupa a caixa: esticada, inteira (barras) ou preenchendo (corta).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ObjectFit {
+    #[default]
+    Fill,
+    Contain,
+    Cover,
+}
+
 /// Comprimento em pixels lógicos, porcentagem do pai ou automático.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Length {
@@ -137,6 +146,8 @@ pub struct Style {
     pub scale: f32,
     /// Papel do elemento numa janela com barra customizada (arrastar, maximizar...).
     pub window_hit: Option<crate::gfx::HitKind>,
+    /// Encaixe de imagens na caixa de conteúdo.
+    pub object_fit: ObjectFit,
     /// Cursor do mouse sobre o elemento (o mais profundo com cursor vence).
     pub cursor: Option<CursorStyle>,
     /// Propriedades de texto herdadas pelos descendentes.
@@ -177,6 +188,7 @@ impl Default for Style {
             translate: Point { x: 0.0, y: 0.0 },
             scale: 1.0,
             window_hit: None,
+            object_fit: ObjectFit::Fill,
             cursor: None,
             text: TextStyleRefinement::default(),
         }
