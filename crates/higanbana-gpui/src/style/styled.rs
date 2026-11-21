@@ -105,6 +105,8 @@ pub trait Styled: Sized {
     fn translate_y(self, y: f32) -> Self { self.with(|s| s.translate.y = y) }
     /// Escala a subárvore em torno do centro (texto, raios e bordas acompanham).
     /// Só vale no estilo base: em `.hover(..)`/foco é ignorado (anime com `cx.animate`).
+    /// Gira um ícone em voltas (0..1, horário), em passos de 7,5°. Não afeta outros elementos.
+    fn rotate(self, turns: f32) -> Self { self.with(|s| s.rotate = turns) }
     fn scale(self, v: f32) -> Self { self.with(|s| s.scale = v.max(0.0)) }
     /// Área que arrasta a janela (barra customizada). Filhos clicáveis continuam clicáveis.
     fn window_drag(self) -> Self { self.window_control(crate::gfx::HitKind::Caption) }

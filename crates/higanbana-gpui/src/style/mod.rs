@@ -157,6 +157,8 @@ pub struct Style {
     pub translate: Point,
     /// Escala visual da subárvore em torno do centro (1 = normal).
     pub scale: f32,
+    /// Rotação em voltas (0..1, horário). Só vale para ícones.
+    pub rotate: f32,
     /// Papel do elemento numa janela com barra customizada (arrastar, maximizar...).
     pub window_hit: Option<crate::gfx::HitKind>,
     /// Encaixe de imagens na caixa de conteúdo.
@@ -201,6 +203,7 @@ impl Default for Style {
             opacity: 1.0,
             translate: Point { x: 0.0, y: 0.0 },
             scale: 1.0,
+            rotate: 0.0,
             window_hit: None,
             object_fit: ObjectFit::Fill,
             cursor: None,

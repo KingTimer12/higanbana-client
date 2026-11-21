@@ -9,7 +9,9 @@ impl<V> Tree<V> {
         for n in &mut self.nodes {
             if let NodeKind::Icon(name, raster) = &mut n.kind {
                 let side = n.content.size.width.min(n.content.size.height) * n.paint_scale * scale;
-                *raster = crate::icon::raster::get(name, side.round().max(1.0) as u32);
+                let steps = crate::icon::raster::ROTATION_STEPS as f32;
+                let step = (n.style.rotate.rem_euclid(1.0) * steps).round() as u32;
+                *raster = crate::icon::raster::get_rotated(name, side.round().max(1.0) as u32, step);
             }
         }
     }

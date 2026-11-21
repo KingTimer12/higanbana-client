@@ -4,18 +4,27 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 thread_local! {
-    /// (nome, lado em px físicos) → imagem. Poucos ícones × poucos tamanhos: sem despejo.
-    static CACHE: RefCell<HashMap<(String, u32), Option<ImageSource>>> = RefCell::new(HashMap::new());
+    /// (nome, lado em px físicos, passo de rotação) → imagem. Poucos ícones × tamanhos: sem despejo.
+    static CACHE: RefCell<HashMap<(String, u32, u32), Option<ImageSource>>> = RefCell::new(HashMap::new());
 }
+
+/// Passos de rotação por volta (ícones girando, ex.: Spinner): 7.5° cada.
+pub const ROTATION_STEPS: u32 = 48;
 
 /// Ícone `name` com `px`×`px` pixels físicos; `None` se o nome não existe ou o SVG é inválido.
 pub fn get(name: &str, px: u32) -> Option<ImageSource> {
+    get_rotated(name, px, 0)
+}
+
+/// Como `get`, girado `step / ROTATION_STEPS` de volta (horário) em torno do centro.
+pub fn get_rotated(name: &str, px: u32, step: u32) -> Option<ImageSource> {
     let px = px.clamp(1, 1024);
-    let key = (name.to_string(), px);
+    let step = step % ROTATION_STEPS;
+    let key = (name.to_string(), px, step);
     if let Some(hit) = CACHE.with(|c| c.borrow().get(&key).cloned()) {
         return hit;
     }
-    let made = super::registry::svg(name).and_then(|svg| rasterize(svg, px));
+    let made = super::registry::svg(name).and_then(|svg| rasterize(svg, px, step));
     CACHE.with(|c| c.borrow_mut().insert(key, made.clone()));
     made
 }
@@ -24,12 +33,15 @@ pub(crate) fn clear() {
     CACHE.with(|c| c.borrow_mut().clear());
 }
 
-fn rasterize(svg: &[u8], px: u32) -> Option<ImageSource> {
+fn rasterize(svg: &[u8], px: u32, step: u32) -> Option<ImageSource> {
     let tree = resvg::usvg::Tree::from_data(svg, &resvg::usvg::Options::default()).ok()?;
     let mut pix = resvg::tiny_skia::Pixmap::new(px, px)?;
     let size = tree.size();
     let s = px as f32 / size.width().max(size.height());
-    resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(s, s), &mut pix.as_mut());
+    let deg = step as f32 * 360.0 / ROTATION_STEPS as f32;
+    let c = px as f32 / 2.0;
+    let t = resvg::tiny_skia::Transform::from_scale(s, s).post_rotate_at(deg, c, c);
+    resvg::render(&tree, t, &mut pix.as_mut());
     // Só a cobertura importa: branco + alfa, tingido no desenho.
     let mut out = pix.take();
     for p in out.chunks_exact_mut(4) {
