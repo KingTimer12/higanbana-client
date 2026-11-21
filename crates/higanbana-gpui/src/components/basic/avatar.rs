@@ -43,7 +43,7 @@ impl<V> Component<V> for Avatar {
         let theme = cx.theme();
         let (d, font) = match self.size {
             ComponentSize::Sm => (24.0, theme.typography.xs),
-            ComponentSize::Md | ComponentSize::Icon => (32.0, theme.typography.sm),
+            ComponentSize::Md | ComponentSize::Icon | ComponentSize::Regular => (32.0, theme.typography.sm),
             ComponentSize::Lg => (40.0, theme.typography.base),
             // Kit: xsmall 16 px, small 24 px.
             ComponentSize::Xs => (16.0, theme.typography.xs),

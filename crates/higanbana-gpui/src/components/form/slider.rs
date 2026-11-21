@@ -13,6 +13,7 @@ const THUMB: f32 = 16.0;
 
 /// Valor em `[min, max]` com passo. `on_change` só é chamado quando o valor muda.
 pub struct Slider<V> {
+    kit: bool,
     id: ElementId,
     value: f32,
     range: Range,
@@ -25,6 +26,7 @@ impl<V: 'static> Slider<V> {
     /// Faixa padrão 0..100, passo 1.
     pub fn new(id: impl Into<ElementId>, value: f32) -> Self {
         Self {
+            kit: false,
             id: id.into(),
             value,
             range: Range { min: 0.0, max: 100.0, step: 1.0 },
@@ -48,6 +50,12 @@ impl<V: 'static> Slider<V> {
 
     pub fn width(mut self, w: impl Into<Length>) -> Self {
         self.width = w.into();
+        self
+    }
+
+    /// Visual do kit: polegar branco sem borda (ex.: volume do player).
+    pub fn kit(mut self) -> Self {
+        self.kit = true;
         self
     }
 
@@ -86,8 +94,8 @@ impl<V: 'static> Component<V> for Slider<V> {
             .ml(px(-THUMB / 2.0))
             .size(THUMB)
             .rounded_full()
-            .bg(t.background)
-            .border(1.0, t.primary)
+            .bg(if self.kit { Color::WHITE } else { t.background })
+            .border(if self.kit { 0.0 } else { 1.0 }, t.primary)
             .shadow(Color::BLACK.alpha(0.1), 2.0)
             .when(cx.focus().visible, |e| e.focus(ring(t.ring)));
         let root = div()

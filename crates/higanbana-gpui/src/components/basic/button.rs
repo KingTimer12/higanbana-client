@@ -77,6 +77,7 @@ fn metrics(size: ComponentSize) -> (f32, f32) {
         ComponentSize::Lg => (24.0, 8.0),
         ComponentSize::Xs => (4.0, 4.0),
         ComponentSize::Compact => (8.0, 4.0),
+        ComponentSize::Regular => (12.0, 6.0),
         ComponentSize::Icon => (0.0, 0.0),
     }
 }
@@ -88,7 +89,7 @@ impl<V: 'static> Component<V> for Button<V> {
         let (pad, gap) = metrics(self.size);
         let h = self.size.height();
         // Tamanhos do kit: raio cheio do tema e só-ícone quadrado.
-        let kit = matches!(self.size, ComponentSize::Xs | ComponentSize::Compact);
+        let kit = matches!(self.size, ComponentSize::Xs | ComponentSize::Compact | ComponentSize::Regular);
         let ring = theme.ring;
         let shadowed = !matches!(self.variant, Variant::Ghost | Variant::Link);
         let mut e = div()

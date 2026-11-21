@@ -76,3 +76,13 @@ fn disabled_slider_ignores_input() {
     t.key_down(&key(Key::End), &mut v, &mut EventCx::default());
     assert_eq!(v.value, 4.0);
 }
+
+#[test]
+fn slider_do_kit_tem_polegar_branco_sem_borda() {
+    let mut a = Animator::default();
+    let e = with_cx(&mut a, |cx| div().child(Slider::new("sl", 5.0).range(0.0, 10.0).width(100.0).kit().on_change(|_: &mut V, _, _| {}).render(cx)));
+    let t = build(e);
+    let n = t.find("sl").unwrap();
+    assert_eq!(t.nodes[n].style.background, Some(Color::WHITE));
+    assert_eq!(t.nodes[n].style.border_width, 0.0);
+}

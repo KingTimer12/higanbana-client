@@ -88,3 +88,10 @@ fn button_so_icone_compacto_e_quadrado() {
     let t = build(div().flex_col().items_start().child(b), 400.0, 400.0);
     assert_eq!(t.rect(1).size, crate::size(24.0, 24.0));
 }
+
+#[test]
+fn button_medio_do_kit_32_e_quadrado_so_icone() {
+    let b = render(Button::new("b", "").size(ComponentSize::Regular).icon(crate::icon("search")));
+    let t = build(div().flex_col().items_start().child(b), 400.0, 400.0);
+    assert_eq!(t.rect(1).size, crate::size(32.0, 32.0));
+}
