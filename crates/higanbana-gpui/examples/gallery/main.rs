@@ -34,6 +34,8 @@ pub struct Gallery {
     pub toasts: Toasts,
     pub cover: ImageSource,
     pub clicks: u32,
+    pub anim_card: bool,
+    pub anim_big: bool,
 }
 
 impl View for Gallery {
@@ -123,6 +125,8 @@ fn main() {
         toasts: Toasts::new(),
         cover: cover(),
         clicks: 0,
+        anim_card: true,
+        anim_big: false,
     };
     view.tip.visible = state == "tooltip";
     if state == "toast" {

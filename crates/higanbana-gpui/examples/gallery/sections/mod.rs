@@ -1,4 +1,5 @@
 //! Seções da galeria: tabela com título/grupo/descrição e a moldura de cada página.
+pub mod anim;
 pub mod basic;
 pub mod form;
 pub mod overlay;
@@ -34,6 +35,7 @@ pub const SECTIONS: &[Section] = &[
     s("Sobreposição", "Select", "Lista suspensa para escolher uma opção.", overlay::select),
     s("Sobreposição", "Tooltip", "Dica curta que aparece ao parar o mouse em cima.", overlay::tooltip),
     s("Sobreposição", "Toast", "Aviso temporário no canto da tela.", overlay::toast),
+    s("Movimento", "Animações", "Presença, molas, repetição e cores animadas.", anim::anim),
 ];
 
 /// Título, descrição e os exemplos da seção ativa.
