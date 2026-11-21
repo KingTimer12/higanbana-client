@@ -24,12 +24,23 @@ impl<'c> ImageCache<'c> {
         self.map.retain(|_, (src, _)| Rc::strong_count(src) > 1);
         for n in &tree.nodes {
             let NodeKind::Image(src) = &n.kind else { continue };
-            if self.map.contains_key(&src.id()) {
-                continue;
-            }
             let Some(pixels) = src.take_pixels() else { continue };
             let (w, h) = src.size();
-            match Image::from_rgba8(self.ctx, w, h, pixels) {
+            if let Some((_, img)) = self.map.get_mut(&src.id()) {
+                if img.size() == (w, h) {
+                    if let Err(e) = img.update_premultiplied(&pixels) {
+                        eprintln!("higanbana-gpui: atualizar imagem falhou: {e}");
+                    }
+                    continue;
+                }
+                self.map.remove(&src.id());
+            }
+            let made = if src.is_dynamic() {
+                Image::from_premultiplied(self.ctx, w, h, &pixels)
+            } else {
+                Image::from_rgba8(self.ctx, w, h, pixels)
+            };
+            match made {
                 Ok(img) => {
                     self.map.insert(src.id(), (src.clone(), img));
                 }

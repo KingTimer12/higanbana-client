@@ -30,6 +30,8 @@ pub enum Event {
     Scroll { delta: Point, mods: Modifiers },
     /// Maximizada/minimizada/fullscreen/foco mudou.
     WindowState(super::decor::WindowState),
+    /// Outra thread chamou `Waker::wake`.
+    Wake,
     /// `key` é o virtual key do Windows.
     KeyDown { key: u32, repeat: bool, mods: Modifiers },
     KeyUp { key: u32, mods: Modifiers },
@@ -76,6 +78,7 @@ impl Event {
                     Event::KeyDown { key: u.key.key, repeat: u.key.repeat != 0, mods }
                 }
                 sys::hg_event_kind_HG_EVENT_KEY_UP => Event::KeyUp { key: u.key.key, mods },
+                sys::hg_event_kind_HG_EVENT_WAKE => Event::Wake,
                 sys::hg_event_kind_HG_EVENT_WINDOW_STATE => Event::WindowState(super::decor::WindowState::from_flags(u.state.flags)),
                 sys::hg_event_kind_HG_EVENT_CHAR => Event::Char(char::from_u32(u.text.codepoint)?),
                 _ => return None,

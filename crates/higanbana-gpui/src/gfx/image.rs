@@ -38,6 +38,19 @@ impl<'c> Image<'c> {
         (self.width, self.height)
     }
 
+    /// Troca os pixels (pré-multiplicados, mesmo tamanho) sem recriar a textura.
+    pub fn update_premultiplied(&mut self, pixels: &[u8]) -> Result<()> {
+        if pixels.len() < self.width as usize * self.height as usize * 4 {
+            return Err(Error::invalid("buffer de imagem menor que width*height*4"));
+        }
+        check(unsafe { sys::hg_image_update(self.raw.as_ptr(), pixels.as_ptr(), self.width * 4) })
+    }
+
+    /// Identidade da imagem no core (testes: atualizada no lugar vs recriada).
+    pub fn raw_ptr(&self) -> usize {
+        self.raw.as_ptr() as usize
+    }
+
     pub(crate) fn raw(&self) -> *mut sys::hg_image {
         self.raw.as_ptr()
     }

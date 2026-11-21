@@ -44,6 +44,7 @@ impl<V: View> Runner<'_, V> {
                 self.tree.char_input(c, &mut self.view, &mut cx);
             }
             Event::KeyUp { .. } => {}
+            Event::Wake => self.mark(Dirty::Rebuild),
             Event::WindowState(s) => {
                 if s != self.window_state {
                     self.window_state = s;

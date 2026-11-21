@@ -9,6 +9,7 @@ pub mod event;
 pub mod font;
 pub mod image;
 mod text_hit;
+pub mod waker;
 pub mod window;
 
 pub use backend::{enumerate, BackendInfo, BackendKind};
@@ -19,4 +20,5 @@ pub use draw::{ClipGuard, DrawList, Quad};
 pub use event::{Event, Modifiers, MouseButton};
 pub use font::{Font, FontSpec, TextMetrics};
 pub use image::Image;
+pub use waker::Waker;
 pub use window::{Window, WindowOptions};

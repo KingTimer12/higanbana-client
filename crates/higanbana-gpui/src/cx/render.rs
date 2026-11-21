@@ -1,7 +1,7 @@
 //! Contexto de `View::render`: tema, backends, foco e animações.
 use crate::anim::{Animatable, Animator, Transition};
 use crate::element::ElementId;
-use crate::gfx::{BackendInfo, BackendKind, Stats, WindowState};
+use crate::gfx::{BackendInfo, BackendKind, Stats, Waker, WindowState};
 use crate::theme::Theme;
 use std::marker::PhantomData;
 use std::time::{Duration, Instant};
@@ -26,17 +26,23 @@ pub struct RenderCx<'a, V: ?Sized> {
     /// Próximo instante em que a view pediu para ser reconstruída.
     pub(crate) wake: Option<Instant>,
     pub(crate) window: WindowState,
+    pub(crate) waker: Waker,
     pub(crate) _view: PhantomData<fn(&mut V)>,
 }
 
 impl<'a, V: ?Sized> RenderCx<'a, V> {
     pub fn new(theme: &'a Theme, backend: BackendKind, backends: &'a [BackendInfo], stats: Stats, animator: &'a mut Animator) -> Self {
-        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), _view: PhantomData }
+        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), waker: Waker::noop(), _view: PhantomData }
     }
 
     pub(crate) fn with_focus(mut self, focus: FocusInfo) -> Self {
         self.focus = focus;
         self
+    }
+
+    /// Acorda o app de outra thread (ex.: `video::Player` com quadro novo).
+    pub fn waker(&self) -> Waker {
+        self.waker.clone()
     }
 
     /// Maximizada, fullscreen, com foco...

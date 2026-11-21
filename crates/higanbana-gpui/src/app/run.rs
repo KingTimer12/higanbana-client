@@ -109,6 +109,7 @@ impl<V: View> Runner<'_, V> {
             .with_focus(self.tree.focus_info());
         cx.now = now;
         cx.window = self.window_state;
+        cx.waker = self.win.waker();
         let root = self.view.render(&mut cx);
         let wake = cx.wake;
         self.tree.rebuild(root, &base, self.viewport, measurer);

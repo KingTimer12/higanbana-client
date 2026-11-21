@@ -31,6 +31,8 @@ impl Default for WindowOptions {
 pub struct Window<'c> {
     raw: NonNull<sys::hg_window>,
     ctx: &'c Context,
+    waker: super::waker::Waker,
+    wake_target: std::sync::Arc<super::waker::WakeTarget>,
 }
 
 impl<'c> Window<'c> {
@@ -45,7 +47,8 @@ impl<'c> Window<'c> {
         let mut raw = std::ptr::null_mut();
         check(unsafe { sys::hg_window_create(ctx.raw(), &desc, &mut raw) })?;
         let raw = NonNull::new(raw).ok_or_else(|| Error::invalid("hg_window_create devolveu nulo"))?;
-        let win = Self { raw, ctx };
+        let (waker, wake_target) = super::waker::Waker::new(raw.as_ptr());
+        let win = Self { raw, ctx, waker, wake_target };
         if options.decorations == Decorations::Custom {
             check(unsafe { sys::hg_window_set_decorations(win.raw.as_ptr(), 1) })?;
         }
@@ -90,6 +93,11 @@ impl<'c> Window<'c> {
 
     pub fn state(&self) -> WindowState {
         WindowState::from_flags(unsafe { sys::hg_window_state(self.raw.as_ptr()) })
+    }
+
+    /// Acorda o laço desta janela de qualquer thread (vira no-op depois do drop).
+    pub fn waker(&self) -> super::waker::Waker {
+        self.waker.clone()
     }
 
     pub fn context(&self) -> &'c Context {
@@ -188,6 +196,7 @@ impl<'c> Window<'c> {
 
 impl Drop for Window<'_> {
     fn drop(&mut self) {
+        self.wake_target.clear();
         unsafe { sys::hg_window_destroy(self.raw.as_ptr()) };
     }
 }
