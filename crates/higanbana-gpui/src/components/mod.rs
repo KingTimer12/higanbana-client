@@ -17,6 +17,8 @@ pub mod overlay;
 pub mod video;
 pub mod window;
 mod shared;
+#[cfg(test)]
+mod tests_kit_extras;
 
 pub use basic::*;
 pub use carousel::{Carousel, CarouselState};

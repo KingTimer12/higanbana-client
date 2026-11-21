@@ -34,6 +34,7 @@ pub struct Popover<V> {
     trigger: Element<V>,
     anchor: PopoverAnchor,
     width: Option<f32>,
+    padding: f32,
     content: Option<ContentFn<V>>,
 }
 
@@ -48,7 +49,7 @@ impl<V: 'static> Popover<V> {
         lens: impl Fn(&mut V) -> &mut PopoverState + 'static,
         trigger: impl Into<Element<V>>,
     ) -> Self {
-        Popover { id: id.into(), state: *state, lens: Rc::new(lens), trigger: trigger.into(), anchor: PopoverAnchor::default(), width: None, content: None }
+        Popover { id: id.into(), state: *state, lens: Rc::new(lens), trigger: trigger.into(), anchor: PopoverAnchor::default(), width: None, padding: 12.0, content: None }
     }
 
     pub fn anchor(mut self, a: PopoverAnchor) -> Self {
@@ -59,6 +60,12 @@ impl<V: 'static> Popover<V> {
     /// Largura fixa do painel (sem ela, a do conteúdo).
     pub fn w(mut self, w: f32) -> Self {
         self.width = Some(w);
+        self
+    }
+
+    /// Espaço interno do painel (padrão 12; menus usam 4).
+    pub fn padding(mut self, p: f32) -> Self {
+        self.padding = p;
         self
     }
 
@@ -96,7 +103,7 @@ impl<V: 'static> Component<V> for Popover<V> {
         let panel = div()
             .id(Self::panel_id(id))
             .flex_col()
-            .p(12.0)
+            .p(self.padding)
             .bg(theme.popover)
             .text_color(theme.popover_foreground)
             .text_size(theme.typography.sm)

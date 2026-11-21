@@ -39,6 +39,7 @@ pub const SECTIONS: &[Section] = &[
     s("Básicos", "Progress", "Barra de progresso em quatro alturas e o indicador girando.", progress::progress),
     s("Básicos", "VirtualList", "Lista que só constrói os itens visíveis; alturas variáveis.", basic::virtual_list),
     s("Básicos", "Carousel", "Fileira ou banner com deslize, setas e auto-avanço sem timer.", basic::carousel),
+    s("Básicos", "Tag, Link, Breadcrumb, Menu, Abas", "Peças do kit usadas nas telas do acervo.", basic::kit_extras),
     s("Formulário", "Input", "Campo de texto de uma linha, com senha, inválido e desabilitado.", form::input),
     s("Formulário", "Checkbox", "Marca uma opção; aceita estado indeterminado.", form::checkbox),
     s("Formulário", "Switch", "Liga e desliga uma configuração na hora.", form::switch),

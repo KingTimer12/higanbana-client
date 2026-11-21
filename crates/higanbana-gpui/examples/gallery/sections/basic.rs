@@ -170,3 +170,24 @@ pub fn carousel(v: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gall
     let fileira = Carousel::new("galeria-fileira", &v.fileira, |g: &mut Gallery| &mut g.fileira).items(cards).item_width(72.0).gap(8.0).controls(true).render(cx);
     vec![preview(cx, "Banner com auto-avanço (4 s)", div().w(420.0).child(banner)), preview(cx, "Fileira com setas", div().w(420.0).px(40.0).child(fileira))]
 }
+
+pub fn kit_extras(v: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery>> {
+    let tags = row().child(Tag::secondary("Ação").small().render(cx)).child(Tag::secondary("Fantasia").small().render(cx)).child(Tag::outline("2024").render(cx));
+    let link = Link::new("galeria-link", "Página no AniList").on_click(|g: &mut Gallery, _| g.clicks += 1).render(cx);
+    let trilha = Breadcrumb::new("galeria-trilha").link("Início", |_: &mut Gallery, _| {}).link("Animes", |_: &mut Gallery, _| {}).item("Frieren").render(cx);
+    const ORDENS: [&str; 3] = ["Nome", "Ano", "Nota"];
+    let gatilho = Button::new("galeria-ordenar", ORDENS[v.ordem]).variant(Variant::Outline).render(cx);
+    let mut menu = DropdownMenu::new("galeria-menu", &v.menu, |g: &mut Gallery| &mut g.menu, gatilho);
+    for (i, o) in ORDENS.iter().enumerate() {
+        menu = menu.item(*o, i == v.ordem, move |g: &mut Gallery, _| g.ordem = i);
+    }
+    let menu = menu.render(cx);
+    let sub = TabBar::new("galeria-abas", v.aba, |g: &mut Gallery, i, _| g.aba = i).underline().tab("Sobre").tab("Episódios 12").tab("Relacionados").render(cx);
+    let pill = TabBar::new("galeria-pilulas", v.aba, |g: &mut Gallery, i, _| g.aba = i).pill().tab("Popular").tab("Em alta").tab("Novos").render(cx);
+    vec![
+        preview(cx, "Tag", tags),
+        preview(cx, "Link e Breadcrumb", div().flex_col().gap(12.0).child(link).child(trilha)),
+        preview(cx, "DropdownMenu", menu),
+        preview(cx, "TabBar sublinhado e pílula", div().flex_col().gap(16.0).child(sub).child(pill)),
+    ]
+}

@@ -24,10 +24,12 @@ mod badge;
 mod button;
 mod card;
 mod kbd;
+mod link;
 mod progress;
 mod separator;
 mod skeleton;
 mod spinner;
+mod tag;
 mod variant_style;
 
 #[cfg(test)]
@@ -42,10 +44,12 @@ pub use badge::Badge;
 pub use button::Button;
 pub use card::{Card, CardHeader};
 pub use kbd::Kbd;
+pub use link::Link;
 pub use progress::{Progress, ProgressSize};
 pub use separator::{Orientation, Separator};
 pub use skeleton::{Skeleton, PULSE_MS};
 pub use spinner::Spinner;
+pub use tag::Tag;
 pub use variant_style::{variant_colors, VariantColors};
 
 use crate::color::Color;
