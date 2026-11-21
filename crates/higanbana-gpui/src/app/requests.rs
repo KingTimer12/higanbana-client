@@ -56,6 +56,11 @@ impl<V: View> Runner<'_, V> {
 
     /// Roda o que venceu: timers, reconstrução pedida e piscar do cursor. `false` = encerrar.
     pub(super) fn tick(&mut self, now: Instant) -> bool {
+        if let Some(cx) = self.inbox.as_mut().and_then(|i| i.drain(&mut self.view)) {
+            if !self.apply(cx) {
+                return false;
+            }
+        }
         if let Some(cx) = self.tasks.drain(&mut self.view) {
             if !self.apply(cx) {
                 return false;

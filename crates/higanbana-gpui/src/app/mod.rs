@@ -24,11 +24,13 @@ pub struct App {
     pub(crate) theme: Theme,
     pub(crate) show_stats: bool,
     pub(crate) vsync: bool,
+    /// `Inbox<V>` criado por `mailbox` (tipo apagado até o `run`).
+    pub(crate) inbox: Option<Box<dyn std::any::Any>>,
 }
 
 impl App {
     pub fn new() -> Self {
-        Self { backend: BackendKind::Auto, theme: Theme::dark(), show_stats: false, vsync: true }
+        Self { backend: BackendKind::Auto, theme: Theme::dark(), show_stats: false, vsync: true, inbox: None }
     }
 
     /// Backend preferido (cai para outro se indisponível).
@@ -46,6 +48,14 @@ impl App {
     pub fn icons(self, set: crate::icon::IconSet) -> Self {
         crate::icon::register(set);
         self
+    }
+
+    /// Caixa de correio para mandar trabalho de outras threads à view `V`
+    /// (a mesma passada a `run`). Chamar antes de `run`.
+    pub fn mailbox<V: View>(&mut self) -> crate::cx::Mailbox<V> {
+        let (tx, rx) = crate::cx::inbox::<V>();
+        self.inbox = Some(Box::new(rx));
+        tx
     }
 
     /// Desenha backend, tempo de frame e memória no canto da janela.

@@ -3,7 +3,7 @@
 use super::measurer::GpuMeasurer;
 use super::{overlay, App, View};
 use crate::anim::Animator;
-use crate::cx::{RenderCx, Tasks, Timers};
+use crate::cx::{Inbox, RenderCx, Tasks, Timers};
 use crate::error::Result;
 use crate::geometry::Size;
 use crate::gfx::{enumerate, BackendInfo, Context, DrawList, FontSpec, Window, WindowOptions, WindowState, HitRegion};
@@ -40,6 +40,8 @@ pub(super) struct Runner<'c, V> {
     pub timers: Timers,
     /// Tarefas em segundo plano aguardando resultado.
     pub tasks: Tasks,
+    /// Mensagens de outras threads (`App::mailbox`).
+    pub inbox: Option<Inbox<V>>,
     /// Rolagens pedidas por handlers, aplicadas depois do layout do frame.
     pub scrolls: Vec<crate::cx::ScrollRequest>,
     /// Reconstrução pedida para um instante (animação, `request_redraw_in`).
@@ -55,6 +57,10 @@ pub(super) struct Runner<'c, V> {
 pub(super) fn run<V: View>(app: App, options: WindowOptions, view: V) -> Result<()> {
     let ctx = Context::new(app.backend)?;
     let win = Window::new(&ctx, &options)?;
+    let mut inbox = app.inbox.and_then(|b| b.downcast::<Inbox<V>>().ok()).map(|b| *b);
+    if let Some(i) = inbox.as_mut() {
+        i.attach(win.waker());
+    }
     let mut r = Runner {
         ctx: &ctx,
         scale: win.scale(),
@@ -72,6 +78,7 @@ pub(super) fn run<V: View>(app: App, options: WindowOptions, view: V) -> Result<
         animator: Animator::default(),
         timers: Timers::default(),
         tasks: Tasks::default(),
+        inbox,
         scrolls: Vec::new(),
         wake: None,
         blink: None,
