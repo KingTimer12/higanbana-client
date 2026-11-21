@@ -122,7 +122,11 @@ fn measure_leaf<V>(
                 })
             };
             let m = cache.measure(measurer, s, &node.text, max_width);
-            taffy::Size { width: known.width.unwrap_or(m.width), height: known.height.unwrap_or(m.height) }
+            let mut h = m.height;
+            if let (Some(n), Some(_)) = (node.text.max_lines, max_width) {
+                h = h.min(super::measure::line_height(cache, measurer, &node.text) * n as f32);
+            }
+            taffy::Size { width: known.width.unwrap_or(m.width), height: known.height.unwrap_or(h) }
         }
         NodeKind::Image(src) => {
             let (w, h) = src.size();

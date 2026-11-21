@@ -21,6 +21,6 @@ pub(super) fn paint(canvas: &mut dyn Canvas, ctx: &Context, theme: &Theme, viewp
     let rect = Rect::new(viewport.width - W - 8.0, viewport.height - H - 8.0, W, H);
     canvas.layer();
     canvas.quad(&Quad { rect, fill: theme.popover.alpha(0.85), radius: Corners::all(6.0), ..Quad::default() });
-    let style = TextStyle { font: FontSpec::new("Consolas", 400, false), size: 12.0, color: theme.popover_foreground, wrap: false };
+    let style = TextStyle { font: FontSpec::new("Consolas", 400, false), size: 12.0, color: theme.popover_foreground, wrap: false, max_lines: None };
     canvas.text(&line, &style, point(rect.origin.x + 8.0, rect.origin.y + 4.0), None, Color::fade(theme.popover_foreground, 1.0));
 }

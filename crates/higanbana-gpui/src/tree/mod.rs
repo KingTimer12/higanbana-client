@@ -110,6 +110,15 @@ impl<V> Tree<V> {
     }
 
     /// Índice do primeiro nó com o `id` dado.
+    /// Texto que será pintado no nó `i` (já cortado pelo `line_clamp`).
+    #[cfg(test)]
+    pub(crate) fn text_shown(&self, i: usize) -> &str {
+        match &self.nodes[i].kind {
+            node::NodeKind::Text(s) => self.nodes[i].shown.as_deref().unwrap_or(s),
+            _ => "",
+        }
+    }
+
     pub fn find(&self, id: impl Into<ElementId>) -> Option<usize> {
         let id = Some(id.into());
         self.nodes.iter().position(|n| n.id == id)

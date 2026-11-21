@@ -114,7 +114,7 @@ impl<V: View> Runner<'_, V> {
 
     fn base_text(&self) -> TextStyle {
         let t = &self.theme.typography;
-        TextStyle { font: FontSpec::new(t.family, 400, false), size: t.sm, color: self.theme.foreground, wrap: true }
+        TextStyle { font: FontSpec::new(t.family, 400, false), size: t.sm, color: self.theme.foreground, wrap: true, max_lines: None }
     }
 
     /// Chama `View::render` com foco e animações; agenda o próximo frame se algo anima.

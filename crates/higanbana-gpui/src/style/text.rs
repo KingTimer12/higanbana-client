@@ -12,6 +12,8 @@ pub struct TextStyle {
     pub color: Color,
     /// Quebra linhas na largura disponível.
     pub wrap: bool,
+    /// Máximo de linhas (`line_clamp`); o excesso vira "…".
+    pub max_lines: Option<u32>,
 }
 
 /// Campos opcionais: `None` herda do ancestral.
@@ -23,11 +25,12 @@ pub struct TextStyleRefinement {
     pub italic: Option<bool>,
     pub color: Option<Color>,
     pub wrap: Option<bool>,
+    pub max_lines: Option<u32>,
 }
 
 impl Default for TextStyle {
     fn default() -> Self {
-        Self { font: FontSpec::default(), size: 14.0, color: Color::BLACK, wrap: true }
+        Self { font: FontSpec::default(), size: 14.0, color: Color::BLACK, wrap: true, max_lines: None }
     }
 }
 
@@ -52,6 +55,7 @@ impl TextStyle {
             size: r.size.unwrap_or(self.size),
             color: r.color.unwrap_or(self.color),
             wrap: r.wrap.unwrap_or(self.wrap),
+            max_lines: r.max_lines.or(self.max_lines),
         }
     }
 }

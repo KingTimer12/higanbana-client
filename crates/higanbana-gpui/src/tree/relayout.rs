@@ -24,7 +24,19 @@ impl<V> Tree<V> {
             self.engine.compute_overlay(&self.nodes, root, min_width, measurer);
             self.place(k);
         }
+        self.clamp_texts(measurer);
         self.after_position();
+    }
+
+    /// Corta os textos com `line_clamp` na largura final.
+    fn clamp_texts(&mut self, measurer: &mut dyn TextMeasurer) {
+        for i in 0..self.nodes.len() {
+            let n = &self.nodes[i];
+            let (NodeKind::Text(s), Some(lines), true) = (&n.kind, n.text.max_lines, n.text.wrap) else { continue };
+            let w = self.engine.layout(i).size.width + 0.5;
+            let shown = crate::layout::clamp_text(&mut self.engine.cache, measurer, s, &n.text, w, lines).map(String::into_boxed_str);
+            self.nodes[i].shown = shown;
+        }
     }
 
     /// Só reposiciona (mudou a rolagem): não chama o taffy.

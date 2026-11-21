@@ -133,3 +133,9 @@ pub fn avatar(v: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Galler
     }
     vec![preview(cx, "Com imagem (tamanhos)", imgs), preview(cx, "Iniciais como alternativa", fallback)]
 }
+
+pub fn line_clamp(_: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery>> {
+    const SINOPSE: &str = "Dois estudantes descobrem um portal escondido na biblioteca da escola e passam a viajar entre mundos, enfrentando criaturas antigas enquanto tentam voltar a tempo para as provas finais do semestre.";
+    let bloco = |n: u32| div().w(280.0).flex_col().line_clamp(n).child(text(SINOPSE));
+    vec![preview(cx, "1 linha", bloco(1)), preview(cx, "2 linhas", bloco(2)), preview(cx, "3 linhas", bloco(3))]
+}

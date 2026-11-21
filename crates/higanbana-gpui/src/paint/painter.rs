@@ -102,7 +102,7 @@ impl<V> Tree<V> {
                 NodeKind::Text(s) => {
                     let color = text_color.unwrap_or(n.text.color).fade(opacity);
                     let max_width = n.text.wrap.then_some(n.content.size.width + 0.5);
-                    out.text(s, text_style, n.content, max_width, color);
+                    out.text(n.shown.as_deref().unwrap_or(s), text_style, n.content, max_width, color);
                 }
                 NodeKind::TextField(f) => {
                     let color = text_color.unwrap_or(n.text.color).fade(opacity);
