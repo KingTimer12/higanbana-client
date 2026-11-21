@@ -2,7 +2,11 @@
 pub mod anim;
 pub mod basic;
 pub mod form;
+pub mod icons;
 pub mod overlay;
+pub mod popover;
+pub mod progress;
+pub mod radio;
 
 use crate::Gallery;
 use higanbana_gpui::prelude::*;
@@ -26,13 +30,17 @@ pub const SECTIONS: &[Section] = &[
     s("Básicos", "Separator", "Linha fina que divide conteúdo na horizontal ou vertical.", basic::separator),
     s("Básicos", "Skeleton", "Placeholder pulsante enquanto o conteúdo carrega.", basic::skeleton),
     s("Básicos", "Avatar", "Imagem do usuário com iniciais como alternativa.", basic::avatar),
+    s("Básicos", "Ícones", "Ícones Lucide em SVG, na cor do texto, e gradientes de fundo.", icons::icons),
+    s("Básicos", "Progress", "Barra de progresso em quatro alturas e o indicador girando.", progress::progress),
     s("Formulário", "Input", "Campo de texto de uma linha, com senha, inválido e desabilitado.", form::input),
     s("Formulário", "Checkbox", "Marca uma opção; aceita estado indeterminado.", form::checkbox),
     s("Formulário", "Switch", "Liga e desliga uma configuração na hora.", form::switch),
+    s("Formulário", "RadioGroup", "Escolha única entre poucas opções, empilhadas ou em linha.", radio::radio),
     s("Formulário", "Slider", "Escolhe um valor num intervalo arrastando ou com as setas.", form::slider),
     s("Sobreposição", "Dialog", "Janela modal sobre a página; fecha com Escape ou clique fora.", overlay::dialog_section),
     s("Sobreposição", "Tabs", "Alterna entre painéis de conteúdo relacionados.", overlay::tabs),
     s("Sobreposição", "Select", "Lista suspensa para escolher uma opção.", overlay::select),
+    s("Sobreposição", "Popover", "Painel preso a um botão; fecha com Escape ou clique fora.", popover::popover),
     s("Sobreposição", "Tooltip", "Dica curta que aparece ao parar o mouse em cima.", overlay::tooltip),
     s("Sobreposição", "Toast", "Aviso temporário no canto da tela.", overlay::toast),
     s("Movimento", "Animações", "Presença, molas, repetição e cores animadas.", anim::anim),

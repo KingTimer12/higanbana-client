@@ -2,7 +2,7 @@
 //! com as seções, cabeçalho com tema e backend, rodapé com estatísticas.
 //!
 //! Variáveis de ambiente para capturas: `HGUI_GALLERY_SECTION=<índice>`,
-//! `HGUI_GALLERY_STATE=dialog|select|toast|backend`, `HGUI_GALLERY_THEME=light`,
+//! `HGUI_GALLERY_STATE=dialog|select|toast|backend|popover`, `HGUI_GALLERY_THEME=light`,
 //! `HGUI_GALLERY_BACKEND=vulkan|opengl|d3d11|d3d12|wgpu`.
 mod sections;
 mod shell;
@@ -36,6 +36,10 @@ pub struct Gallery {
     pub clicks: u32,
     pub anim_card: bool,
     pub anim_big: bool,
+    pub popover: PopoverState,
+    pub subtitle: Option<usize>,
+    pub quality: Option<usize>,
+    pub progress: f32,
 }
 
 impl View for Gallery {
@@ -127,6 +131,10 @@ fn main() {
         clicks: 0,
         anim_card: true,
         anim_big: false,
+        popover: PopoverState { open: state == "popover" },
+        subtitle: Some(1),
+        quality: Some(2),
+        progress: 40.0,
     };
     view.tip.visible = state == "tooltip";
     if state == "toast" {
