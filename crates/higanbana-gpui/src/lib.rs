@@ -20,6 +20,8 @@ pub mod style;
 pub mod text_input;
 pub mod theme;
 pub mod tree;
+#[cfg(feature = "video")]
+pub mod video;
 
 pub use app::{App, View};
 pub use color::{premultiply_rgba8, rgb, rgba, Color};

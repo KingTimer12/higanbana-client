@@ -49,6 +49,17 @@ impl ImageData {
         *self.pixels.borrow_mut() = Some(pixels);
     }
 
+    /// Pixel RGBA de um quadro ainda não enviado à GPU (testes/diagnóstico).
+    pub fn pending_pixel(&self, x: u32, y: u32) -> Option<[u8; 4]> {
+        let (w, h) = self.size.get();
+        if x >= w || y >= h {
+            return None;
+        }
+        let px = self.pixels.borrow();
+        let i = (y as usize * w as usize + x as usize) * 4;
+        px.as_ref().map(|p| [p[i], p[i + 1], p[i + 2], p[i + 3]])
+    }
+
     pub fn is_dynamic(&self) -> bool {
         self.dynamic
     }
