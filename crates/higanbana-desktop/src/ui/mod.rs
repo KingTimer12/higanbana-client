@@ -23,6 +23,11 @@ pub const APP_ICONS: &[&str] = &[
     "zoom-in", "zoom-out", "panel-left-open", "panel-left-close", "circle-check", "circle-x", "chevron-down",
 ];
 
+/// Desfoque das sombras do kit (`shadow_md`, `shadow_lg`, `shadow_2xl`).
+pub const SHADOW_MD: f32 = 6.0;
+pub const SHADOW_LG: f32 = 15.0;
+pub const SHADOW_2XL: f32 = 50.0;
+
 /// Texto em uma linha só, cortado no fim.
 pub fn truncate<V: 'static>(t: impl Into<Cow<'static, str>>) -> Element<V> {
     div().min_w(0.0).overflow_hidden().whitespace_nowrap().child(text(t))

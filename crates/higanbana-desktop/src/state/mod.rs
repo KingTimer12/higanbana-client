@@ -9,6 +9,7 @@ mod catalog;
 mod covers;
 mod listings;
 mod download_tasks;
+pub mod home;
 mod downloads;
 mod images;
 mod lookup;
@@ -114,6 +115,8 @@ pub struct AppState {
     covers: covers::Covers,
     pub(crate) catalog: catalog::CatalogState,
     listings: listings::Listings,
+    /// Listas do início (soltas ao sair dele).
+    pub home: home::HomeData,
     lookups: lookup::Lookups,
     events: Vec<AppEvent>,
 }
@@ -140,6 +143,7 @@ impl AppState {
             covers: covers::Covers::default(),
             catalog: catalog::CatalogState::default(),
             listings: listings::Listings::default(),
+            home: home::HomeData::default(),
             lookups: lookup::Lookups::default(),
             events: Vec::new(),
         };
@@ -212,6 +216,9 @@ impl AppState {
 
     fn navigated(&mut self) {
         // Só a listagem da tela nova fica na memória.
+        if !self.path().is_empty() {
+            self.home = home::HomeData::default();
+        }
         let root = listings::screen_root(self.path());
         self.keep_listings(root.as_deref());
         self.emit(AppEvent::Navigated);

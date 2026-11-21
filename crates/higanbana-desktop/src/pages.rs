@@ -16,6 +16,7 @@ pub fn own_scroll(route: &str) -> bool {
 pub fn page(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higanbana> {
     let path = v.state.path().to_owned();
     match classify(&path) {
+        Place::Home => crate::views::home::page(v, cx),
         _ => placeholder(&path, cx),
     }
 }

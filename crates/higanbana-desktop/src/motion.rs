@@ -55,6 +55,13 @@ pub fn rise_progress(elapsed: Duration, delay: Duration) -> f32 {
     ease_out_cubic(elapsed.saturating_sub(delay).as_secs_f32() / RISE.as_secs_f32())
 }
 
+/// Entrada em cascata do item `index` (0→1 em `RISE`, esperando `stagger_delay`).
+/// Use como opacidade e `top(RISE_DISTANCE * (1 - t))`.
+pub fn rise<V: 'static>(cx: &mut higanbana_gpui::RenderCx<'_, V>, key: impl Into<higanbana_gpui::ElementId>, index: usize) -> f32 {
+    let t = transition(RISE).delay(if animations_enabled() { stagger_delay(index).as_millis() as u64 } else { 0 });
+    cx.animate_from(key, 0.0, 1.0, t)
+}
+
 /// "Mostrar animações no Windows" (Acessibilidade › Efeitos visuais), lido uma vez.
 pub fn animations_enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();

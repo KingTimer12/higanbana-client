@@ -1,242 +1,81 @@
-//! Carrossel "Descobrir" da entrada, sobre o `Carousel` do kit: mais bem
-//! avaliados do ano, mais populares e em alta, só com obras do acervo (só anime:
-//! os rankings de mangá quase não têm nada no acervo). O pôster sobe no hover.
-//! Cada aba confere na primeira vez que é aberta.
+//! "Descobrir": abas de ranking (pílula) e uma fileira de pôsteres que sobem no hover.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use higanbana_core::anilist::{MediaType, Ranking};
+use higanbana_gpui::components::{Carousel, Component, Skeleton, TabBar};
+use higanbana_gpui::prelude::*;
+use higanbana_gpui::ElementId;
 
-use gpui_kit::{
-    AnimationExt as _, Context, ElementId, Entity, IntoElement, ParentElement, Render, Styled, Window,
-    assets::IconName, div, prelude::*, px,
-};
-use gpui_kit::component::{
-    ActiveTheme as _, Sizable as _,
-    carousel::{Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, CarouselState},
-    h_flex,
-    skeleton::Skeleton,
-    tab::{Tab, TabBar},
-    v_flex,
-};
-use higanbana_core::{
-    anilist::{MediaType, Ranking},
-    catalog::ListBudget,
-};
-
-use super::{Slot, discover_task, eyebrow, leave};
-use crate::{
-    components::{PosterProps, poster},
-    interact::hover_anim,
-    motion::{self, RISE_DISTANCE, ease_out_cubic},
-    state::{AppState, state},
-    ui::empty_state,
-};
+use super::eyebrow;
+use crate::motion::{ease_out_cubic, rise, RISE_DISTANCE};
+use crate::root::Higanbana;
+use crate::ui::cover::{poster, PosterProps};
+use crate::ui::empty_state;
 
 /// Obras por aba.
-const PER_TAB: usize = 12;
-const TABS: [(Ranking, &str); 3] = [(Ranking::TopRated, "Mais bem avaliados"), (Ranking::Popular, "Mais populares"), (Ranking::Trending, "Em alta")];
-/// Alturas em rem: título, abas e fileira de pôsteres.
-const HEADER_REM: f32 = 2.5;
-const TABS_REM: f32 = 2.5;
-const GAP_REM: f32 = 1.;
-const POSTER_REM: f32 = 9.;
-/// Capa 2:3 + título em duas linhas + linha de formato + folga para subir no hover.
-const ROW_REM: f32 = POSTER_REM * 1.5 + 6.;
-/// Espaço lateral para as setas do kit, que ficam fora da área dos pôsteres.
-const ARROWS_REM: f32 = 3.;
-const HOVER: Duration = Duration::from_millis(220);
+pub const PER_TAB: usize = 12;
+pub const TABS: [(Ranking, &str); 3] = [(Ranking::TopRated, "Mais bem avaliados"), (Ranking::Popular, "Mais populares"), (Ranking::Trending, "Em alta")];
+const POSTER: f32 = 144.0;
+/// Capa 2:3 + título em duas linhas + formato + folga para subir no hover.
+const ROW: f32 = POSTER * 1.5 + 96.0;
+const ARROWS: f32 = 48.0;
+const GAP: f32 = 16.0;
 
-/// Altura total do bloco (para o `cached` de quem embute).
-pub fn height_rem() -> f32 {
-    HEADER_REM + TABS_REM + 2. * GAP_REM + ROW_REM
+/// Troca de aba: a lista que não terminou é cancelada e o carrossel volta ao começo.
+pub fn pick(v: &mut Higanbana, ranking: Ranking) {
+    let ui = v.pages.home();
+    if ui.disc_ranking == ranking {
+        return;
+    }
+    let old = std::mem::replace(&mut ui.disc_ranking, ranking);
+    ui.disc = higanbana_gpui::components::CarouselState::new(0);
+    v.state.home.leave(MediaType::Anime, old);
 }
 
-pub struct Discover {
-    state: Entity<AppState>,
-    budget: Arc<ListBudget>,
-    media: MediaType,
-    ranking: Ranking,
-    slots: HashMap<(MediaType, Ranking), Slot>,
-    carousel: Entity<CarouselState>,
-    /// Só confere depois do banner, que tem prioridade no orçamento de listagens.
-    started: bool,
-}
-
-impl Discover {
-    pub fn new(budget: Arc<ListBudget>, cx: &mut Context<Self>) -> Self {
-        let state = state(cx);
-        // Capas chegam pelo AppState.
-        cx.observe(&state, |_, _, cx| cx.notify()).detach();
-        let carousel = cx.new(|_| CarouselState::new(0));
-        Self { state, budget, media: MediaType::Anime, ranking: Ranking::TopRated, slots: HashMap::new(), carousel, started: false }
-    }
-
-    /// Começa a conferir a aba aberta (uma vez).
-    pub fn start(&mut self, cx: &mut Context<Self>) {
-        if !self.started {
-            self.started = true;
-            self.load(cx);
-            cx.notify();
+pub fn block(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higanbana> {
+    let t = cx.theme().clone();
+    let now = cx.now();
+    let ranking = v.pages.home().disc_ranking;
+    let (items, done) = v.state.home.slot(MediaType::Anime, ranking).map_or((Vec::new(), false), |s| (s.items.clone(), s.done));
+    let active = TABS.iter().position(|(r, _)| *r == ranking).unwrap_or(0);
+    let mut tabs = TabBar::new("descobrir-abas", active, |v: &mut Higanbana, i, _| {
+        if let Some((r, _)) = TABS.get(i) {
+            pick(v, *r);
         }
+    })
+    .pill();
+    for (_, label) in TABS {
+        tabs = tabs.tab(label);
     }
-
-    fn load(&mut self, cx: &mut Context<Self>) {
-        let key = (self.media, self.ranking);
-        if self.slots.contains_key(&key) {
-            return;
+    let tabs = tabs.render(cx);
+    let row = if items.is_empty() && done {
+        div().h(ROW).items_center().justify_center().child(empty_state(&t, "inbox", "Nada desta lista no acervo", Some("Tente outra aba ou o outro tipo.".into())))
+    } else if items.is_empty() {
+        let mut r = div().h(ROW).items_start().px(ARROWS).gap(GAP).overflow_hidden();
+        for i in 0..8 {
+            r = r.child(Skeleton::new(("descobrir-esqueleto", i)).w(POSTER).h(POSTER * 1.5).render(cx).rounded(t.radius_lg));
         }
-        let task = discover_task(
-            &self.state,
-            self.budget.clone(),
-            key.0,
-            key.1,
-            PER_TAB,
-            cx,
-            move |v: &mut Self, m, path, cx| {
-                if let Some(slot) = v.slots.get_mut(&key) {
-                    slot.items.push((m, path));
-                    let len = slot.items.len();
-                    if (v.media, v.ranking) == key {
-                        v.carousel.update(cx, |c, cx| c.set_item_count(len, cx));
-                    }
-                    cx.notify();
-                }
-            },
-            move |v: &mut Self, cx| {
-                if let Some(slot) = v.slots.get_mut(&key) {
-                    slot.done = true;
-                    cx.notify();
-                }
-            },
-        );
-        self.slots.insert(key, Slot::new(task));
-    }
-
-    fn pick(&mut self, media: MediaType, ranking: Ranking, cx: &mut Context<Self>) {
-        if (media, ranking) == (self.media, self.ranking) {
-            return;
+        r
+    } else {
+        let mut cards = Vec::with_capacity(items.len());
+        for (i, (m, path)) in items.iter().enumerate() {
+            let id = ElementId::from(("descobrir", m.summary.id as usize ^ (active << 40)));
+            let lift = ease_out_cubic(crate::ui::hover::amount(cx, id));
+            let enter = rise(cx, ("descobrir-entra", m.summary.id as usize ^ (active << 40)), i);
+            let props = PosterProps { id, name: m.summary.title(), media: Some(std::sync::Arc::new(m.summary.clone())), loading: false, width: POSTER, badge: false, dimmed: false, meta: None };
+            let target = path.clone();
+            let card = poster(v, cx, props).on_click(move |v: &mut Higanbana, _, cx| {
+                v.state.go(target.clone());
+                cx.notify();
+            });
+            cards.push(div().pt(8.0).opacity(enter).translate_y(RISE_DISTANCE * (1.0 - enter) - 6.0 * lift).child(card));
         }
-        leave(&mut self.slots, &(self.media, self.ranking));
-        self.media = media;
-        self.ranking = ranking;
-        self.started = true;
-        self.load(cx);
-        let len = self.slots.get(&(media, ranking)).map_or(0, |s| s.items.len());
-        self.carousel.update(cx, |c, cx| {
-            c.set_item_count(len, cx);
-            c.set_selected_index(0, cx);
-        });
-        cx.notify();
-    }
-}
-
-impl Render for Discover {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme().clone();
-        let rem = f32::from(window.rem_size());
-        let (media, ranking) = (self.media, self.ranking);
-        let (items, done) = self.slots.get(&(media, ranking)).map_or((Vec::new(), false), |s| (s.items.clone(), s.done));
-        let width = px(POSTER_REM * rem);
-        let active_tab = TABS.iter().position(|(r, _)| *r == ranking).unwrap_or(0);
-        let media_key = media.as_str();
-        let ranking_key = format!("{ranking:?}");
-
-        let header = h_flex()
-            .h(px(HEADER_REM * rem))
-            .justify_between()
-            .gap_4()
-            .child(eyebrow(IconName::Compass, "Descobrir", cx));
-
-        let tabs = h_flex().h(px(TABS_REM * rem)).child(
-            TabBar::new("discover-tabs")
-                .pill()
-                .selected_index(active_tab)
-                .on_click(cx.listener(|v, ix: &usize, _, cx| {
-                    if let Some((r, _)) = TABS.get(*ix) {
-                        v.pick(v.media, *r, cx);
-                    }
-                }))
-                .children(TABS.iter().map(|(_, label)| Tab::new().label(*label))),
-        );
-
-        let row: gpui_kit::AnyElement = if items.is_empty() && done {
-            div()
-                .h(px(ROW_REM * rem))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(empty_state(IconName::Inbox, "Nada desta lista no acervo", Some("Tente outra aba ou o outro tipo.".into()), cx))
-                .into_any_element()
-        } else if items.is_empty() {
-            h_flex()
-                .h(px(ROW_REM * rem))
-                .items_start()
-                .px(px(ARROWS_REM * rem))
-                .gap_4()
-                .overflow_hidden()
-                .children((0..8).map(|_| div().flex_none().child(Skeleton::new().w(width).h(width * 1.5).rounded(theme.radius_lg))))
-                .into_any_element()
-        } else {
-            let slides: Vec<_> = items
-                .into_iter()
-                .enumerate()
-                .map(|(i, (m, path))| {
-                    let id = m.summary.id;
-                    let st = self.state.clone();
-                    let card_id = format!("discover:{media_key}:{ranking_key}:{id}");
-                    let name = m.summary.title();
-                    let summary = m.summary.clone();
-                    // Número do ranking atrás da capa + pôster que sobe e ganha sombra no hover.
-                    let card = hover_anim(ElementId::Name(format!("discover-hover:{card_id}").into()), HOVER, move |t, _, cx| {
-                        let e = ease_out_cubic(t);
-                        let st = st.clone();
-                        let path = path.clone();
-                        div()
-                            .child(
-                                div()
-                                    .relative()
-                                    .top(px(-6. * e))
-                                    .child(
-                                        poster(
-                                            PosterProps {
-                                                id: ElementId::Name(card_id.clone().into()),
-                                                name: name.clone().into(),
-                                                media: Some(std::sync::Arc::new(summary.clone())),
-                                                loading: false,
-                                                width,
-                                                badge: false,
-                                                dimmed: false,
-                                                meta: None,
-                                            },
-                                            cx,
-                                        )
-                                        .on_click(move |_, _, cx| st.update(cx, |s, cx| s.go(path.clone(), cx))),
-                                    ),
-                            )
-                    });
-                    CarouselItem::new(ElementId::Name(format!("discover-item:{media_key}:{ranking_key}:{id}").into()), i, &self.carousel)
-                        .accessibility_label(m.summary.title())
-                        .w_auto()
-                        .pt(px(0.5 * rem))
-                        .child(card)
-                        .with_animation(ElementId::Name(format!("discover-in:{media_key}:{ranking_key}:{id}").into()), motion::staggered(i), |e, t| {
-                            e.opacity(t).relative().top(px(RISE_DISTANCE * (1. - t)))
-                        })
-                })
-                .collect();
-            div()
-                .h(px(ROW_REM * rem))
-                .px(px(ARROWS_REM * rem))
-                .child(
-                    Carousel::new(ElementId::Name(format!("discover-carousel:{media_key}:{ranking_key}").into()), &self.carousel)
-                        .accessibility_label("Descobrir")
-                        .w_full()
-                        .child(CarouselContent::new(&self.carousel).h(px(ROW_REM * rem)).children(slides))
-                        .child(CarouselPrevious::new(&self.carousel).small())
-                        .child(CarouselNext::new(&self.carousel).small()),
-                )
-                .into_any_element()
-        };
-
-        v_flex().size_full().gap(px(GAP_REM * rem)).child(header).child(tabs).child(row)
-    }
+        let ui = v.pages.home();
+        if ui.disc.len() != cards.len() {
+            ui.disc.set_len(cards.len(), now);
+        }
+        let state = ui.disc.clone();
+        let car = Carousel::new("descobrir-carrossel", &state, |v: &mut Higanbana| &mut v.pages.home().disc).items(cards).item_width(POSTER).gap(GAP).controls(true).render(cx);
+        div().h(ROW).px(ARROWS).child(car)
+    };
+    div().w_full().flex_col().gap(16.0).child(div().h(40.0).items_center().child(eyebrow(&t, "compass", "Descobrir"))).child(div().h(40.0).items_center().child(tabs)).child(row)
 }

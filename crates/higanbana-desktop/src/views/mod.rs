@@ -1,31 +1,18 @@
-//! Telas do acervo. O estado de cada tela vive em `Pages` e só existe enquanto
-//! a tela está aberta: trocar de rota solta o estado da anterior (RAM). O que
-//! precisa sobreviver (filtros e posição do catálogo) fica no `AppState`.
+//! Telas do acervo. O estado de interface de cada tela vive em `Pages` e só
+//! existe enquanto a tela está aberta: trocar de rota solta o da anterior (RAM).
+//! O que precisa sobreviver (filtros e posição do catálogo) fica no `AppState`.
+
+pub mod home;
 
 #[cfg(test)]
 mod tests;
 
-/// Estado da tela aberta.
-pub enum Page {
-    /// Tela sem estado próprio (ou ainda não portada).
-    Plain,
-}
+use higanbana_core::library::{classify, Place};
 
-impl Page {
-    fn for_route(_route: &str) -> Page {
-        Page::Plain
-    }
-}
-
+#[derive(Default)]
 pub struct Pages {
     route: Option<String>,
-    pub page: Page,
-}
-
-impl Default for Pages {
-    fn default() -> Self {
-        Pages { route: None, page: Page::Plain }
-    }
+    pub home: Option<home::HomeUi>,
 }
 
 impl Pages {
@@ -34,12 +21,19 @@ impl Pages {
         if self.route.as_deref() == Some(route) {
             return false;
         }
-        self.route = Some(route.to_owned());
-        self.page = Page::for_route(route);
+        *self = Pages { route: Some(route.to_owned()), ..Pages::default() };
+        if let Place::Home = classify(route) {
+            self.home = Some(home::HomeUi::default());
+        }
         true
     }
 
     pub fn route(&self) -> Option<&str> {
         self.route.as_deref()
+    }
+
+    /// Estado do início (criado se faltar: handlers atrasados nunca entram em pânico).
+    pub fn home(&mut self) -> &mut home::HomeUi {
+        self.home.get_or_insert_default()
     }
 }
