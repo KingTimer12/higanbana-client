@@ -1,16 +1,18 @@
 // Sem console extra no Windows em release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod avif;
+mod image_cache;
 mod logging;
 mod mem;
 mod motion;
 mod root;
+mod state;
 mod theme;
 mod ui;
 // Em migração para a higanbana-gpui (Planos 3 e 4): fora do build até lá.
-// mod app; mod avif; mod catalog_state; mod chrome; mod components; mod image_cache;
-// mod interact; mod music; mod reader; mod series; mod settings_dialog; mod state;
-// mod updater; mod video; mod views;
+// mod app; mod catalog_state; mod chrome; mod components; mod interact; mod music;
+// mod reader; mod series; mod settings_dialog; mod updater; mod video; mod views;
 
 use std::sync::Arc;
 
@@ -30,8 +32,16 @@ fn main() {
     let mut app = App::new().theme(theme::load());
     // Eventos do núcleo chegam em outras threads: viram mensagens para a view.
     let mailbox = app.mailbox::<root::Higanbana>();
+    let mb = mailbox.clone();
     let events = Arc::new(move |e: Event| {
-        mailbox.send(move |v: &mut root::Higanbana, cx| v.on_core_event(e, cx));
+        mb.send(move |v: &mut root::Higanbana, cx| v.on_core_event(e, cx));
+    });
+    // Resultados de tarefas do núcleo voltam ao estado na thread da UI.
+    let post: state::Post = Arc::new(move |job: state::Job| {
+        mailbox.send(move |v: &mut root::Higanbana, cx| {
+            job(&mut v.state, cx);
+            cx.notify();
+        });
     });
     let core = Arc::new(Core::new(paths, events).expect("núcleo do higanbana"));
     tracing::info!(processo_mb = mem::private_mb(), "núcleo pronto");
@@ -50,7 +60,7 @@ fn main() {
         media.music().attach_media_keys(Some(hwnd));
     });
     tracing::info!(processo_mb = mem::private_mb(), "abrindo janela");
-    if let Err(e) = app.run(options, root::Higanbana::new(core)) {
+    if let Err(e) = app.run(options, root::Higanbana::new(core, post)) {
         tracing::error!(erro = %e, "janela principal");
     }
     tracing::info!("janela fechada; saindo");
