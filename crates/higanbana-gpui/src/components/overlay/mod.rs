@@ -3,6 +3,8 @@
 //! Todos seguem o mesmo padrão: `Comp::new(id, ...)` + métodos encadeados +
 //! `.render(cx)` devolvendo `Element<V>`. O estado (aberto, seleção, fila) mora
 //! na view do usuário e é alterado por callbacks ou por uma lente `|v| &mut v.campo`.
+mod command;
+mod command_state;
 mod common;
 mod dialog;
 mod popover;
@@ -16,6 +18,8 @@ mod tooltip;
 #[cfg(test)]
 pub(crate) mod tests;
 
+pub use command::{Command, CommandGroup, CommandItem};
+pub use command_state::CommandState;
 pub use dialog::Dialog;
 pub use popover::{Popover, PopoverAnchor, PopoverState};
 pub use select::Select;

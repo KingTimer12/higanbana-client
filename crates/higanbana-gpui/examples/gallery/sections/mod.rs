@@ -1,6 +1,7 @@
 //! Seções da galeria: tabela com título/grupo/descrição e a moldura de cada página.
 pub mod anim;
 pub mod basic;
+pub mod command;
 pub mod form;
 pub mod icons;
 pub mod overlay;
@@ -43,6 +44,7 @@ pub const SECTIONS: &[Section] = &[
     s("Sobreposição", "Tabs", "Alterna entre painéis de conteúdo relacionados.", overlay::tabs),
     s("Sobreposição", "Select", "Lista suspensa para escolher uma opção.", overlay::select),
     s("Sobreposição", "Popover", "Painel preso a um botão; fecha com Escape ou clique fora.", popover::popover),
+    s("Sobreposição", "Command", "Paleta de busca com grupos e navegação por setas.", command::command),
     s("Sobreposição", "Tooltip", "Dica curta que aparece ao parar o mouse em cima.", overlay::tooltip),
     s("Sobreposição", "Toast", "Aviso temporário no canto da tela.", overlay::toast),
     s("Navegação", "Sidebar", "Menu lateral com grupos; recolhe para só ícones.", sidebar::sidebar),

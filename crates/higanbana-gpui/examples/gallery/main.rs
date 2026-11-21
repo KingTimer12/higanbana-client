@@ -41,6 +41,7 @@ pub struct Gallery {
     pub quality: Option<usize>,
     pub progress: f32,
     pub side: SidebarState,
+    pub cmd: CommandState,
     pub side_active: usize,
 }
 
@@ -138,6 +139,7 @@ fn main() {
         quality: Some(2),
         progress: 40.0,
         side: SidebarState::default(),
+        cmd: CommandState::new(),
         side_active: 0,
     };
     view.tip.visible = state == "tooltip";

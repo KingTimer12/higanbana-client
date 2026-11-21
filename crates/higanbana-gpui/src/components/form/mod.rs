@@ -4,8 +4,8 @@
 //! callbacks (`on_change`). Todos viram `Element<V>` via `Component::render(cx)`.
 mod checkbox;
 mod input;
-mod input_keys;
-mod password;
+pub(crate) mod input_keys;
+pub(crate) mod password;
 mod radio;
 mod slider;
 mod slider_value;
