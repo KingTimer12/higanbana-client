@@ -1,24 +1,32 @@
 //! `VideoPlayer`: superfície de vídeo (libmpv) com controles que somem sozinhos,
 //! atalhos de teclado e duplo clique para tela cheia. Requer `feature = "video"`.
+mod auto_hide;
 mod controls;
 mod player_view;
+mod surface;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_pieces;
 
 use crate::components::SelectState;
-use crate::cx::TimerId;
 use crate::element::ElementId;
 use crate::style::ObjectFit;
 use crate::video::Player;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+pub use auto_hide::AutoHide;
+pub use surface::{ClickGate, VideoSurface, DOUBLE_CLICK};
+
+/// Tempo sem mexer até os controles sumirem (tocando).
+pub const HIDE_AFTER: Duration = Duration::from_millis(2500);
 
 /// Estado do player guardado na view: o `Player` e o que a UI lembra entre frames.
 pub struct VideoState {
     pub player: Player,
-    last_activity: Instant,
-    /// Clique simples aguardando um possível segundo clique (duplo = tela cheia).
-    pending_click: Option<(Instant, TimerId)>,
+    hide: AutoHide,
+    gate: ClickGate,
     /// Controles visíveis no último render (o mouse só reconstrói se estavam ocultos).
     controls_visible: bool,
     /// Ainda não pegou o foco do teclado (pega no primeiro movimento do mouse).
@@ -32,8 +40,8 @@ impl VideoState {
     pub fn new(player: Player) -> Self {
         VideoState {
             player,
-            last_activity: Instant::now(),
-            pending_click: None,
+            hide: AutoHide::new(HIDE_AFTER, Instant::now()),
+            gate: ClickGate::default(),
             controls_visible: true,
             want_focus: true,
             speed: SelectState::default(),
@@ -49,7 +57,7 @@ impl VideoState {
 
     /// Mouse/teclado: mostra os controles e reinicia a contagem para sumirem.
     fn touch(&mut self) -> bool {
-        self.last_activity = Instant::now();
+        self.hide.poke(Instant::now());
         !self.controls_visible
     }
 }
