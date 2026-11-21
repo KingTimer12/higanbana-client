@@ -81,6 +81,13 @@ impl<V> Element<V> {
         self
     }
 
+    /// Qualquer movimento do mouse dentro do elemento, mesmo sobre filhos com
+    /// `on_mouse_move` próprio (ex.: mostrar controles de player).
+    pub fn on_mouse_move_passive(mut self, f: impl Fn(&mut V, &PointerEvent, &mut EventCx) + 'static) -> Self {
+        self.interact().on_move_passive = Some(Box::new(f));
+        self
+    }
+
     /// Mouse entrou (`true`) ou saiu (`false`) do elemento. Use com `.id(...)`.
     pub fn on_hover(mut self, f: impl Fn(&mut V, bool, &mut EventCx) + 'static) -> Self {
         self.interact().on_hover = Some(Box::new(f));

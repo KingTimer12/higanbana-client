@@ -61,6 +61,8 @@ pub(crate) struct Interactivity<V> {
     pub on_mouse_down: Option<PointerHandler<V>>,
     pub on_mouse_up: Option<PointerHandler<V>>,
     pub on_mouse_move: Option<PointerHandler<V>>,
+    /// Qualquer movimento dentro do elemento (sobe pelos pais; não consome).
+    pub on_move_passive: Option<PointerHandler<V>>,
     pub on_hover: Option<HoverHandler<V>>,
     pub on_navigate: Option<NavHandler<V>>,
 }
@@ -77,6 +79,7 @@ impl<V> Default for Interactivity<V> {
             on_mouse_down: None,
             on_mouse_up: None,
             on_mouse_move: None,
+            on_move_passive: None,
             on_hover: None,
             on_navigate: None,
         }

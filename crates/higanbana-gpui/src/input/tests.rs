@@ -153,3 +153,23 @@ fn navegar_nao_atravessa_modal() {
     t.mouse_up(point(100.0, 100.0), MouseButton::Back, Modifiers::default(), &mut v, &mut cx);
     assert!(v.log.is_empty(), "página atrás do modal não muda");
 }
+
+#[derive(Default)]
+struct Moves {
+    child: u32,
+    passive: u32,
+}
+
+#[test]
+fn movimento_passivo_sobe_mesmo_com_handler_no_filho() {
+    let root = div().w(200.0).h(200.0).on_mouse_move_passive(|v: &mut Moves, _, _| v.passive += 1).child(
+        div().w(50.0).h(50.0).on_mouse_move(|v: &mut Moves, _, _| v.child += 1),
+    );
+    let mut t = Tree::new();
+    t.rebuild(root, &TextStyle::default(), size(200.0, 200.0), &mut FakeMeasurer);
+    let mut v = Moves::default();
+    let mut cx = EventCx::default();
+    t.pointer_move(point(10.0, 10.0), Modifiers::default(), &mut v, &mut cx);
+    t.pointer_move(point(150.0, 150.0), Modifiers::default(), &mut v, &mut cx);
+    assert_eq!((v.child, v.passive), (1, 2));
+}

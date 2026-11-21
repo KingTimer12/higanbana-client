@@ -41,6 +41,16 @@ impl<V> Tree<V> {
                 h(view, &ev, cx);
             }
         }
+        // Ouvintes passivos: o nó sob o mouse e todos os pais.
+        let mut at = self.hit_test(p);
+        while let Some(i) = at {
+            if let Some(h) = self.nodes[i].interact.as_ref().and_then(|x| x.on_move_passive.as_ref()) {
+                let ev = self.pointer_event(i, p, MouseButton::Left, mods);
+                h(view, &ev, cx);
+            }
+            let up = self.nodes[i].parent;
+            at = (up != crate::tree::node::NO_PARENT).then_some(up as usize);
+        }
         self.update_hover_owners(view, cx);
         repaint
     }
