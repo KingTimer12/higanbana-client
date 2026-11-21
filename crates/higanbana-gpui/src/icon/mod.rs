@@ -6,7 +6,7 @@ mod registry;
 #[cfg(test)]
 mod tests;
 
-pub use registry::{register, IconSet};
+pub use registry::{exists, register, IconSet};
 
 use crate::element::{element, Element, Kind};
 use crate::style::{Style, Styled};

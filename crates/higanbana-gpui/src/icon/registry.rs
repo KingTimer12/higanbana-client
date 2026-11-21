@@ -47,3 +47,8 @@ macro_rules! icon_set {
         $crate::icon::IconSet::new()$(.add($name, include_bytes!($path)))*
     };
 }
+
+/// Existe ícone com esse nome (Lucide embutido ou registrado pelo app)?
+pub fn exists(name: &str) -> bool {
+    svg(name).is_some()
+}

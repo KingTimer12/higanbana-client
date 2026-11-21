@@ -1,14 +1,13 @@
 //! Movimento do produto: só para explicar uma mudança (algo entrou, saiu,
 //! trocou de lugar), curto e sempre com saída para "reduzir movimento".
 //!
-//! `with_animation` do GPUI já pula para o quadro final quando
-//! `App::reduce_motion` está ligado; aqui lemos essa preferência do sistema.
+//! As transições saem daqui (`transition`): com as animações do Windows
+//! desligadas elas viram instantâneas.
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
-use gpui_kit::{
-    Animation, AnimationExt as _, App, Hsla, IntoElement, ParentElement, Styled, div, pulsating_between, px, rems,
-};
+use higanbana_gpui::{Easing, Transition};
 
 /// Entrada de superfícies pequenas (painéis, cartões, imagens).
 pub const QUICK: Duration = Duration::from_millis(160);
@@ -22,13 +21,13 @@ pub const RISE_DISTANCE: f32 = 14.;
 pub const STAGGER_STEP: Duration = Duration::from_millis(40);
 pub const STAGGER_CAP: usize = 12;
 
-/// Desacelera no fim: o movimento chega devagar ao lugar (curva do kit).
-pub fn ease_out_cubic(t: f32) -> f32 {
-    gpui_kit::component::animation::ease_out_cubic(t.clamp(0., 1.))
-}
-
 /// Quanto a página nova desliza ao entrar (px), no sentido da navegação.
 pub const PAGE_SHIFT: f32 = 16.;
+
+/// Desacelera no fim: o movimento chega devagar ao lugar (curva do kit).
+pub fn ease_out_cubic(t: f32) -> f32 {
+    Easing::EaseOut.apply(t)
+}
 
 /// Desacelera passando um pouco do lugar e volta: algo que "desabrocha".
 /// Passa de 1 por volta de 5 % no meio do caminho e termina exatamente em 1.
@@ -39,14 +38,15 @@ pub fn ease_out_back(t: f32) -> f32 {
     1. + C3 * u.powi(3) + C1 * u.powi(2)
 }
 
-pub fn enter(duration: Duration) -> Animation {
-    Animation::new(duration).with_easing(ease_out_cubic)
+/// Transição de entrada com a curva do produto (instantânea se o sistema pede).
+pub fn transition(duration: Duration) -> Transition {
+    let d = if animations_enabled() { duration } else { Duration::ZERO };
+    Transition::ms(d.as_millis() as u64).easing(Easing::EaseOut)
 }
 
 /// Quanto o item `index` espera antes de começar a subir.
 pub fn stagger_delay(index: usize) -> Duration {
-    // Cascata do kit a partir do primeiro; o teto limita a espera de listas longas.
-    gpui_kit::base::Stagger::new(STAGGER_STEP, gpui_kit::base::StaggerOrigin::First).delay(index.min(STAGGER_CAP), STAGGER_CAP + 1)
+    STAGGER_STEP * index.min(STAGGER_CAP) as u32
 }
 
 /// Progresso (já com a curva) da entrada de um item que espera `delay` e sobe
@@ -55,34 +55,10 @@ pub fn rise_progress(elapsed: Duration, delay: Duration) -> f32 {
     ease_out_cubic(elapsed.saturating_sub(delay).as_secs_f32() / RISE.as_secs_f32())
 }
 
-/// Animação de entrada do item `index` numa cascata (ver [`RISE`]): o valor
-/// fica em 0 durante a espera e chega a 1 com a curva de saída.
-pub fn staggered(index: usize) -> Animation {
-    let delay = stagger_delay(index);
-    let total = delay + RISE;
-    Animation::new(total).with_easing(move |t| rise_progress(total.mul_f32(t.clamp(0., 1.)), delay))
-}
-
-/// Equalizador da faixa que está tocando: três barras em ritmos diferentes,
-/// para não pulsarem juntas. Só aparece enquanto toca de verdade.
-pub fn playing_bars(color: Hsla) -> impl IntoElement {
-    div().flex().items_end().gap(px(2.)).h(rems(1.)).children([0u64, 1, 2].map(|i| {
-        div()
-            .w(px(3.))
-            .h(rems(1.))
-            .rounded_full()
-            .bg(color)
-            .with_animation(
-                ("playing-bar", i as usize),
-                Animation::new(Duration::from_millis(760 + i * 170)).repeat().with_easing(pulsating_between(0.3, 1.)),
-                |d, t| d.h(rems(t)),
-            )
-    }))
-}
-
-/// Segue "Mostrar animações no Windows" (Acessibilidade › Efeitos visuais).
-pub fn sync_system_preference(cx: &mut App) {
-    cx.set_reduce_motion(!system_animations_enabled());
+/// "Mostrar animações no Windows" (Acessibilidade › Efeitos visuais), lido uma vez.
+pub fn animations_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(system_animations_enabled)
 }
 
 #[cfg(windows)]
@@ -104,11 +80,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn motion_valores() {
+        assert_eq!(QUICK, Duration::from_millis(160));
+        assert_eq!(BASE, Duration::from_millis(240));
+        assert_eq!(RISE, Duration::from_millis(420));
+    }
+
+    #[test]
     fn ease_out_starts_and_ends_in_place() {
         assert_eq!(ease_out_cubic(0.), 0.);
         assert_eq!(ease_out_cubic(1.), 1.);
         assert!(ease_out_cubic(0.5) > 0.5, "desacelera: passa da metade na metade do tempo");
         assert_eq!(ease_out_cubic(2.), 1.);
+        assert!((ease_out_cubic(0.5) - 0.875).abs() < 1e-6, "mesma curva cúbica do kit");
     }
 
     #[test]
@@ -129,15 +113,6 @@ mod tests {
         assert!(mid > 0.5 && mid < 1., "desacelera: {mid}");
         assert_eq!(rise_progress(delay + RISE, delay), 1.);
         assert_eq!(rise_progress(delay + RISE * 3, delay), 1.);
-    }
-
-    #[test]
-    fn staggered_animation_covers_wait_and_rise() {
-        let a = staggered(3);
-        assert_eq!(a.duration, stagger_delay(3) + RISE);
-        assert_eq!((a.easing)(0.), 0.);
-        assert_eq!((a.easing)(1.), 1.);
-        assert_eq!((a.easing)(0.1), 0., "ainda esperando a vez");
     }
 
     #[test]
