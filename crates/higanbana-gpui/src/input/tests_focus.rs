@@ -182,3 +182,16 @@ fn disabled_blocks_click_and_handlers() {
     t.mouse_up(point(5.0, 5.0), MouseButton::Left, Modifiers::default(), &mut v, &mut cx);
     assert!(v.log.is_empty());
 }
+
+#[test]
+fn scaled_text_field_click_maps_to_layout_space() {
+    let mut v = V { name: TextInputState::with_text("abcdef"), ..V::default() };
+    let field = text_field("nome", &v.name, |v: &mut V| &mut v.name).w(200.0).scale(0.5);
+    let mut t = build(div().child(field));
+    let i = t.find("nome").unwrap();
+    let x0 = t.nodes[i].content.origin.x;
+    let mut cx = EventCx::default();
+    // Visualmente cada caractere ocupa 3,5 px: 4 caracteres = 14 px a partir do início.
+    t.mouse_down(point(x0 + 14.0, t.nodes[i].content.center().y), MouseButton::Left, Modifiers::default(), &mut v, &mut cx);
+    assert_eq!(v.name.caret(), 4);
+}

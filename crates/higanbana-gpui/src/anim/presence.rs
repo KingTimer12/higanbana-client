@@ -10,7 +10,12 @@ impl Animator {
     /// continua do valor atual.
     pub fn presence(&mut self, key: ElementId, visible: bool, transition: Transition, now: Instant) -> Option<f32> {
         let p = self.value(key, 0.0, if visible { 1.0 } else { 0.0 }, transition, now);
-        (visible || p > 0.0).then_some(p)
+        if !visible && p <= 0.0 {
+            // Mola que passa de 0 na saída: acaba aqui, não volta a montar no repique.
+            self.snap(key, 0.0);
+            return None;
+        }
+        Some(p.clamp(0.0, 1.0))
     }
 }
 
@@ -53,5 +58,35 @@ mod tests {
         let after = a.presence(k, true, LINEAR, t0 + ms(175)).unwrap();
         assert!((before - 0.25).abs() < 1e-3);
         assert!((before - after).abs() < 1e-3, "sem voltar a 0");
+    }
+}
+
+#[cfg(test)]
+mod spring_exit {
+    use crate::anim::{Animator, Transition};
+    use crate::element::ElementId;
+    use std::time::{Duration, Instant};
+
+    /// Mola subamortecida passa de 0 na saída: some na primeira vez e não volta.
+    #[test]
+    fn spring_exit_never_remounts_or_goes_negative() {
+        let (t0, k) = (Instant::now(), ElementId::from("p"));
+        let tr = Transition::spring(300.0, 6.0);
+        let mut a = Animator::default();
+        a.begin();
+        a.presence(k, true, tr, t0);
+        a.presence(k, true, tr, t0 + Duration::from_secs(10));
+        a.presence(k, false, tr, t0 + Duration::from_secs(10));
+        let mut gone = false;
+        for ms in (0..3000).step_by(5) {
+            let p = a.presence(k, false, tr, t0 + Duration::from_secs(10) + Duration::from_millis(ms));
+            if let Some(p) = p {
+                assert!(!gone, "voltou depois de sumir em {ms} ms");
+                assert!((0.0..=1.0).contains(&p), "{p}");
+            } else {
+                gone = true;
+            }
+        }
+        assert!(gone);
     }
 }

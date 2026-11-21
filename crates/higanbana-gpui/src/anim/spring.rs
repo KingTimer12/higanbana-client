@@ -9,6 +9,9 @@ pub struct Spring {
     pub mass: f32,
 }
 
+/// Uma mola nunca anima mais que isso: depois, encaixa no alvo (sem frames eternos).
+pub const MAX_SPRING_SECS: f32 = 10.0;
+
 impl Spring {
     pub const DEFAULT: Spring = Spring { stiffness: 170.0, damping: 26.0, mass: 1.0 };
 
@@ -27,10 +30,16 @@ impl Spring {
         (value - to).abs() < 1e-3 * (to - from).abs().max(1.0) && velocity.abs() < 1e-2
     }
 
+    /// Parâmetros inválidos (NaN, ≤ 0) caem no padrão; amortecimento ganha um mínimo.
+    fn sane(&self) -> (f32, f32, f32) {
+        let ok = |v: f32, min: f32, def: f32| if v.is_finite() && v > 0.0 { v.max(min) } else { def };
+        (ok(self.stiffness, 1.0, Self::DEFAULT.stiffness), ok(self.damping, 0.5, Self::DEFAULT.damping), ok(self.mass, 0.01, 1.0))
+    }
+
     fn displacement(&self, x0: f32, v0: f32, t: f32) -> (f32, f32) {
-        let m = self.mass.max(1e-4);
-        let w0 = (self.stiffness.max(1e-4) / m).sqrt();
-        let z = self.damping.max(0.0) / (2.0 * (self.stiffness.max(1e-4) * m).sqrt());
+        let (k, c, m) = self.sane();
+        let w0 = (k / m).sqrt();
+        let z = c / (2.0 * (k * m).sqrt());
         if (z - 1.0).abs() < 1e-4 {
             let b = v0 + w0 * x0;
             let e = (-w0 * t).exp();
@@ -89,5 +98,28 @@ mod tests {
         let (x, v) = Spring::DEFAULT.sample(3.0, 1.0, 5.0, 0.0);
         assert!((x - 3.0).abs() < 1e-5);
         assert!((v - 5.0).abs() < 1e-4);
+    }
+}
+
+#[cfg(test)]
+mod degenerate {
+    use crate::anim::{Animator, Transition};
+    use crate::element::ElementId;
+    use std::time::{Duration, Instant};
+
+    /// Molas sem amortecimento, NaN ou rigidez 0 não podem animar para sempre.
+    #[test]
+    fn degenerate_springs_settle() {
+        for tr in [Transition::spring(170.0, 0.0), Transition::spring(170.0, f32::NAN), Transition::spring(0.0, 26.0), Transition::spring(f32::NAN, 26.0)] {
+            let (t0, k) = (Instant::now(), ElementId::from("m"));
+            let mut a = Animator::default();
+            a.begin();
+            a.value(k, 0.0, 1.0, tr, t0);
+            a.end();
+            a.begin();
+            let v = a.value(k, 0.0, 1.0, tr, t0 + Duration::from_secs(11));
+            assert!(!a.is_active(), "{tr:?} ainda ativa");
+            assert_eq!(v, 1.0);
+        }
     }
 }

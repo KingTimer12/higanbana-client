@@ -102,6 +102,7 @@ pub trait Styled: Sized {
     fn translate_x(self, x: f32) -> Self { self.with(|s| s.translate.x = x) }
     fn translate_y(self, y: f32) -> Self { self.with(|s| s.translate.y = y) }
     /// Escala a subárvore em torno do centro (texto, raios e bordas acompanham).
+    /// Só vale no estilo base: em `.hover(..)`/foco é ignorado (anime com `cx.animate`).
     fn scale(self, v: f32) -> Self { self.with(|s| s.scale = v.max(0.0)) }
     /// Cursor do mouse enquanto sobre o elemento.
     fn cursor(self, c: crate::gfx::CursorStyle) -> Self { self.with(|s| s.cursor = Some(c)) }

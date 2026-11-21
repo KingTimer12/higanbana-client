@@ -18,7 +18,7 @@ pub fn phase(elapsed: f32, duration: f32, delay: f32, repeat: Repeat, yoyo: bool
         return (0.0, false);
     }
     if duration <= 0.0 {
-        return (1.0, repeat != Repeat::Forever);
+        return (1.0, true);
     }
     let cycles = match repeat {
         Repeat::Once => Some(1),
@@ -76,5 +76,16 @@ mod tests {
     fn forever_never_done() {
         let (_, done) = phase(10.0, 0.1, 0.0, Repeat::Forever, false);
         assert!(!done);
+    }
+}
+
+#[cfg(test)]
+mod zero {
+    use super::*;
+
+    /// Duração 0 não tem o que repetir: termina mesmo com Forever (sem frames eternos).
+    #[test]
+    fn zero_duration_forever_is_done() {
+        assert_eq!(phase(1.0, 0.0, 0.0, Repeat::Forever, false), (1.0, true));
     }
 }

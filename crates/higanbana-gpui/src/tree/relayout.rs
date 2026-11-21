@@ -17,6 +17,7 @@ impl<V> Tree<V> {
         self.measure_fields(measurer);
         let end = self.main_end();
         position(&self.engine, &mut self.nodes, 0..end, point(0.0, 0.0), viewport, &mut self.offsets);
+        self.apply_transforms(0..end);
         for k in 0..self.overlays.len() {
             let root = self.overlays[k].root as usize;
             let min_width = if self.overlays[k].spec.match_width { self.anchor_rect(k).map(|r| r.size.width) } else { None };
@@ -30,6 +31,7 @@ impl<V> Tree<V> {
     pub(crate) fn reposition(&mut self) {
         let end = self.main_end();
         position(&self.engine, &mut self.nodes, 0..end, point(0.0, 0.0), self.viewport, &mut self.offsets);
+        self.apply_transforms(0..end);
         for k in 0..self.overlays.len() {
             self.place(k);
         }
@@ -38,7 +40,6 @@ impl<V> Tree<V> {
 
     fn after_position(&mut self) {
         self.scroll_fields();
-        self.apply_transforms();
         self.hovered = self.mouse.and_then(|p| self.hit_test(p)).map(|i| i as u32);
     }
 
@@ -59,6 +60,7 @@ impl<V> Tree<V> {
         let spec = &self.overlays[k].spec;
         let origin = place_overlay(&spec.anchor, spec.gap, size, self.anchor_rect(k), self.viewport);
         position(&self.engine, &mut self.nodes, root..end, origin, self.viewport, &mut self.offsets);
+        self.apply_transforms(root..end);
     }
 
     /// x das fronteiras de caractere de cada campo de texto.
@@ -75,7 +77,8 @@ impl<V> Tree<V> {
     fn scroll_fields(&mut self) {
         for n in &mut self.nodes {
             let NodeKind::TextField(f) = &mut n.kind else { continue };
-            let width = n.content.size.width;
+            // Carets estão no espaço do layout; `content` já pode estar escalado.
+            let width = n.content.size.width / n.paint_scale.max(1e-6);
             let caret_char = f.data.text[..f.data.caret].chars().count();
             let caret_x = f.carets.get(caret_char).copied().unwrap_or(0.0);
             let text_w = f.carets.last().copied().unwrap_or(0.0);

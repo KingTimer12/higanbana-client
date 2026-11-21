@@ -117,3 +117,15 @@ fn match_width_uses_anchor_width() {
     let t = build(div().child(div().id("trigger").w(150.0).h(20.0).child(menu)));
     assert_eq!(t.rect(t.find("menu").unwrap()).size.width, 150.0);
 }
+
+#[test]
+fn overlay_follows_translated_anchor() {
+    let root = div()
+        .child(div().translate(100.0, 0.0).child(div().id("t").w(40.0).h(20.0)))
+        .child(overlay(Anchor::below("t"), div().id("m").w(80.0).h(30.0)).gap(0.0));
+    let t = build(root);
+    let (a, m) = (t.nodes[t.find("t").unwrap()].rect, t.nodes[t.find("m").unwrap()].rect);
+    assert_eq!(a.origin.x, 100.0);
+    assert_eq!(m.origin.x, a.origin.x, "menu abre sob o gatilho visível");
+    assert_eq!(m.origin.y, a.bottom());
+}

@@ -37,14 +37,15 @@ impl Affine {
 }
 
 impl<V> Tree<V> {
-    /// Aplica os transforms do estilo. Sem nenhum transform na árvore, não faz nada.
-    pub(crate) fn apply_transforms(&mut self) {
-        if !self.nodes.iter().any(|n| n.style.has_transform()) {
+    /// Aplica os transforms do estilo aos nós em `range` (uma raiz e sua subárvore).
+    /// Sem nenhum transform no intervalo, não faz nada.
+    pub(crate) fn apply_transforms(&mut self, range: std::ops::Range<usize>) {
+        if !self.nodes[range.clone()].iter().any(|n| n.style.has_transform()) {
             return;
         }
         // Pilha de (fim da subárvore, transform acumulado) em pré-ordem.
         let mut stack: Vec<(usize, Affine)> = Vec::new();
-        for i in 0..self.nodes.len() {
+        for i in range {
             while stack.last().is_some_and(|&(end, _)| i >= end) {
                 stack.pop();
             }

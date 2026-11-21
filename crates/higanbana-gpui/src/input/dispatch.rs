@@ -133,7 +133,7 @@ impl<V> Tree<V> {
         let n = &self.nodes[i];
         let local = point(p.x - n.rect.origin.x, p.y - n.rect.origin.y);
         let text_index = match &n.kind {
-            NodeKind::TextField(f) => Some(field_index(&f.data.text, &f.carets, p.x - n.content.origin.x + f.scroll)),
+            NodeKind::TextField(f) => Some(field_index(&f.data.text, &f.carets, (p.x - n.content.origin.x) / n.paint_scale.max(1e-6) + f.scroll)),
             _ => None,
         };
         PointerEvent { position: p, local, bounds: n.rect, button, mods, pressed: self.button_down, text_index }

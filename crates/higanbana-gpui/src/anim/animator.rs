@@ -2,7 +2,7 @@
 use super::easing::Transition;
 use super::lerp::Animatable;
 use super::repeat::{phase, Repeat};
-use super::spring::Spring;
+use super::spring::{Spring, MAX_SPRING_SECS};
 use crate::element::ElementId;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -28,6 +28,7 @@ impl Tween {
         if let Some(s) = tr.spring {
             let t = t - tr.delay.as_secs_f32();
             if t <= 0.0 { return (self.from, self.v0, false) }
+            if t >= MAX_SPRING_SECS { return (self.to, [0.0; 4], true) }
             let (mut x, mut v, mut done) = ([0.0; 4], [0.0; 4], true);
             for i in 0..4 {
                 let (xi, vi) = s.sample(self.from[i], self.to[i], self.v0[i], t);
@@ -77,6 +78,15 @@ impl Animator {
 
     pub fn is_empty(&self) -> bool {
         self.tweens.is_empty()
+    }
+
+    /// Encerra o tween de `key` parado em `value` (sem velocidade).
+    pub(super) fn snap(&mut self, key: ElementId, value: f32) {
+        if let Some(t) = self.tweens.get_mut(&key) {
+            t.from = [value, 0.0, 0.0, 0.0];
+            t.to = t.from;
+            t.v0 = [0.0; 4];
+        }
     }
 
     /// Valor animado de `key` em direção a `target`. Na primeira consulta parte de `from`
