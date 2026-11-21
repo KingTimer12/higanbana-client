@@ -1,6 +1,7 @@
 //! Testes dos overlays sem GPU: render com relógio controlado + árvore + eventos.
 mod command;
 mod dialog;
+mod notifier;
 mod popover;
 mod select;
 mod tabs;

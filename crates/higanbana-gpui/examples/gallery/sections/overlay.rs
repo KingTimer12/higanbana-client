@@ -97,11 +97,30 @@ pub fn toast(_: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery
             cx.notify();
         })
         .render(cx);
-    vec![preview(cx, "Padrão e destrutivo", row().child(ok).child(err))]
+    let kit_ok = Button::new("nota-ok", "Notificar sucesso")
+        .variant(Variant::Outline)
+        .on_click(|v: &mut Gallery, _, cx| {
+            v.notes.push_success("Download concluído");
+            cx.notify();
+        })
+        .render(cx);
+    let kit_err = Button::new("nota-erro", "Notificar erro")
+        .variant(Variant::Outline)
+        .on_click(|v: &mut Gallery, _, cx| {
+            v.notes.push_error("Não foi possível baixar o episódio");
+            cx.notify();
+        })
+        .render(cx);
+    vec![
+        preview(cx, "Padrão e destrutivo", row().child(ok).child(err)),
+        preview(cx, "Notificação (topo, com ícone)", row().child(kit_ok).child(kit_err)),
+    ]
 }
 
 /// Dois avisos para a captura `HGUI_GALLERY_STATE=toast`.
-pub fn push_demo_toasts(t: &mut Toasts) {
+pub fn push_demo_toasts(t: &mut Toasts, notes: &mut Toasts) {
+    notes.push_success("Download concluído");
+    notes.push_error("Não foi possível baixar o episódio");
     t.push(Toast::new("Episódio adicionado").description("Frieren · Ep. 12 entrou na sua lista."));
     t.push(Toast::new("Falha no download").description("A conexão caiu. Tente de novo.").variant(Variant::Destructive));
 }

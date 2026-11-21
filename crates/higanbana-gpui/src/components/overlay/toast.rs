@@ -17,11 +17,42 @@ pub struct Toast {
     /// `Default` ou `Destructive` (as demais são tratadas como `Default`).
     pub variant: Variant,
     pub duration: Duration,
+    /// Tom da notificação do kit (ícone colorido); só o `Notifier` usa.
+    pub tone: Option<ToastTone>,
 }
+
+/// Tom das notificações do kit: define ícone e cor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToastTone {
+    Info,
+    Success,
+    Warning,
+    Error,
+}
+
+impl ToastTone {
+    /// Ícone e cor (kit: info, circle-check, triangle-alert, circle-x).
+    pub fn look(self, t: &crate::theme::Theme) -> (&'static str, crate::color::Color) {
+        match self {
+            ToastTone::Info => ("info", t.info),
+            ToastTone::Success => ("circle-check", t.success),
+            ToastTone::Warning => ("triangle-alert", t.warning),
+            ToastTone::Error => ("circle-x", t.destructive),
+        }
+    }
+}
+
+/// Duração das notificações do kit.
+pub const NOTIFICATION_DURATION: Duration = Duration::from_secs(5);
 
 impl Toast {
     pub fn new(title: impl Into<Cow<'static, str>>) -> Self {
-        Self { title: title.into(), description: None, variant: Variant::Default, duration: Duration::from_secs(4) }
+        Self { title: title.into(), description: None, variant: Variant::Default, duration: Duration::from_secs(4), tone: None }
+    }
+
+    pub fn tone(mut self, t: ToastTone) -> Self {
+        self.tone = Some(t);
+        self
     }
 
     pub fn description(mut self, d: impl Into<Cow<'static, str>>) -> Self {
@@ -83,6 +114,16 @@ impl Toasts {
         let expires = now + toast.duration;
         self.items.push(Entry { id, toast, expires });
         id
+    }
+
+    /// Notificação de sucesso no visual do kit (5 s).
+    pub fn push_success(&mut self, message: impl Into<Cow<'static, str>>) -> ToastId {
+        self.push(Toast::new(message).tone(ToastTone::Success).duration(NOTIFICATION_DURATION))
+    }
+
+    /// Notificação de erro no visual do kit (5 s).
+    pub fn push_error(&mut self, message: impl Into<Cow<'static, str>>) -> ToastId {
+        self.push(Toast::new(message).tone(ToastTone::Error).duration(NOTIFICATION_DURATION))
     }
 
     /// Fecha um toast (botão "×").

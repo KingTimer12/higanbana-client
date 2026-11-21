@@ -58,7 +58,13 @@ impl<V> Tree<V> {
         let l = self.engine.layout(root);
         let size = Size { width: l.size.width, height: l.size.height };
         let spec = &self.overlays[k].spec;
-        let origin = place_overlay(&spec.anchor, spec.gap, size, self.anchor_rect(k), self.viewport);
+        let base = place_overlay(&spec.anchor, spec.gap, size, self.anchor_rect(k), self.viewport);
+        let (dx, dy) = spec.offset;
+        let vp = self.viewport;
+        let origin = crate::geometry::point(
+            (base.x + dx).min(vp.width - size.width).max(0.0),
+            (base.y + dy).min(vp.height - size.height).max(0.0),
+        );
         position(&self.engine, &mut self.nodes, root..end, origin, self.viewport, &mut self.offsets);
         self.apply_transforms(root..end);
         // Âncora rolada para fora do recorte: o overlay some (sem pintura nem clique).

@@ -32,6 +32,7 @@ pub struct Gallery {
     pub tip: TooltipState,
     pub tip_side: TooltipState,
     pub toasts: Toasts,
+    pub notes: Toasts,
     pub cover: ImageSource,
     pub clicks: u32,
     pub anim_card: bool,
@@ -55,6 +56,7 @@ impl View for Gallery {
         let page = sections::page(self, cx);
         let dialog = sections::overlay::dialog(self, cx);
         let toaster = Toaster::new("toaster", &self.toasts, |v: &mut Gallery| &mut v.toasts).render(cx);
+        let notifier = Notifier::new("avisos", &self.notes, |v: &mut Gallery| &mut v.notes).render(cx);
         let line = |c| div().h(1.0).flex_shrink_0().bg(c);
         let border = cx.theme().border;
         div()
@@ -75,6 +77,7 @@ impl View for Gallery {
             .child(footer)
             .child(dialog)
             .child(toaster)
+            .child(notifier)
     }
 }
 
@@ -130,6 +133,7 @@ fn main() {
         tip: TooltipState::default(),
         tip_side: TooltipState::default(),
         toasts: Toasts::new(),
+        notes: Toasts::new(),
         cover: cover(),
         clicks: 0,
         anim_card: true,
@@ -144,7 +148,7 @@ fn main() {
     };
     view.tip.visible = state == "tooltip";
     if state == "toast" {
-        sections::overlay::push_demo_toasts(&mut view.toasts);
+        sections::overlay::push_demo_toasts(&mut view.toasts, &mut view.notes);
     }
     let theme = if env("HGUI_GALLERY_THEME") == "light" { Theme::light() } else { Theme::dark() };
     let opts = WindowOptions { title: "higanbana-gpui · galeria".into(), size: size(1280.0, 800.0), resizable: true, decorations: Decorations::Custom };

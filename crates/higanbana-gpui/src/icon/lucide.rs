@@ -15,6 +15,7 @@ pub(super) const LUCIDE: &[(&str, &[u8])] = &[
     ("chevrons-right", include_bytes!("../../icons/lucide/chevrons-right.svg")),
     ("circle-alert", include_bytes!("../../icons/lucide/circle-alert.svg")),
     ("circle-check", include_bytes!("../../icons/lucide/circle-check.svg")),
+    ("circle-x", include_bytes!("../../icons/lucide/circle-x.svg")),
     ("clapperboard", include_bytes!("../../icons/lucide/clapperboard.svg")),
     ("columns-2", include_bytes!("../../icons/lucide/columns-2.svg")),
     ("compass", include_bytes!("../../icons/lucide/compass.svg")),

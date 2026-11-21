@@ -129,3 +129,10 @@ fn overlay_follows_translated_anchor() {
     assert_eq!(m.origin.x, a.origin.x, "menu abre sob o gatilho visível");
     assert_eq!(m.origin.y, a.bottom());
 }
+
+#[test]
+fn offset_desloca_overlay_da_janela() {
+    let root = div().child(overlay(Anchor::window(1.0, 0.0), div().id("aviso").w(100.0).h(20.0)).gap(16.0).offset(0.0, 34.0));
+    let t = build(root);
+    assert_eq!(t.rect(t.find("aviso").unwrap()), Rect::new(400.0 - 16.0 - 100.0, 16.0 + 34.0, 100.0, 20.0));
+}
