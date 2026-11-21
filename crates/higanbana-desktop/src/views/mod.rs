@@ -1,35 +1,45 @@
-//! Telas do acervo.
+//! Telas do acervo. O estado de cada tela vive em `Pages` e só existe enquanto
+//! a tela está aberta: trocar de rota solta o estado da anterior (RAM). O que
+//! precisa sobreviver (filtros e posição do catálogo) fica no `AppState`.
 
-pub mod catalog;
-pub mod catalog_filters;
-pub mod episodes;
-pub mod folder;
-pub mod franchise;
-pub mod home;
-pub mod login;
-pub mod shelf;
-pub mod title;
+#[cfg(test)]
+mod tests;
 
-use gpui_kit::{Context, Entity};
-use higanbana_core::nuvem::FileEntry;
+/// Estado da tela aberta.
+pub enum Page {
+    /// Tela sem estado próprio (ou ainda não portada).
+    Plain,
+}
 
-use crate::state::AppState;
+impl Page {
+    fn for_route(_route: &str) -> Page {
+        Page::Plain
+    }
+}
 
-/// Lista uma pasta da nuvem e entrega o resultado à tela.
-pub fn load_listing<V: 'static>(
-    state: &Entity<AppState>,
-    path: String,
-    cx: &mut Context<V>,
-    set: impl FnOnce(&mut V, Result<Vec<FileEntry>, String>, &mut Context<V>) + 'static,
-) {
-    let core = state.read(cx).core.clone();
-    let task = core.clone().spawn(async move { core.cloud().list(&path).await.map(|l| l.files).map_err(|e| e.to_string()) });
-    cx.spawn(async move |this, cx| {
-        let r = task.await.map_err(|e| e.to_string()).and_then(|r| r);
-        let _ = this.update(cx, |v, cx| {
-            set(v, r, cx);
-            cx.notify();
-        });
-    })
-    .detach();
+pub struct Pages {
+    route: Option<String>,
+    pub page: Page,
+}
+
+impl Default for Pages {
+    fn default() -> Self {
+        Pages { route: None, page: Page::Plain }
+    }
+}
+
+impl Pages {
+    /// Garante o estado da tela de `route`; `true` se a tela mudou (o estado anterior foi solto).
+    pub fn sync(&mut self, route: &str) -> bool {
+        if self.route.as_deref() == Some(route) {
+            return false;
+        }
+        self.route = Some(route.to_owned());
+        self.page = Page::for_route(route);
+        true
+    }
+
+    pub fn route(&self) -> Option<&str> {
+        self.route.as_deref()
+    }
 }

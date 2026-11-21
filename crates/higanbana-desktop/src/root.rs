@@ -29,6 +29,8 @@ pub struct Higanbana {
     pending_play: Option<crate::video::PlayTarget>,
     /// Espelho do estado da janela para os atalhos (o `EventCx` não lê a janela).
     pub window_fullscreen: bool,
+    /// Estado da tela aberta do acervo (solto ao trocar de rota).
+    pub pages: crate::views::Pages,
 }
 
 impl Higanbana {
@@ -45,6 +47,7 @@ impl Higanbana {
             player_spare: Default::default(),
             pending_play: dev_play_target(),
             window_fullscreen: false,
+            pages: crate::views::Pages::default(),
         }
     }
 
@@ -131,9 +134,15 @@ impl Higanbana {
         let shift = if self.state.nav.went_back() { -motion::PAGE_SHIFT } else { motion::PAGE_SHIFT };
         let key = higanbana_gpui::ElementId::from(("pagina", path.as_str()));
         let t = cx.animate_from(key, 0.0, 1.0, motion::transition(motion::BASE));
+        self.pages.sync(&path);
         let page = crate::pages::page(self, cx);
         let body = div().id(key).w_full().opacity(t).ml(shift * (1.0 - t)).child(page);
-        let main = scroll(("principal", path.as_str())).flex_1().min_w(0.0).child(body);
+        // Catálogo e pasta rolam sozinhos (lista virtual); o resto rola aqui (volta ao topo ao navegar).
+        let main = if crate::pages::own_scroll(&path) {
+            div().flex_1().min_w(0.0).min_h(0.0).child(body.size_full())
+        } else {
+            scroll(("principal", path.as_str())).flex_1().min_w(0.0).child(body)
+        };
         let bar = chrome::sidebar(self, cx);
         div().size_full().child(bar).child(main)
     }

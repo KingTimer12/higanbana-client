@@ -118,6 +118,22 @@ impl AppState {
         self.lookups.of(media).get(name).cloned().flatten()
     }
 
+    /// Como `lookup`, sem copiar (para varrer o índice inteiro).
+    pub fn lookup_ref(&self, name: &str, media: MediaType) -> Option<Option<&MediaSummary>> {
+        self.lookups.of(media).get(name).and_then(Option::as_ref).map(Option::as_deref)
+    }
+
+    /// Pausa da faixa do rastreio (falha de lote ou 429 do AniList).
+    pub(crate) fn anilist_paused_until(&self) -> Option<Instant> {
+        self.lane_paused(Priority::Background)
+    }
+
+    /// Há buscas na fila, prestes a sair, esperando resposta ou em pausa (o rastreio espera).
+    pub(crate) fn lookups_busy(&self) -> bool {
+        let l = &self.lookups;
+        !l.queue.is_empty() || !l.background.is_empty() || l.flush.is_some() || l.inflight > 0 || self.anilist_paused_until().is_some()
+    }
+
     /// Muda sempre que algum nome passa a ter resposta.
     pub fn lookups_gen(&self) -> u64 {
         self.lookups.generation
@@ -193,11 +209,15 @@ impl AppState {
         let l = &mut self.lookups;
         l.generation += 1;
         let mut pending = Vec::new();
+        let mut settled = Vec::new();
         // Progresso: algum nome que já tinha voltado adiado agora tem resposta.
         let mut progress = false;
         for (key, v) in batch.into_iter().zip(list) {
             if !matches!(v, Lookup::Pending) {
                 progress |= l.retries.remove(&key).is_some();
+            }
+            if !matches!(v, Lookup::Pending) {
+                settled.push(key.clone());
             }
             match v {
                 Lookup::Found(v) => l.insert(key, Some(serde_json::from_value::<MediaSummary>(v).ok().map(Arc::new))),
@@ -215,9 +235,12 @@ impl AppState {
                 None => {
                     l.retries.remove(&key);
                     l.remove(&key);
+                    // O rastreio não pede de novo os que desistiu.
+                    settled.push(key);
                 }
             }
         }
+        self.crawl_lookups_done(&settled, false);
         for (wait, retry) in later {
             self.after(wait, move |s, _| {
                 s.lookups.lane(priority).splice(0..0, retry);
@@ -233,6 +256,7 @@ impl AppState {
             Priority::Interactive => self.lookups.cooldown_until = end,
             Priority::Background => self.lookups.background_cooldown_until = end,
         }
+        self.crawl_lookups_done(&batch, true);
         for key in batch {
             self.lookups.retries.remove(&key);
             self.lookups.remove(&key);

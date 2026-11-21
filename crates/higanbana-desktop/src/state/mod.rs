@@ -5,7 +5,9 @@
 //! volta para a thread da UI pela `Mailbox` da janela (`Post`): nada prende as
 //! threads da lib, nem um download de minutos.
 
+mod catalog;
 mod covers;
+mod listings;
 mod download_tasks;
 mod downloads;
 mod images;
@@ -22,6 +24,8 @@ use std::sync::Arc;
 use higanbana_core::{Core, player::store::PlayerData};
 use higanbana_gpui::EventCx;
 
+pub use catalog::{CatalogChoice, CatalogPlace};
+pub use listings::Listing;
 pub use downloads::{DlStatus, Download, Downloads};
 pub use images::Img;
 pub use nav::Nav;
@@ -108,6 +112,8 @@ pub struct AppState {
     sections_load: SectionsLoad,
     images: images::Images,
     covers: covers::Covers,
+    pub(crate) catalog: catalog::CatalogState,
+    listings: listings::Listings,
     lookups: lookup::Lookups,
     events: Vec<AppEvent>,
 }
@@ -132,6 +138,8 @@ impl AppState {
             sections_load: SectionsLoad::default(),
             images: images::Images::default(),
             covers: covers::Covers::default(),
+            catalog: catalog::CatalogState::default(),
+            listings: listings::Listings::default(),
             lookups: lookup::Lookups::default(),
             events: Vec::new(),
         };
@@ -203,6 +211,9 @@ impl AppState {
     }
 
     fn navigated(&mut self) {
+        // Só a listagem da tela nova fica na memória.
+        let root = listings::screen_root(self.path());
+        self.keep_listings(root.as_deref());
         self.emit(AppEvent::Navigated);
     }
 
