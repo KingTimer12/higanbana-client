@@ -161,7 +161,9 @@ impl PlayerState {
                 }
             }
             "eof-reached" => {
-                if flag() {
+                if matches!(self.status, Status::Error(_)) {
+                    // erro do arquivo prevalece sobre "fim"
+                } else if flag() {
                     self.status = Status::Ended;
                 } else if self.status == Status::Ended {
                     self.status = if self.paused { Status::Paused } else { Status::Playing };

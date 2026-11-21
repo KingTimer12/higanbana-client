@@ -110,3 +110,29 @@ fn time_format() {
     assert_eq!(fmt_time(65.4), "1:05");
     assert_eq!(fmt_time(3725.0), "1:02:05");
 }
+
+#[test]
+fn mouse_move_focuses_player_once() {
+    let (mut h, mut t, mut v) = (Harness::new(), Tree::new(), view(Status::Playing));
+    frame(&mut h, &mut t, &mut v);
+    let mut cx = EventCx::default();
+    t.pointer_move(center(&t, surface_id(ElementId::from("vp"))), Default::default(), &mut v, &mut cx);
+    assert!(matches!(cx.focus, Some(crate::cx::FocusRequest::Focus(id)) if id == ElementId::from("vp")), "atalhos sem clicar");
+}
+
+#[test]
+fn open_menu_keeps_controls() {
+    let (mut h, mut t, mut v) = (Harness::new(), Tree::new(), view(Status::Playing));
+    frame(&mut h, &mut t, &mut v);
+    v.video.speed.open = true;
+    h.advance(5000);
+    frame(&mut h, &mut t, &mut v);
+    assert!(t.find(controls_id(ElementId::from("vp"))).is_some());
+}
+
+#[test]
+fn seek_drag_uses_keyframes() {
+    let p = crate::video::Player::detached();
+    p.seek_preview(42.0);
+    assert_eq!(p.commands(), vec!["seek 42.000 absolute+keyframes"]);
+}

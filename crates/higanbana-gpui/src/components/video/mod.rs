@@ -21,6 +21,8 @@ pub struct VideoState {
     pending_click: Option<(Instant, TimerId)>,
     /// Controles visíveis no último render (o mouse só reconstrói se estavam ocultos).
     controls_visible: bool,
+    /// Ainda não pegou o foco do teclado (pega no primeiro movimento do mouse).
+    want_focus: bool,
     speed: SelectState,
     audio: SelectState,
     sub: SelectState,
@@ -33,10 +35,16 @@ impl VideoState {
             last_activity: Instant::now(),
             pending_click: None,
             controls_visible: true,
+            want_focus: true,
             speed: SelectState::default(),
             audio: SelectState::default(),
             sub: SelectState::default(),
         }
+    }
+
+    /// Algum menu da barra aberto: os controles não podem sumir.
+    fn menu_open(&self) -> bool {
+        self.speed.open || self.audio.open || self.sub.open
     }
 
     /// Mouse/teclado: mostra os controles e reinicia a contagem para sumirem.

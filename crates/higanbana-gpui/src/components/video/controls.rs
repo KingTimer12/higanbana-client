@@ -64,7 +64,7 @@ pub(super) fn bar<V: 'static>(id: ElementId, lens: &Lens<V>, state: &mut VideoSt
     let seek = Slider::new(part(id, "seek"), st.position as f32)
         .range(0.0, st.duration.max(0.1) as f32)
         .step(0.0)
-        .on_change(move |v: &mut V, x, _| l(v).player.seek(x as f64))
+        .on_change(move |v: &mut V, x, _| l(v).player.seek_preview(x as f64))
         .render(cx);
     let l = lens.clone();
     let volume = Slider::new(part(id, "volume"), st.volume as f32)

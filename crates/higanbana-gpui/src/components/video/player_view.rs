@@ -69,8 +69,8 @@ impl<V: 'static> Component<V> for VideoPlayer<'_, V> {
         let st = self.state.player.state();
         let playing = st.status == Status::Playing;
         let idle = cx.now().saturating_duration_since(self.state.last_activity);
-        let show = !playing || idle < HIDE_AFTER;
-        if show && playing {
+        let show = !playing || idle < HIDE_AFTER || self.state.menu_open();
+        if playing && idle < HIDE_AFTER {
             cx.request_redraw_in(HIDE_AFTER - idle);
         }
         self.state.controls_visible = show;
@@ -105,7 +105,12 @@ impl<V: 'static> Component<V> for VideoPlayer<'_, V> {
             .bg(rgba(0x0000_00ff))
             .on_key_down(move |v: &mut V, ev, cx| on_key(&lk, v, ev, cx))
             .on_mouse_move(move |v: &mut V, _, cx| {
-                if lm(v).touch() {
+                let s = lm(v);
+                if std::mem::take(&mut s.want_focus) {
+                    // Atalhos funcionam sem precisar clicar no vídeo antes.
+                    cx.focus(id);
+                }
+                if s.touch() {
                     cx.notify();
                 }
             })

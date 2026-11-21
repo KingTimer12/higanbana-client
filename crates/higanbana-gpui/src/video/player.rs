@@ -78,8 +78,15 @@ impl Player {
         let st = state.clone();
         let events = std::thread::Builder::new()
             .name("mpv-events".into())
-            .spawn(move || event_loop(handle, st, waker))
-            .map_err(|e| e.to_string())?;
+            .spawn(move || event_loop(handle, st, waker));
+        let events = match events {
+            Ok(j) => j,
+            Err(e) => {
+                drop(render);
+                unsafe { (api.terminate_destroy)(handle.0) };
+                return Err(e.to_string());
+            }
+        };
         Ok(Player {
             core: Some(Core { handle, render: Some(render), events: Some(events) }),
             state,
@@ -171,6 +178,11 @@ impl Player {
     /// Vai para `secs` (absoluto).
     pub fn seek(&self, secs: f64) {
         self.command(&["seek", &format!("{secs:.3}"), "absolute"]);
+    }
+
+    /// Seek rápido durante o arraste (só quadros-chave): não enfileira decodificação a cada movimento.
+    pub fn seek_preview(&self, secs: f64) {
+        self.command(&["seek", &format!("{secs:.3}"), "absolute+keyframes"]);
     }
 
     pub fn seek_relative(&self, secs: f64) {
