@@ -2,6 +2,7 @@
 use super::api::*;
 use super::render::{RenderThread, SharedHandle, Slot};
 use super::state::{PlayerState, Status, OBSERVED};
+use super::options::PlayerOptions;
 use crate::element::{ImageData, ImageSource};
 use crate::gfx::Waker;
 use std::cell::RefCell;
@@ -10,18 +11,6 @@ use std::thread::JoinHandle;
 
 /// Opções aplicadas antes de iniciar: saída pela render API, decodificação por hardware
 /// com cópia (o render sw precisa do quadro na CPU), sem teclado/OSC do mpv.
-const OPTIONS: &[(&str, &str)] = &[
-    ("vo", "libmpv"),
-    ("hwdec", "auto-copy"),
-    ("keep-open", "yes"),
-    ("idle", "yes"),
-    ("terminal", "no"),
-    ("input-default-bindings", "no"),
-    ("osc", "no"),
-    ("ytdl", "no"),
-    ("sub-auto", "fuzzy"),
-];
-
 struct Core {
     handle: SharedHandle,
     render: Option<RenderThread>,
@@ -46,13 +35,18 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 impl Player {
     /// Carrega a libmpv (uma vez por processo) e cria uma instância.
     pub fn new(waker: Waker) -> Result<Player, String> {
+        Player::with_options(waker, PlayerOptions::default())
+    }
+
+    /// Como `new`, com opções próprias (cache, threads, idioma...).
+    pub fn with_options(waker: Waker, options: PlayerOptions) -> Result<Player, String> {
         let api = api()?;
         // SAFETY: handle novo; strings vivem até o fim de cada chamada.
         let handle = unsafe { (api.create)() };
         if handle.is_null() {
             return Err("mpv_create falhou".into());
         }
-        for (k, v) in OPTIONS {
+        for (k, v) in options.pairs() {
             let (k, v) = (cstr(k), cstr(v));
             unsafe { (api.set_option_string)(handle, k.as_ptr(), v.as_ptr()) };
         }
@@ -142,6 +136,11 @@ impl Player {
         command_raw(core.handle, args);
     }
 
+    /// Muda uma propriedade do mpv ao vivo (`set_property_string`).
+    pub fn set_property(&self, name: &str, value: &str) {
+        self.set(name, value);
+    }
+
     fn set(&self, name: &str, value: &str) {
         let Some(core) = &self.core else {
             self.log.borrow_mut().push(format!("set {name} {value}"));
@@ -163,6 +162,21 @@ impl Player {
         self.command(&["loadfile", path, "replace"]);
     }
 
+    /// Abre começando em `start` segundos (ignorado se até 1 s).
+    pub fn load_at(&self, path: &str, start: Option<f64>) {
+        {
+            let mut s = lock(&self.state);
+            s.status = Status::Loading;
+            s.position = 0.0;
+            s.duration = 0.0;
+            s.first_frame = false;
+        }
+        match start.filter(|s| *s > 1.0) {
+            Some(s) => self.command(&["loadfile", path, "replace", "-1", &format!("start={s:.1}")]),
+            None => self.command(&["loadfile", path, "replace", "-1"]),
+        }
+    }
+
     pub fn play(&self) {
         self.set("pause", "no");
     }
@@ -177,7 +191,7 @@ impl Player {
 
     /// Vai para `secs` (absoluto).
     pub fn seek(&self, secs: f64) {
-        self.command(&["seek", &format!("{secs:.3}"), "absolute"]);
+        self.command(&["seek", &format!("{secs:.3}"), "absolute+exact"]);
     }
 
     /// Seek rápido durante o arraste (só quadros-chave): não enfileira decodificação a cada movimento.
@@ -250,9 +264,7 @@ fn event_loop(handle: SharedHandle, state: Arc<Mutex<PlayerState>>, waker: Waker
             EVENT_FILE_LOADED => lock(&state).file_loaded(),
             EVENT_END_FILE if !ev.data.is_null() => {
                 let end = unsafe { &*(ev.data as *const RawEndFile) };
-                if end.reason == END_REASON_ERROR {
-                    lock(&state).status = Status::Error(error_text(end.error));
-                }
+                lock(&state).end_file(end.reason, end.error);
             }
             _ => continue,
         }
