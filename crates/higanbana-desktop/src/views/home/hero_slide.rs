@@ -41,7 +41,7 @@ pub fn slide(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, m: &RankedMedi
     };
     let banner = s.banner_image.clone().or_else(|| s.cover().map(str::to_owned));
     let has_banner = s.banner_image.is_some();
-    let drift = if active { cx.animate_from(("hero-desliza", id), 0.0, 1.0, crate::motion::transition(AUTO_ADVANCE)) } else { 0.0 };
+    let drift = if active { cx.animate_from(("hero-desliza", id), 0.0, 1.0, crate::motion::transition(AUTO_ADVANCE).fps(15)) } else { 0.0 };
     let backdrop = div()
         .absolute()
         .top(0.0)
