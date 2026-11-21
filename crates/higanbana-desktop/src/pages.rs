@@ -1,16 +1,13 @@
-//! Tela da rota atual (`library::classify`). Telas ainda não portadas mostram
-//! um aviso provisório com o caminho.
+//! Tela da rota atual (`library::classify`).
 
 use higanbana_core::library::{classify, Place};
 use higanbana_gpui::prelude::*;
 
-use crate::chrome::section_label;
 use crate::root::Higanbana;
-use crate::ui::empty_state;
 
 /// Catálogo e pasta têm a própria rolagem (lista virtual).
 pub fn own_scroll(route: &str) -> bool {
-    matches!(classify(route), Place::Catalog { .. } | Place::Folder { .. } | Place::Raw { .. })
+    matches!(classify(route), Place::Catalog { .. } | Place::Folder { .. } | Place::Raw { .. } | Place::Shelf { .. })
 }
 
 pub fn page(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higanbana> {
@@ -19,14 +16,12 @@ pub fn page(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higa
         Place::Home => crate::views::home::page(v, cx),
         Place::Catalog { .. } => crate::views::catalog::page(v, cx),
         Place::Title { title_path, rest, media, .. } => crate::views::title::page(v, cx, &title_path, &rest, media),
-        _ => placeholder(&path, cx),
+        Place::Folder { path } => crate::views::folder::page(v, cx, &path, false),
+        Place::Raw { path } => crate::views::folder::page(v, cx, &path, true),
+        Place::Shelf { path, media } => crate::views::shelf::page(v, cx, &path, media),
     }
 }
 
-fn placeholder(path: &str, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higanbana> {
-    let title = if path.is_empty() { "Início".to_owned() } else { path.split('/').map(section_label).collect::<Vec<_>>().join(" / ") };
-    empty_state(cx.theme(), "compass", title, Some("Esta tela ainda está sendo migrada para a nova interface.".into()))
-}
 
 #[cfg(test)]
 mod tests {

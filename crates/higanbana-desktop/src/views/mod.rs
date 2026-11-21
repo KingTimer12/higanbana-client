@@ -4,8 +4,10 @@
 
 pub mod catalog;
 pub mod episodes;
+pub mod folder;
 pub mod franchise;
 pub mod home;
+pub mod shelf;
 pub mod title;
 
 #[cfg(test)]
@@ -13,6 +15,8 @@ mod tests;
 
 use higanbana_core::anilist::MediaType;
 use higanbana_core::library::{classify, Place};
+
+use higanbana_gpui::TextInputState;
 
 use crate::state::{AppState, CatalogChoice};
 
@@ -22,6 +26,8 @@ pub struct Pages {
     pub home: Option<home::HomeUi>,
     pub catalog: Option<catalog::CatalogUi>,
     pub title: Option<title::TitleUi>,
+    pub folder: Option<folder::FolderUi>,
+    pub shelf: Option<shelf::ShelfUi>,
 }
 
 impl Pages {
@@ -55,6 +61,14 @@ impl Pages {
 
     pub fn route(&self) -> Option<&str> {
         self.route.as_deref()
+    }
+
+    pub fn folder(&mut self) -> &mut folder::FolderUi {
+        self.folder.get_or_insert_default()
+    }
+
+    pub fn shelf(&mut self) -> &mut shelf::ShelfUi {
+        self.shelf.get_or_insert_with(|| shelf::ShelfUi { filter: TextInputState::new().placeholder("Filtrar") })
     }
 
     /// Estado do título (criado se faltar).
