@@ -55,6 +55,15 @@ pub fn badge(_: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery
     vec![preview(cx, "Variantes", variants), preview(cx, "Gêneros", genres)]
 }
 
+pub fn kbd(_: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery>> {
+    let mut keys = row();
+    for k in ["ctrl-k", "alt-left", "shift-enter", "escape"] {
+        keys = keys.child(Kbd::new(k).render(cx));
+    }
+    let outline = row().child(Kbd::new("ctrl-k").outline().render(cx));
+    vec![preview(cx, "Atalhos", keys), preview(cx, "Contorno", outline)]
+}
+
 pub fn card(v: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery>> {
     let name = Input::new("card-nome", &v.name, |v: &mut Gallery| &mut v.name).render(cx);
     let email = Input::new("card-email", &v.email, |v: &mut Gallery| &mut v.email).render(cx);

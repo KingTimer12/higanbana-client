@@ -97,3 +97,14 @@ fn focus_ring_only_with_keyboard_focus() {
     assert_eq!(ring.shadow.unwrap().color, th.ring.alpha(0.5));
     assert_eq!(ring.border_color, th.ring);
 }
+
+#[test]
+fn kbd_formata_atalho() {
+    use crate::components::Kbd;
+    assert_eq!(Kbd::label("ctrl-k"), "Ctrl+K");
+    assert_eq!(Kbd::label("alt-left"), "Alt+Left");
+    assert_eq!(Kbd::label("shift-enter"), "Shift+Enter");
+    assert_eq!(Kbd::label("ctrl-alt-a"), "Ctrl+Alt+A");
+    assert_eq!(Kbd::label("shift-pagedown"), "Shift+Page Down");
+    assert_eq!(Kbd::label("a"), "A");
+}

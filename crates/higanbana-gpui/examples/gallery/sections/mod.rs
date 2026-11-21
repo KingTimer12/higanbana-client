@@ -26,6 +26,7 @@ const fn s(group: &'static str, title: &'static str, description: &'static str, 
 pub const SECTIONS: &[Section] = &[
     s("Básicos", "Button", "Dispara uma ação. Seis variantes, quatro tamanhos, ícone e estado desabilitado.", basic::button),
     s("Básicos", "Badge", "Etiqueta curta para status, gênero ou contagem.", basic::badge),
+    s("Básicos", "Kbd", "Atalho de teclado, como Ctrl+K.", basic::kbd),
     s("Básicos", "Card", "Agrupa conteúdo relacionado com cabeçalho, corpo e rodapé.", basic::card),
     s("Básicos", "Separator", "Linha fina que divide conteúdo na horizontal ou vertical.", basic::separator),
     s("Básicos", "Skeleton", "Placeholder pulsante enquanto o conteúdo carrega.", basic::skeleton),
