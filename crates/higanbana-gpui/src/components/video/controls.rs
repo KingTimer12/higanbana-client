@@ -114,7 +114,7 @@ pub(super) fn bar<V: 'static>(id: ElementId, lens: &Lens<V>, state: &mut VideoSt
         .gap(8.0)
         .child(play)
         .child(mute)
-        .child(volume)
+        .child(div().w(96.0).mr(12.0).flex_shrink_0().child(volume))
         .child(time)
         .child(div().flex_1())
         .child(speed)

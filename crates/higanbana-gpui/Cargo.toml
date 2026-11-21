@@ -26,3 +26,7 @@ required-features = ["video"]
 [[test]]
 name = "video_missing"
 required-features = ["video"]
+
+[[example]]
+name = "video_player"
+required-features = ["video"]
