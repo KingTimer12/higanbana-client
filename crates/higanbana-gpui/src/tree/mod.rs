@@ -7,6 +7,7 @@ mod tests_transform;
 #[cfg(test)]
 mod tests_hit_regions;
 mod hit_regions;
+mod icons;
 mod transform;
 
 use crate::element::{Element, ElementId};

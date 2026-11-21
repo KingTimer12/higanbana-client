@@ -150,6 +150,7 @@ impl<V: View> Runner<'_, V> {
         }
         self.dirty = Dirty::Clean;
         self.blink = self.tree.next_blink(now);
+        self.tree.resolve_icons(self.scale);
         self.images.prepare(&self.tree);
         let mut list = self.pool.take().unwrap_or_default().recycle();
         {

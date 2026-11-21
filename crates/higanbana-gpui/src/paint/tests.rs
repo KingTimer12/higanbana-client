@@ -21,7 +21,7 @@ impl Canvas for Rec {
     fn quad(&mut self, q: &Quad) {
         self.0.push(Op::Quad(q.rect, q.fill));
     }
-    fn image(&mut self, _: &ImageSource, _: Rect, _: Corners<f32>, _: f32) {
+    fn image(&mut self, _: &ImageSource, _: Rect, _: Corners<f32>, _: Color) {
         self.0.push(Op::Image);
     }
     fn text(&mut self, t: &str, _: &TextStyle, _: Point, _: Option<f32>, c: Color) {

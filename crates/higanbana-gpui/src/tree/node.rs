@@ -20,6 +20,8 @@ pub(crate) enum NodeKind {
     Div,
     Text(Cow<'static, str>),
     Image(ImageSource),
+    /// Ícone e a rasterização para a escala atual (`Tree::resolve_icons`).
+    Icon(&'static str, Option<ImageSource>),
     TextField(Box<FieldNode>),
 }
 
@@ -85,6 +87,7 @@ fn push<V>(e: Element<V>, parent: u32, inherited: &TextStyle, disabled: bool, ou
         Kind::Div => NodeKind::Div,
         Kind::Text(s) => NodeKind::Text(s),
         Kind::Image(src) => NodeKind::Image(src),
+        Kind::Icon(name) => NodeKind::Icon(name, None),
         Kind::TextField(data) => NodeKind::TextField(Box::new(FieldNode { data: *data, carets: Vec::new(), scroll: 0.0, line_h: 0.0 })),
     };
     let index = out.len() as u32;

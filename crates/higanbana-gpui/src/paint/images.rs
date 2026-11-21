@@ -23,7 +23,10 @@ impl<'c> ImageCache<'c> {
     pub fn prepare<V>(&mut self, tree: &Tree<V>) {
         self.map.retain(|_, (src, _)| Rc::strong_count(src) > 1);
         for n in &tree.nodes {
-            let NodeKind::Image(src) = &n.kind else { continue };
+            let src = match &n.kind {
+                NodeKind::Image(src) | NodeKind::Icon(_, Some(src)) => src,
+                _ => continue,
+            };
             let Some(pixels) = src.take_pixels() else { continue };
             let (w, h) = src.size();
             if let Some((_, img)) = self.map.get_mut(&src.id()) {

@@ -42,6 +42,12 @@ impl App {
         self
     }
 
+    /// Soma ícones SVG do app aos Lucide embutidos (`icon("nome")`).
+    pub fn icons(self, set: crate::icon::IconSet) -> Self {
+        crate::icon::register(set);
+        self
+    }
+
     /// Desenha backend, tempo de frame e memória no canto da janela.
     pub fn show_stats(mut self, on: bool) -> Self {
         self.show_stats = on;

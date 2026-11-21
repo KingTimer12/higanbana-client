@@ -3144,6 +3144,7 @@ version = "0.1.0"
 dependencies = [
  "higanbana-gpui-sys",
  "libloading",
+ "resvg 0.45.1",
  "taffy",
  "unicode-segmentation",
 ]

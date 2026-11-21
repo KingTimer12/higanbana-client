@@ -27,6 +27,8 @@ pub(crate) enum Kind<V> {
     Div,
     Text(Cow<'static, str>),
     Image(ImageSource),
+    /// Ícone SVG registrado (ver `crate::icon`).
+    Icon(&'static str),
     TextField(Box<FieldData>),
     /// Conteúdo (único filho) vai para a camada de overlays.
     Overlay(Box<OverlaySpec<V>>),

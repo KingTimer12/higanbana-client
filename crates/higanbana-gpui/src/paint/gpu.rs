@@ -50,10 +50,9 @@ impl<'a, 'c> Canvas for GpuCanvas<'_, 'a, 'c> {
         self.record(r);
     }
 
-    fn image(&mut self, src: &ImageSource, rect: Rect, radius: Corners<f32>, opacity: f32) {
+    fn image(&mut self, src: &ImageSource, rect: Rect, radius: Corners<f32>, tint: Color) {
         let images: &'a ImageCache<'c> = self.images;
         let Some(img) = images.get(src) else { return };
-        let tint = Color::WHITE.fade(opacity);
         let (dest, radius) = (rect.scale(self.scale), self.corners(radius));
         let r = self.list.image(img, dest, FULL_UV, tint, radius);
         self.record(r);

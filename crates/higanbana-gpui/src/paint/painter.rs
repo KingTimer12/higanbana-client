@@ -91,7 +91,7 @@ impl<V> Tree<V> {
                     if cover {
                         out.push_clip(n.content.intersect(&n.clip));
                     }
-                    out.image(src, dest, style.radius.map(|r| r * k), opacity);
+                    out.image(src, dest, style.radius.map(|r| r * k), Color::WHITE.fade(opacity));
                     if cover {
                         out.pop_clip();
                     }
@@ -106,7 +106,11 @@ impl<V> Tree<V> {
                     let focused = n.id.is_some() && n.id == self.focused;
                     super::field::paint_field(out, n, f, focused, now, color, opacity, text_style);
                 }
-                NodeKind::Div => {}
+                NodeKind::Icon(_, Some(src)) => {
+                    let color = text_color.unwrap_or(n.text.color).fade(opacity);
+                    out.image(src, n.content, Corners::default(), color);
+                }
+                NodeKind::Icon(_, None) | NodeKind::Div => {}
             }
         }
         if n.end as usize == i + 1 {

@@ -50,7 +50,7 @@ struct Sizes(Vec<f32>);
 
 impl Canvas for Sizes {
     fn quad(&mut self, _: &Quad) {}
-    fn image(&mut self, _: &ImageSource, _: Rect, _: Corners<f32>, _: f32) {}
+    fn image(&mut self, _: &ImageSource, _: Rect, _: Corners<f32>, _: Color) {}
     fn text(&mut self, _: &str, s: &TextStyle, _: Point, _: Option<f32>, _: Color) {
         self.0.push(s.size);
     }

@@ -33,7 +33,7 @@ impl Canvas for Rec {
     fn quad(&mut self, q: &Quad) {
         self.quads.push((q.rect, q.fill));
     }
-    fn image(&mut self, _: &ImageSource, _: Rect, _: Corners<f32>, _: f32) {}
+    fn image(&mut self, _: &ImageSource, _: Rect, _: Corners<f32>, _: Color) {}
     fn text(&mut self, t: &str, _: &TextStyle, _: Point, _: Option<f32>, _: Color) {
         self.texts.push(t.into());
     }
