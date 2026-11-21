@@ -1,5 +1,6 @@
 //! Tweens de valores por chave (id de elemento), consultados durante o render.
 use super::easing::Transition;
+use super::spring::Spring;
 use crate::element::ElementId;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -7,6 +8,8 @@ use std::time::Instant;
 struct Tween {
     from: f32,
     to: f32,
+    /// Velocidade inicial (molas: herdada no retarget).
+    v0: f32,
     start: Instant,
     transition: Transition,
     /// Geração do último render que consultou (descarta tweens órfãos).
@@ -14,17 +17,19 @@ struct Tween {
 }
 
 impl Tween {
-    fn progress(&self, now: Instant) -> f32 {
-        let d = self.transition.duration.as_secs_f32();
-        if d <= 0.0 {
-            return 1.0;
+    /// Valor, velocidade e se terminou, em `now`.
+    fn sample(&self, now: Instant) -> (f32, f32, bool) {
+        let t = now.saturating_duration_since(self.start).as_secs_f32();
+        if let Some(s) = self.transition.spring {
+            let (x, v) = s.sample(self.from, self.to, self.v0, t);
+            let done = self.from == self.to && self.v0 == 0.0 || Spring::settled(x, v, self.from, self.to);
+            return if done { (self.to, 0.0, true) } else { (x, v, false) };
         }
-        (now.saturating_duration_since(self.start).as_secs_f32() / d).min(1.0)
-    }
-
-    fn value(&self, now: Instant) -> f32 {
-        let t = self.progress(now);
-        self.from + (self.to - self.from) * self.transition.easing.apply(t)
+        let d = self.transition.duration.as_secs_f32();
+        let p = if d <= 0.0 { 1.0 } else { (t / d).min(1.0) };
+        let done = p >= 1.0 || self.from == self.to;
+        if done { return (self.to, 0.0, true) }
+        (self.from + (self.to - self.from) * self.transition.easing.apply(p), 0.0, false)
     }
 }
 
@@ -66,17 +71,19 @@ impl Animator {
     /// (use `from == target` para não animar a entrada). Mudar o alvo reinicia do valor atual.
     pub fn value(&mut self, key: ElementId, from: f32, target: f32, transition: Transition, now: Instant) -> f32 {
         let g = self.generation;
-        let t = self.tweens.entry(key).or_insert(Tween { from, to: target, start: now, transition, seen: g });
+        let t = self.tweens.entry(key).or_insert(Tween { from, to: target, v0: 0.0, start: now, transition, seen: g });
         t.seen = g;
         if t.to != target {
-            t.from = t.value(now);
+            let (x, v, _) = t.sample(now);
+            t.from = x;
+            t.v0 = v;
             t.to = target;
             t.start = now;
             t.transition = transition;
         }
-        let running = t.from != t.to && t.progress(now) < 1.0;
-        self.active |= running;
-        if running { t.value(now) } else { t.to }
+        let (x, _, done) = t.sample(now);
+        self.active |= !done;
+        x
     }
 }
 
@@ -105,6 +112,39 @@ mod tests {
         a.begin();
         assert_eq!(a.value(key(), 0.0, 1.0, tr, t0 + Duration::from_millis(150)), 1.0);
         assert!(!a.is_active(), "terminou: nada de frames extras");
+    }
+
+    #[test]
+    fn retarget_keeps_continuity() {
+        let t0 = Instant::now();
+        let tr = Transition::spring(170.0, 26.0);
+        let mut a = Animator::default();
+        a.begin();
+        a.value(key(), 0.0, 1.0, tr, t0);
+        let t1 = t0 + Duration::from_millis(100);
+        let before = a.value(key(), 0.0, 1.0, tr, t1);
+        let after = a.value(key(), 0.0, 0.0, tr, t1);
+        assert!(before > 0.1 && before < 1.0);
+        assert!((before - after).abs() < 1e-3, "{before} vs {after}");
+        let later = a.value(key(), 0.0, 0.0, tr, t1 + Duration::from_millis(16));
+        assert!(later > before - 0.05, "velocidade preservada: não despenca ({later})");
+    }
+
+    #[test]
+    fn spring_active_until_settled() {
+        let t0 = Instant::now();
+        let tr = Transition::spring(170.0, 26.0);
+        let mut a = Animator::default();
+        a.begin();
+        a.value(key(), 0.0, 1.0, tr, t0);
+        a.end();
+        a.begin();
+        a.value(key(), 0.0, 1.0, tr, t0 + Duration::from_millis(100));
+        assert!(a.is_active());
+        a.end();
+        a.begin();
+        assert_eq!(a.value(key(), 0.0, 1.0, tr, t0 + Duration::from_secs(3)), 1.0);
+        assert!(!a.is_active());
     }
 
     #[test]

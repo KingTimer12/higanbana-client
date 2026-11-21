@@ -1,4 +1,5 @@
 //! Curvas de suavização e a descrição de uma transição.
+use super::spring::Spring;
 use std::time::Duration;
 
 /// Curva aplicada ao progresso `t` (0..1).
@@ -31,20 +32,31 @@ impl Easing {
     }
 }
 
-/// Duração + curva. `Transition::default()` = 150 ms, ease-out (padrão shadcn).
+/// Duração + curva, ou mola. `Transition::default()` = 150 ms, ease-out (padrão shadcn).
+/// Com `spring` definido, `duration`/`easing` são ignorados: a mola dita o tempo.
 #[derive(Debug, Clone, Copy)]
 pub struct Transition {
     pub duration: Duration,
     pub easing: Easing,
+    pub spring: Option<Spring>,
 }
 
 impl Transition {
     pub const fn new(duration: Duration, easing: Easing) -> Self {
-        Self { duration, easing }
+        Self { duration, easing, spring: None }
     }
 
     pub const fn ms(ms: u64) -> Self {
-        Self { duration: Duration::from_millis(ms), easing: Easing::EaseOut }
+        Self { duration: Duration::from_millis(ms), easing: Easing::EaseOut, spring: None }
+    }
+
+    /// Mola com rigidez e amortecimento (massa 1). Mudar o alvo preserva a velocidade.
+    pub const fn spring(stiffness: f32, damping: f32) -> Self {
+        Self::with_spring(Spring::new(stiffness, damping))
+    }
+
+    pub const fn with_spring(spring: Spring) -> Self {
+        Self { duration: Duration::ZERO, easing: Easing::Linear, spring: Some(spring) }
     }
 
     pub const fn easing(mut self, easing: Easing) -> Self {
