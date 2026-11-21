@@ -90,6 +90,8 @@ pub trait Styled: Sized {
 
     // ---- visual ----
     fn bg(self, c: Color) -> Self { self.with(|s| s.background = Some(c)) }
+    /// Fundo em gradiente linear (ex.: scrim sobre vídeo).
+    fn bg_gradient(self, g: super::LinearGradient) -> Self { self.with(|s| s.gradient = Some(g)) }
     fn border(self, width: f32, c: Color) -> Self { self.with(|s| { s.border_width = width; s.border_color = c }) }
     fn border_color(self, c: Color) -> Self { self.with(|s| s.border_color = c) }
     fn rounded(self, r: f32) -> Self { self.with(|s| s.radius = Corners::all(r)) }

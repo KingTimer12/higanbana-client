@@ -76,6 +76,9 @@ impl<V> Tree<V> {
         if visible && style.has_box() {
             out.quad(&scaled(box_quad(style, n.rect, opacity), k));
         }
+        if let Some(g) = style.gradient.as_ref().filter(|_| visible) {
+            out.image(&super::gradient::ramp(g), n.rect, style.radius.map(|r| r * k), Color::WHITE.fade(opacity));
+        }
         let scaled_text;
         let text_style = if k == 1.0 {
             &n.text

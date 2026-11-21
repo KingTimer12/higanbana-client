@@ -2,6 +2,7 @@
 mod canvas;
 mod field;
 mod gpu;
+pub(crate) mod gradient;
 mod images;
 mod painter;
 
@@ -11,6 +12,8 @@ mod tests;
 mod tests_state;
 #[cfg(test)]
 mod tests_fit;
+#[cfg(test)]
+mod tests_gradient;
 
 pub use canvas::Canvas;
 pub use gpu::GpuCanvas;

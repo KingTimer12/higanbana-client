@@ -1,7 +1,9 @@
 //! Estilo de elementos: layout (flexbox), visual e texto herdável.
+mod gradient;
 mod styled;
 mod text;
 
+pub use gradient::{GradientDir, LinearGradient};
 pub use styled::Styled;
 pub use text::{TextStyle, TextStyleRefinement};
 
@@ -134,6 +136,8 @@ pub struct Style {
     pub inset: Edges<Length>,
     pub overflow: Overflow,
     pub background: Option<Color>,
+    /// Gradiente pintado por cima do `background`.
+    pub gradient: Option<LinearGradient>,
     pub border_color: Color,
     pub border_width: f32,
     pub radius: Corners<f32>,
@@ -180,6 +184,7 @@ impl Default for Style {
             inset: Edges::all(Length::Auto),
             overflow: Overflow::Visible,
             background: None,
+            gradient: None,
             border_color: Color::TRANSPARENT,
             border_width: 0.0,
             radius: Corners::all(0.0),
