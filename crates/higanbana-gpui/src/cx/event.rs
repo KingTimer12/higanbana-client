@@ -1,4 +1,5 @@
 //! Contexto de handlers: marca a view suja e enfileira pedidos ao app.
+use super::task::TaskId;
 use super::timer::{TimerFn, TimerId};
 use crate::element::ElementId;
 use crate::gfx::BackendKind;
@@ -28,6 +29,8 @@ pub struct EventCx {
     pub(crate) timers: Vec<(Duration, TimerId, TimerFn)>,
     pub(crate) cancelled: Vec<TimerId>,
     pub(crate) window_commands: Vec<crate::gfx::WindowCommand>,
+    pub(crate) tasks: Vec<super::task::TaskReq>,
+    pub(crate) cancelled_tasks: Vec<super::task::TaskId>,
 }
 
 impl EventCx {
@@ -111,6 +114,25 @@ impl EventCx {
     /// Cancela um timer ainda pendente (sem efeito se já rodou).
     pub fn cancel_timer(&mut self, id: TimerId) {
         self.cancelled.push(id);
+    }
+
+    /// Roda `work` numa thread do pool e depois `done` na thread da UI com a view.
+    /// Para código async, `work` pode fazer `runtime.block_on(fut)`; a lib não tem runtime.
+    /// Se a janela fechar antes, o resultado é descartado.
+    pub fn spawn<V: 'static, T: Send + 'static>(
+        &mut self,
+        work: impl FnOnce() -> T + Send + 'static,
+        done: impl FnOnce(&mut V, T, &mut EventCx) + 'static,
+    ) -> TaskId {
+        let req = super::task::request(work, done);
+        let id = req.id;
+        self.tasks.push(req);
+        id
+    }
+
+    /// Descarta o resultado de uma tarefa (o `work` em andamento termina, mas `done` não roda).
+    pub fn cancel_task(&mut self, id: TaskId) {
+        self.cancelled_tasks.push(id);
     }
 }
 

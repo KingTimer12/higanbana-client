@@ -27,12 +27,14 @@ pub struct RenderCx<'a, V: ?Sized> {
     pub(crate) wake: Option<Instant>,
     pub(crate) window: WindowState,
     pub(crate) waker: Waker,
+    /// Tarefas pedidas durante o render (enviadas ao pool depois dele).
+    pub(crate) tasks: Vec<super::task::TaskReq>,
     pub(crate) _view: PhantomData<fn(&mut V)>,
 }
 
 impl<'a, V: ?Sized> RenderCx<'a, V> {
     pub fn new(theme: &'a Theme, backend: BackendKind, backends: &'a [BackendInfo], stats: Stats, animator: &'a mut Animator) -> Self {
-        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), waker: Waker::noop(), _view: PhantomData }
+        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), waker: Waker::noop(), tasks: Vec::new(), _view: PhantomData }
     }
 
     pub(crate) fn with_focus(mut self, focus: FocusInfo) -> Self {
@@ -43,6 +45,21 @@ impl<'a, V: ?Sized> RenderCx<'a, V> {
     /// Acorda o app de outra thread (ex.: `video::Player` com quadro novo).
     pub fn waker(&self) -> Waker {
         self.waker.clone()
+    }
+
+    /// Como `EventCx::spawn`: `work` no pool, `done` na UI com a view.
+    pub fn spawn<T: Send + 'static>(
+        &mut self,
+        work: impl FnOnce() -> T + Send + 'static,
+        done: impl FnOnce(&mut V, T, &mut super::EventCx) + 'static,
+    ) -> super::TaskId
+    where
+        V: Sized + 'static,
+    {
+        let req = super::task::request(work, done);
+        let id = req.id;
+        self.tasks.push(req);
+        id
     }
 
     /// Maximizada, fullscreen, com foco...

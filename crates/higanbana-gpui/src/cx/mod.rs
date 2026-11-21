@@ -2,8 +2,12 @@
 mod event;
 mod render;
 mod timer;
+mod task;
+#[cfg(test)]
+mod tests_task;
 
 pub(crate) use event::FocusRequest;
 pub use event::EventCx;
 pub use render::{FocusInfo, RenderCx};
+pub use task::{TaskId, Tasks};
 pub use timer::{TimerId, Timers};

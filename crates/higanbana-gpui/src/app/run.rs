@@ -3,7 +3,7 @@
 use super::measurer::GpuMeasurer;
 use super::{overlay, App, View};
 use crate::anim::Animator;
-use crate::cx::{RenderCx, Timers};
+use crate::cx::{RenderCx, Tasks, Timers};
 use crate::error::Result;
 use crate::geometry::Size;
 use crate::gfx::{enumerate, BackendInfo, Context, DrawList, FontSpec, Window, WindowOptions, WindowState, HitRegion};
@@ -38,6 +38,8 @@ pub(super) struct Runner<'c, V> {
     pub vsync: bool,
     animator: Animator,
     pub timers: Timers,
+    /// Tarefas em segundo plano aguardando resultado.
+    pub tasks: Tasks,
     /// Reconstrução pedida para um instante (animação, `request_redraw_in`).
     pub wake: Option<Instant>,
     /// Próxima troca do cursor piscando (só repinta).
@@ -67,6 +69,7 @@ pub(super) fn run<V: View>(app: App, options: WindowOptions, view: V) -> Result<
         vsync: app.vsync,
         animator: Animator::default(),
         timers: Timers::default(),
+        tasks: Tasks::default(),
         wake: None,
         blink: None,
         window_state: WindowState::default(),
@@ -112,6 +115,10 @@ impl<V: View> Runner<'_, V> {
         cx.waker = self.win.waker();
         let root = self.view.render(&mut cx);
         let wake = cx.wake;
+        let waker = cx.waker.clone();
+        for req in std::mem::take(&mut cx.tasks) {
+            self.tasks.submit(req, &waker);
+        }
         self.tree.rebuild(root, &base, self.viewport, measurer);
         let active = self.animator.is_active();
         self.animator.end();

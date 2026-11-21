@@ -29,6 +29,7 @@ impl<V: View> Runner<'_, V> {
             self.tree.apply_focus(req);
         }
         self.timers.absorb(&mut cx, now);
+        self.tasks.absorb(&mut cx, &self.win.waker());
         if cx.animation_frame {
             self.request_frame(now);
         }
@@ -51,6 +52,11 @@ impl<V: View> Runner<'_, V> {
 
     /// Roda o que venceu: timers, reconstrução pedida e piscar do cursor. `false` = encerrar.
     pub(super) fn tick(&mut self, now: Instant) -> bool {
+        if let Some(cx) = self.tasks.drain(&mut self.view) {
+            if !self.apply(cx) {
+                return false;
+            }
+        }
         if let Some(cx) = self.timers.fire_due(now, &mut self.view) {
             if !self.apply(cx) {
                 return false;
