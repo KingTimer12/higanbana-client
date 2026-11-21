@@ -5,6 +5,7 @@ mod convert;
 mod options;
 mod session;
 mod target;
+mod thumbs;
 
 // Usados pela tela (Tasks 7–10 do Plano 3).
 #[allow(unused_imports)]
