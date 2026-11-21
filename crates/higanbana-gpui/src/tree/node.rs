@@ -45,6 +45,8 @@ pub(crate) struct Node<V> {
     pub clip: Rect,
     /// Rolagem máxima (só contêineres de rolagem).
     pub scroll_max: f32,
+    /// Escala acumulada dos transforms deste nó e dos ancestrais (texto, raios, bordas).
+    pub paint_scale: f32,
 }
 
 /// Raiz de overlay: índice do nó e a configuração.
@@ -103,6 +105,7 @@ fn push<V>(e: Element<V>, parent: u32, inherited: &TextStyle, disabled: bool, ou
         content: Rect::default(),
         clip: Rect::default(),
         scroll_max: 0.0,
+        paint_scale: 1.0,
     });
     if !e.children.is_empty() {
         // Clona o estilo herdado só uma vez por pai com filhos.

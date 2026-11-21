@@ -2,6 +2,9 @@
 pub(crate) mod node;
 mod overlay;
 mod relayout;
+#[cfg(test)]
+mod tests_transform;
+mod transform;
 
 use crate::element::{Element, ElementId};
 use crate::geometry::{Point, Rect, Size};

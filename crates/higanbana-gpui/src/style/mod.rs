@@ -6,7 +6,7 @@ pub use styled::Styled;
 pub use text::{TextStyle, TextStyleRefinement};
 
 use crate::color::Color;
-use crate::geometry::{Corners, Edges};
+use crate::geometry::{Corners, Edges, Point};
 use crate::gfx::CursorStyle;
 
 /// Comprimento em pixels lógicos, porcentagem do pai ou automático.
@@ -131,6 +131,10 @@ pub struct Style {
     pub shadow: Option<Shadow>,
     /// 0..1, multiplica a opacidade do elemento e dos filhos.
     pub opacity: f32,
+    /// Deslocamento visual da subárvore (não afeta o layout dos irmãos).
+    pub translate: Point,
+    /// Escala visual da subárvore em torno do centro (1 = normal).
+    pub scale: f32,
     /// Cursor do mouse sobre o elemento (o mais profundo com cursor vence).
     pub cursor: Option<CursorStyle>,
     /// Propriedades de texto herdadas pelos descendentes.
@@ -168,6 +172,8 @@ impl Default for Style {
             radius: Corners::all(0.0),
             shadow: None,
             opacity: 1.0,
+            translate: Point { x: 0.0, y: 0.0 },
+            scale: 1.0,
             cursor: None,
             text: TextStyleRefinement::default(),
         }
@@ -175,6 +181,11 @@ impl Default for Style {
 }
 
 impl Style {
+    /// Tem translate ou scale?
+    pub fn has_transform(&self) -> bool {
+        self.scale != 1.0 || self.translate.x != 0.0 || self.translate.y != 0.0
+    }
+
     /// Tem algo a pintar como quad (fundo, borda ou sombra)?
     pub fn has_box(&self) -> bool {
         self.background.is_some_and(|c| !c.is_transparent())

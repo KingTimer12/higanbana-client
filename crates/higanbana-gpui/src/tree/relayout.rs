@@ -38,6 +38,7 @@ impl<V> Tree<V> {
 
     fn after_position(&mut self) {
         self.scroll_fields();
+        self.apply_transforms();
         self.hovered = self.mouse.and_then(|p| self.hit_test(p)).map(|i| i as u32);
     }
 

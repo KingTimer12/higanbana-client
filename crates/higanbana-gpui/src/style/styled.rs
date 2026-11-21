@@ -97,6 +97,12 @@ pub trait Styled: Sized {
     fn rounded_full(self) -> Self { self.rounded(9999.0) }
     fn shadow(self, color: Color, blur: f32) -> Self { self.with(|s| s.shadow = Some(Shadow { color, blur })) }
     fn opacity(self, v: f32) -> Self { self.with(|s| s.opacity = v.clamp(0.0, 1.0)) }
+    /// Desloca a subárvore só na pintura e no hit test (o layout não muda).
+    fn translate(self, x: f32, y: f32) -> Self { self.with(|s| s.translate = crate::geometry::Point { x, y }) }
+    fn translate_x(self, x: f32) -> Self { self.with(|s| s.translate.x = x) }
+    fn translate_y(self, y: f32) -> Self { self.with(|s| s.translate.y = y) }
+    /// Escala a subárvore em torno do centro (texto, raios e bordas acompanham).
+    fn scale(self, v: f32) -> Self { self.with(|s| s.scale = v.max(0.0)) }
     /// Cursor do mouse enquanto sobre o elemento.
     fn cursor(self, c: crate::gfx::CursorStyle) -> Self { self.with(|s| s.cursor = Some(c)) }
     fn cursor_pointer(self) -> Self { self.cursor(crate::gfx::CursorStyle::Pointer) }

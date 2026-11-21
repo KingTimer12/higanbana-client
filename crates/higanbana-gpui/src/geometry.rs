@@ -49,6 +49,10 @@ impl Rect {
         Self { origin: Point { x, y }, size: Size { width, height } }
     }
 
+    pub fn center(&self) -> Point {
+        Point { x: self.origin.x + self.size.width / 2.0, y: self.origin.y + self.size.height / 2.0 }
+    }
+
     pub fn right(&self) -> f32 {
         self.origin.x + self.size.width
     }
@@ -103,6 +107,11 @@ impl<T: Copy> Edges<T> {
 }
 
 impl<T: Copy> Corners<T> {
+    /// Aplica `f` a cada canto.
+    pub fn map(self, f: impl Fn(T) -> T) -> Self {
+        Corners { top_left: f(self.top_left), top_right: f(self.top_right), bottom_right: f(self.bottom_right), bottom_left: f(self.bottom_left) }
+    }
+
     pub const fn all(v: T) -> Self {
         Self { top_left: v, top_right: v, bottom_right: v, bottom_left: v }
     }

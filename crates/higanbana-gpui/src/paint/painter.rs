@@ -4,7 +4,7 @@ use crate::color::{rgba, Color};
 use crate::geometry::{Corners, Rect};
 use crate::gfx::Quad;
 use crate::layout::padding_box;
-use crate::style::{Display, Overflow, Style};
+use crate::style::{Display, Overflow, Style, TextStyle};
 use crate::tree::node::{children, NodeKind};
 use crate::tree::Tree;
 use std::time::Instant;
@@ -72,21 +72,29 @@ impl<V> Tree<V> {
             _ => text_color,
         };
         let visible = n.clip.intersects(&n.rect);
+        let k = n.paint_scale;
         if visible && style.has_box() {
-            out.quad(&box_quad(style, n.rect, opacity));
+            out.quad(&scaled(box_quad(style, n.rect, opacity), k));
         }
+        let scaled_text;
+        let text_style = if k == 1.0 {
+            &n.text
+        } else {
+            scaled_text = TextStyle { size: n.text.size * k, ..n.text.clone() };
+            &scaled_text
+        };
         if visible {
             match &n.kind {
-                NodeKind::Image(src) => out.image(src, n.content, style.radius, opacity),
+                NodeKind::Image(src) => out.image(src, n.content, style.radius.map(|r| r * k), opacity),
                 NodeKind::Text(s) => {
                     let color = text_color.unwrap_or(n.text.color).fade(opacity);
                     let max_width = n.text.wrap.then_some(n.content.size.width + 0.5);
-                    out.text(s, &n.text, n.content, max_width, color);
+                    out.text(s, text_style, n.content, max_width, color);
                 }
                 NodeKind::TextField(f) => {
                     let color = text_color.unwrap_or(n.text.color).fade(opacity);
                     let focused = n.id.is_some() && n.id == self.focused;
-                    super::field::paint_field(out, n, f, focused, now, color, opacity);
+                    super::field::paint_field(out, n, f, focused, now, color, opacity, text_style);
                 }
                 NodeKind::Div => {}
             }
@@ -128,6 +136,16 @@ fn box_quad(s: &Style, rect: Rect, opacity: f32) -> Quad {
 }
 
 /// Polegar proporcional à fração visível, na borda direita do contêiner.
+/// Raio, borda e sombra acompanham a escala do transform.
+fn scaled(mut q: Quad, k: f32) -> Quad {
+    if k != 1.0 {
+        q.radius = q.radius.map(|r| r * k);
+        q.border_width *= k;
+        q.shadow_blur *= k;
+    }
+    q
+}
+
 fn scrollbar(rect: Rect, max: f32, offset: f32, opacity: f32) -> Quad {
     let h = rect.size.height;
     let thumb = (h * h / (h + max)).max(16.0).min(h);
