@@ -6,6 +6,7 @@ mod checkbox;
 mod input;
 mod input_keys;
 mod password;
+mod radio;
 mod slider;
 mod slider_value;
 mod style;
@@ -19,8 +20,11 @@ mod tests_input;
 mod tests_slider;
 #[cfg(test)]
 mod tests_toggle;
+#[cfg(test)]
+mod tests_radio;
 
 pub use checkbox::{CheckState, Checkbox};
 pub use input::Input;
+pub use radio::RadioGroup;
 pub use slider::Slider;
 pub use switch::Switch;
