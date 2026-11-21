@@ -1,5 +1,6 @@
 //! Tweens de valores por chave (id de elemento), consultados durante o render.
 use super::easing::Transition;
+use super::repeat::{phase, Repeat};
 use super::spring::Spring;
 use crate::element::ElementId;
 use std::collections::HashMap;
@@ -19,17 +20,19 @@ struct Tween {
 impl Tween {
     /// Valor, velocidade e se terminou, em `now`.
     fn sample(&self, now: Instant) -> (f32, f32, bool) {
+        let tr = &self.transition;
         let t = now.saturating_duration_since(self.start).as_secs_f32();
-        if let Some(s) = self.transition.spring {
+        if let Some(s) = tr.spring {
+            let t = t - tr.delay.as_secs_f32();
+            if t <= 0.0 { return (self.from, self.v0, false) }
             let (x, v) = s.sample(self.from, self.to, self.v0, t);
             let done = self.from == self.to && self.v0 == 0.0 || Spring::settled(x, v, self.from, self.to);
             return if done { (self.to, 0.0, true) } else { (x, v, false) };
         }
-        let d = self.transition.duration.as_secs_f32();
-        let p = if d <= 0.0 { 1.0 } else { (t / d).min(1.0) };
-        let done = p >= 1.0 || self.from == self.to;
-        if done { return (self.to, 0.0, true) }
-        (self.from + (self.to - self.from) * self.transition.easing.apply(p), 0.0, false)
+        if self.from == self.to { return (self.to, 0.0, true) }
+        let (p, done) = phase(t, tr.duration.as_secs_f32(), tr.delay.as_secs_f32(), tr.repeat, tr.yoyo);
+        if done && tr.repeat == Repeat::Once { return (self.to, 0.0, true) }
+        (self.from + (self.to - self.from) * tr.easing.apply(p), 0.0, done)
     }
 }
 
@@ -112,6 +115,35 @@ mod tests {
         a.begin();
         assert_eq!(a.value(key(), 0.0, 1.0, tr, t0 + Duration::from_millis(150)), 1.0);
         assert!(!a.is_active(), "terminou: nada de frames extras");
+    }
+
+    #[test]
+    fn forever_stops_when_not_queried() {
+        let t0 = Instant::now();
+        let tr = Transition::ms(100).repeat(super::super::Repeat::Forever);
+        let mut a = Animator::default();
+        a.begin();
+        a.value(key(), 0.0, 1.0, tr, t0);
+        a.end();
+        a.begin();
+        a.value(key(), 0.0, 1.0, tr, t0 + Duration::from_secs(5));
+        assert!(a.is_active(), "infinito segue ativo enquanto consultado");
+        a.end();
+        a.begin();
+        a.end();
+        assert!(a.is_empty() && !a.is_active());
+    }
+
+    #[test]
+    fn delay_then_yoyo() {
+        let t0 = Instant::now();
+        let tr = Transition::ms(100).easing(super::super::Easing::Linear).delay(50).repeat(super::super::Repeat::Times(2)).yoyo();
+        let mut a = Animator::default();
+        a.begin();
+        assert_eq!(a.value(key(), 0.0, 1.0, tr, t0), 0.0);
+        assert_eq!(a.value(key(), 0.0, 1.0, tr, t0 + Duration::from_millis(40)), 0.0);
+        assert!((a.value(key(), 0.0, 1.0, tr, t0 + Duration::from_millis(200)) - 0.5).abs() < 1e-3);
+        assert_eq!(a.value(key(), 0.0, 1.0, tr, t0 + Duration::from_millis(400)), 0.0);
     }
 
     #[test]

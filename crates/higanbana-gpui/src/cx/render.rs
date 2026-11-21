@@ -83,6 +83,13 @@ impl<'a, V: ?Sized> RenderCx<'a, V> {
         self.animator.value(key.into(), from, target, transition, self.now)
     }
 
+    /// Progresso 0..1 que se repete para sempre (spinners, pulsos). Força `Repeat::Forever`;
+    /// para de gerar frames assim que o render deixa de consultar `key`.
+    pub fn animate_loop(&mut self, key: impl Into<ElementId>, transition: Transition) -> f32 {
+        let t = transition.repeat(crate::anim::Repeat::Forever);
+        self.animator.value(key.into(), 0.0, 1.0, t, self.now)
+    }
+
     /// Reconstrói de novo depois de `delay` (ex.: relógio, piscar algo).
     pub fn request_redraw_in(&mut self, delay: Duration) {
         let at = self.now + delay;
