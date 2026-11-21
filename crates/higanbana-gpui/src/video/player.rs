@@ -286,6 +286,7 @@ fn event_loop(handle: SharedHandle, state: Arc<Mutex<PlayerState>>, waker: Waker
             EVENT_PROPERTY_CHANGE if !ev.data.is_null() => unsafe { lock(&state).apply(&*(ev.data as *const RawProperty)) },
             EVENT_START_FILE => lock(&state).status = Status::Loading,
             EVENT_FILE_LOADED => lock(&state).file_loaded(),
+            EVENT_PLAYBACK_RESTART => lock(&state).playback_restart(),
             EVENT_END_FILE if !ev.data.is_null() => {
                 let end = unsafe { &*(ev.data as *const RawEndFile) };
                 lock(&state).end_file(end.reason, end.error);

@@ -95,3 +95,11 @@ fn eof_velho_durante_carregamento_ignorado() {
     unsafe { st.apply(&RawProperty { name: n.as_ptr(), format: super::api::FORMAT_FLAG, data: &mut f as *mut _ as *mut c_void }) };
     assert_eq!(st.status, super::Status::Loading);
 }
+
+#[test]
+fn reinicio_de_reproducao_conta() {
+    let mut st = PlayerState::default();
+    st.playback_restart();
+    st.playback_restart();
+    assert_eq!(st.restarts, 2);
+}

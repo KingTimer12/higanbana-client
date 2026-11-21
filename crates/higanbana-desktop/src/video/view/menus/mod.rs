@@ -4,7 +4,7 @@ mod episodes;
 pub(super) mod settings;
 pub(super) mod tracks;
 
-use higanbana_gpui::components::{Button, Component, Popover, PopoverAnchor, Switch, Variant};
+use higanbana_gpui::components::{Button, Component, ComponentSize, Popover, PopoverAnchor, Switch, Variant};
 use higanbana_gpui::prelude::*;
 
 use crate::chrome::tip;
@@ -26,6 +26,7 @@ const MENUS: [(Menu, &str, &str, &str, f32); 3] = [
 /// Linha "chave + rótulo" (o Switch da lib não tem rótulo; clicar no texto também alterna).
 pub(super) fn switch_row(id: &'static str, label: &'static str, on: bool, cx: &mut RenderCx<'_, Higanbana>, f: fn(&mut Higanbana, bool)) -> Element<Higanbana> {
     let sw = Switch::new(id, on)
+        .kit()
         .on_change(move |v: &mut Higanbana, b, cx| {
             f(v, b);
             cx.notify();
@@ -55,13 +56,19 @@ pub fn menus(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Vec<Element
             Menu::Settings => settings::content(v, cx),
             Menu::Episodes => episodes::content(v, cx),
         };
-        let trigger = Button::new(format!("{id}-botao"), "").variant(Variant::Ghost).icon(icon(name).size(16.0)).render(cx);
-        let trigger = tip(v, cx, format!("dica:{id}").as_str(), trigger, hint);
+        let trigger = Button::new(format!("{id}-botao"), "").variant(Variant::Ghost).size(ComponentSize::Regular).icon(icon(name).size(16.0)).render(cx);
         let Some(p) = v.player.as_ref() else { break };
         let state = p.pops[i];
+        // Aberto: botão destacado e sem dica por cima do menu (como no kit).
+        let trigger = if state.open {
+            let (bg, r) = (cx.theme().secondary_hover, cx.theme().radius);
+            div().rounded(r).bg(bg).child(trigger)
+        } else {
+            tip(v, cx, format!("dica:{id}").as_str(), trigger, hint)
+        };
         let pop = Popover::new(id, &state, move |v: &mut Higanbana| super::pop_of(&mut v.player, &mut v.player_spare, i), trigger)
             .anchor(PopoverAnchor::BottomRight)
-            .w(w)
+            .w(w + 24.0)
             .content(move |_| content)
             .render(cx);
         out.push(pop);

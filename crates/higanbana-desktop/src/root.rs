@@ -76,6 +76,10 @@ impl Higanbana {
 
     /// Cria o player pedido (precisa do `Waker` da janela).
     fn open_pending(&mut self, cx: &mut RenderCx<'_, Self>) {
+        // Sem sessão a nuvem não serve o arquivo: espera estar logado.
+        if !self.state.session_ready || self.state.user.is_none() {
+            return;
+        }
         let Some(target) = self.pending_play.take() else { return };
         if let Some(mut old) = self.player.take() {
             old.close();
@@ -182,13 +186,15 @@ impl View for Higanbana {
     }
 }
 
-/// Dev: `HIGANBANA_PLAY=<pasta>|<arquivo>` abre direto no player (conferência visual
+/// Dev: `HIGANBANA_PLAY=<pasta>|<arquivo>|<bytes>` abre direto no player (conferência visual
 /// sem as telas do Plano 4). Só o arquivo pedido; nada de listar a pasta na nuvem.
 fn dev_play_target() -> Option<crate::video::PlayTarget> {
     let raw = std::env::var("HIGANBANA_PLAY").ok()?;
-    let (dir, name) = raw.split_once('|')?;
+    let mut parts = raw.split('|');
+    let (dir, name) = (parts.next()?, parts.next()?);
+    let size = parts.next().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
     let ext = name.rfind('.').map(|i| name[i..].to_owned());
-    let file = higanbana_core::nuvem::FileEntry { name: name.to_owned(), is_directory: false, size: 0, modified: String::new(), extension: ext };
+    let file = higanbana_core::nuvem::FileEntry { name: name.to_owned(), is_directory: false, size, modified: String::new(), extension: ext };
     let title = dir.rsplit('/').next().unwrap_or(dir).to_owned();
     Some(crate::video::PlayTarget { dir: dir.to_owned(), files: vec![file.clone()], file, mal_id: None, is_anime: dir.starts_with("Animes"), anime_title: title })
 }

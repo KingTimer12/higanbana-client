@@ -40,7 +40,7 @@ pub fn overlay(p: &PlayerView) -> Overlay {
 }
 
 fn centered(card: Element<Higanbana>) -> Element<Higanbana> {
-    div().absolute().inset(0.0).justify_center().child(card)
+    div().absolute().inset(0.0).justify_center().items_center().child(card)
 }
 
 pub fn status(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Option<Element<Higanbana>> {

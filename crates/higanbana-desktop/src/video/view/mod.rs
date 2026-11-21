@@ -306,7 +306,7 @@ pub fn view(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higa
         .bg(Color::BLACK)
         .text_color(crate::theme::on_media())
         .on_key_down(on_key)
-        .on_mouse_move(|v: &mut Higanbana, ev, cx| {
+        .on_mouse_move_passive(|v: &mut Higanbana, ev, cx| {
             if let Some(p) = v.player.as_mut()
                 && p.mouse_moved(ev.position, Instant::now())
             {

@@ -49,6 +49,7 @@ fn group(t: &Theme, label: &'static str, radios: Element<Higanbana>) -> Element<
 fn radios(id: &'static str, labels: Vec<String>, selected: Option<usize>, cx: &mut RenderCx<'_, Higanbana>, f: impl Fn(&mut Higanbana, usize) + 'static) -> Element<Higanbana> {
     RadioGroup::new(id, selected)
         .items(labels)
+        .kit()
         .horizontal()
         .on_change(move |v: &mut Higanbana, ix, cx| {
             f(v, ix);

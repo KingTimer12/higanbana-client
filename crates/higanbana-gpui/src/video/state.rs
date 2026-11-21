@@ -67,6 +67,8 @@ pub struct PlayerState {
     pub first_frame: bool,
     /// Quantos fins de arquivo por erro já houve (o app decide re-tentar).
     pub end_error: u32,
+    /// Quantas vezes a reprodução recomeçou (fim de seek/carga: quadro novo pronto).
+    pub restarts: u64,
     /// Interno: valor bruto de `pause` (o status depende também de carregamento/fim).
     pub(crate) paused: bool,
 }
@@ -90,6 +92,7 @@ impl Default for PlayerState {
             buffering: false,
             first_frame: false,
             end_error: 0,
+            restarts: 0,
             paused: false,
         }
     }
@@ -236,6 +239,11 @@ impl PlayerState {
             self.status = Status::Error(error_text(error));
             self.end_error += 1;
         }
+    }
+
+    /// `MPV_EVENT_PLAYBACK_RESTART`.
+    pub(crate) fn playback_restart(&mut self) {
+        self.restarts += 1;
     }
 
     pub(crate) fn file_loaded(&mut self) {

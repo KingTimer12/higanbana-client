@@ -44,6 +44,7 @@ pub fn content(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<H
     let s2 = subs.clone();
     let sub_group = RadioGroup::new("player-legendas", Some(sub_ix))
         .items(labels)
+        .kit()
         .on_change(move |v: &mut Higanbana, ix, cx| {
             choose(v, if ix == 0 { None } else { s2.get(ix - 1).cloned() }, false);
             cx.notify();
@@ -55,6 +56,7 @@ pub fn content(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<H
         let labels: Vec<String> = audios.iter().map(track_label).collect();
         let group = RadioGroup::new("player-audios", ix)
             .items(labels)
+            .kit()
             .on_change(move |v: &mut Higanbana, ix, cx| {
                 choose(v, audios.get(ix).cloned(), true);
                 cx.notify();

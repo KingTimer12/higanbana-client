@@ -1,7 +1,7 @@
 //! Barra de cima: voltar + título · episódio, com fade quando os controles somem.
 
 use higanbana_core::player::logic::episode_label;
-use higanbana_gpui::components::{Button, Component, Variant};
+use higanbana_gpui::components::{Button, Component, ComponentSize, Variant};
 use higanbana_gpui::prelude::*;
 
 use super::style::scrim_down;
@@ -15,7 +15,7 @@ pub fn top_bar(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, fade: f32) -
     let title = p.session.target.anime_title.clone();
     let ep = episode_label(&p.session.target.file.name);
     let sm = cx.theme().typography.sm;
-    let back = Button::new("player-voltar", "").variant(Variant::Ghost).icon(icon("arrow-left").size(16.0)).on_click(|v: &mut Higanbana, _, cx| v.close_player(cx)).render(cx);
+    let back = Button::new("player-voltar", "").variant(Variant::Ghost).size(ComponentSize::Regular).icon(icon("arrow-left").size(16.0)).on_click(|v: &mut Higanbana, _, cx| v.close_player(cx)).render(cx);
     let back = tip(v, cx, "dica:player-voltar", back, "Voltar (Esc)");
     div()
         .flex_shrink_0()

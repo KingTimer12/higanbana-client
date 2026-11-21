@@ -81,12 +81,26 @@ impl MpvShooter {
 impl Shooter for MpvShooter {
     fn shoot(&mut self, bucket: u32) -> Option<Decoded> {
         let t = f64::from(bucket) * STEP;
-        self.player.command_blocking(&["seek", &t.to_string(), "absolute+keyframes"]).ok()?;
-        // O seek é assíncrono no mpv: espera a posição chegar perto do balde.
-        until(3, || (self.player.state().position - t).abs() < STEP);
+        let before = self.player.state().restarts;
+        if let Err(e) = self.player.command_blocking(&["seek", &t.to_string(), "absolute+keyframes"]) {
+            tracing::debug!(%e, bucket, "miniatura: seek falhou");
+            return None;
+        }
+        // O seek é assíncrono: o quadro novo só está pronto no `playback-restart`
+        // (antes disso a foto sai preta ou do seek anterior).
+        if !until(10, || self.player.state().restarts > before) {
+            tracing::debug!(bucket, "miniatura: seek não terminou");
+            return None;
+        }
         let path = self.dir.join(format!("{bucket}.jpg"));
-        self.player.command_blocking(&["screenshot-to-file", &path.to_string_lossy(), "video"]).ok()?;
-        let bytes = std::fs::read(&path).ok()?;
+        if let Err(e) = self.player.command_blocking(&["screenshot-to-file", &path.to_string_lossy(), "video"]) {
+            tracing::debug!(%e, bucket, "miniatura: screenshot falhou");
+            return None;
+        }
+        let Ok(bytes) = std::fs::read(&path) else {
+            tracing::debug!(bucket, "miniatura: arquivo não gravado");
+            return None;
+        };
         let _ = std::fs::remove_file(&path);
         image_cache::decode(&bytes, WIDTH, WIDTH).map(|(d, _)| d)
     }
@@ -96,7 +110,10 @@ impl Shooter for MpvShooter {
 pub fn spawn(make: impl FnOnce() -> Result<Box<dyn Shooter>, String> + Send + 'static, jobs: Receiver<u32>, done: Done, dir: PathBuf) {
     let _ = std::thread::Builder::new().name("miniaturas".into()).spawn(move || {
         let mut shooter = match make() {
-            Ok(s) => Some(s),
+            Ok(s) => {
+                tracing::debug!("miniaturas abertas");
+                Some(s)
+            }
             Err(e) => {
                 tracing::debug!(%e, "miniaturas desligadas");
                 None
@@ -108,6 +125,7 @@ pub fn spawn(make: impl FnOnce() -> Result<Box<dyn Shooter>, String> + Send + 's
                 b = newer;
             }
             let frame = shooter.as_mut().and_then(|s| s.shoot(b));
+            tracing::debug!(bucket = b, ok = frame.is_some(), "miniatura");
             done(b, frame);
         }
         drop(shooter);

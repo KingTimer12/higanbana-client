@@ -72,3 +72,15 @@ fn mpv_tira_miniatura_de_320() {
 fn pasta_unica_por_gerador() {
     assert_ne!(super::thumbs_dir(1), super::thumbs_dir(1));
 }
+
+#[test]
+fn primeira_miniatura_nao_sai_preta() {
+    let dir = std::env::temp_dir().join(format!("hg-thumbs-cor-{}", std::process::id()));
+    let mut s = super::MpvShooter::open("av://lavfi:color=c=red:size=640x360:rate=24:duration=60", dir.clone()).expect("libmpv");
+    let t0 = Instant::now();
+    let f = s.shoot(4).expect("miniatura");
+    assert!(t0.elapsed() < Duration::from_secs(2), "esperou por tempo, não pelo quadro: {:?}", t0.elapsed());
+    let mid = ((f.height / 2 * f.width + f.width / 2) * 4) as usize;
+    let _ = std::fs::remove_dir_all(dir);
+    assert!(f.rgba[mid] > 150, "quadro preto: {:?}", &f.rgba[mid..mid + 4]);
+}

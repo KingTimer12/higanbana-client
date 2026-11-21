@@ -1,7 +1,7 @@
 //! Controles de baixo: barra de posição e a linha de botões.
 
 use higanbana_core::player::logic::{episode_label, format_time};
-use higanbana_gpui::components::{Button, Component, Slider, Variant};
+use higanbana_gpui::components::{Button, Component, ComponentSize, Slider, Variant};
 use higanbana_gpui::prelude::*;
 
 use super::menus;
@@ -36,6 +36,7 @@ pub fn time_label(pos: f64, dur: f64) -> String {
 fn ghost(v: &Higanbana, cx: &mut RenderCx<'_, Higanbana>, id: &'static str, name: &'static str, hint: &'static str, disabled: bool, f: impl Fn(&mut Higanbana, &mut EventCx) + 'static) -> Element<Higanbana> {
     let b = Button::new(id, "")
         .variant(Variant::Ghost)
+        .size(ComponentSize::Regular)
         .icon(icon(name).size(16.0))
         .disabled(disabled)
         .on_click(move |v: &mut Higanbana, _, cx| {
@@ -75,6 +76,7 @@ fn row(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higanbana
         .range(0.0, 100.0)
         .step(1.0)
         .width(96.0)
+        .kit()
         .on_change(|v: &mut Higanbana, n, cx| {
             if let Some(p) = v.player.as_ref() {
                 p.player.set_volume(n as f64);
