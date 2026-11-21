@@ -23,7 +23,7 @@ fn window(ctx: &Context) -> Window<'_> {
 fn render(ctx: &Context, win: &Window<'_>, root: Element<V>, points: &[(f32, f32)]) -> Vec<u32> {
     let scale = win.scale();
     let mut tree = Tree::new();
-    let base = TextStyle { font: FontSpec::default(), size: 14.0, color: Color::WHITE, wrap: true };
+    let base = TextStyle { font: FontSpec::default(), size: 14.0, color: Color::WHITE, wrap: true, max_lines: None };
     tree.rebuild(root, &base, win.logical_size(), &mut GpuMeasurer { ctx, scale });
     let mut images = ImageCache::new(ctx);
     images.prepare(&tree);
