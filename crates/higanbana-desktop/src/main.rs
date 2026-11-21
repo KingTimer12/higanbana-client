@@ -15,9 +15,10 @@ mod root;
 mod state;
 mod theme;
 mod ui;
+mod video;
 // Em migração para a higanbana-gpui (Planos 3 e 4): fora do build até lá.
 // mod app; mod catalog_state; mod components; mod interact; mod music;
-// mod reader; mod series; mod settings_dialog; mod updater; mod video; mod views;
+// mod reader; mod series; mod settings_dialog; mod updater; mod views;
 
 use std::sync::Arc;
 

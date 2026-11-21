@@ -11,7 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 higanbana-core.workspace = true
-higanbana-gpui = { path = "../higanbana-gpui" }
+higanbana-gpui = { path = "../higanbana-gpui", features = ["video"] }
 raw-window-handle.workspace = true
 libloading.workspace = true
 serde_json.workspace = true
