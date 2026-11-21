@@ -97,7 +97,8 @@ typedef enum hg_event_kind {
     HG_EVENT_KEY_DOWN,
     HG_EVENT_KEY_UP,
     HG_EVENT_CHAR,
-    HG_EVENT_WINDOW_STATE /* u.state.flags (HG_WINDOW_*) mudou */
+    HG_EVENT_WINDOW_STATE, /* u.state.flags (HG_WINDOW_*) mudou */
+    HG_EVENT_WAKE          /* hg_window_wake (outra thread pediu para acordar) */
 } hg_event_kind;
 
 #define HG_MOD_SHIFT 1u
@@ -127,6 +128,9 @@ float     hg_window_dpi_scale(const hg_window* win);
 /* Espera um evento por até `timeout_ms`. Sem evento no prazo: out->kind = HG_EVENT_NONE.
  * Usado pelo laço enquanto há animação/timer pendente. */
 hg_result hg_window_wait_event_timeout(hg_window* win, uint32_t timeout_ms, hg_event* out);
+
+/* Thread-safe: acorda hg_window_wait_event* com HG_EVENT_WAKE (ex.: quadro de vídeo novo). */
+void      hg_window_wake(hg_window* win);
 
 /* ---- Decorations e estado da janela ----------------------------------- */
 /* Região da janela publicada pelo app (pixels lógicos do cliente). */
@@ -196,6 +200,9 @@ typedef struct hg_image hg_image;
 hg_result hg_image_create(hg_context* ctx, uint32_t width, uint32_t height, const uint8_t* rgba,
                           uint32_t stride, hg_image** out);
 void      hg_image_destroy(hg_image* img);
+/* Troca os pixels (mesmo tamanho e formato de hg_image_create). A textura é atualizada no
+ * lugar quando o backend suporta; senão é recriada no próximo desenho. */
+hg_result hg_image_update(hg_image* img, const uint8_t* rgba, uint32_t stride);
 void      hg_image_size(const hg_image* img, uint32_t* width, uint32_t* height);
 
 typedef struct hg_image_draw {

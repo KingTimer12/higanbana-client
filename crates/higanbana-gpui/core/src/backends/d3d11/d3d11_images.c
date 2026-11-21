@@ -25,7 +25,7 @@ hg_result d3d11_texture_create(d3d11_device* d, hg_image* img) {
     d3d11_texture* t = calloc(1, sizeof *t);
     if (!t) return hg__fail(HG_ERR_OOM, "d3d11: sem memória para textura");
     D3D11_TEXTURE2D_DESC td = { img->width, img->height, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, { 1, 0 },
-                                D3D11_USAGE_IMMUTABLE, D3D11_BIND_SHADER_RESOURCE, 0, 0 };
+                                D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, 0, 0 };
     D3D11_SUBRESOURCE_DATA init = { img->pixels, img->width * 4, 0 };
     HRESULT hr = ID3D11Device_CreateTexture2D(d->dev, &td, &init, &t->tex);
     if (SUCCEEDED(hr)) hr = ID3D11Device_CreateShaderResourceView(d->dev, (ID3D11Resource*)t->tex, NULL, &t->srv);
@@ -36,6 +36,13 @@ hg_result d3d11_texture_create(d3d11_device* d, hg_image* img) {
     }
     img->gpu = t;
     d->images.texture_bytes += (uint64_t)img->width * img->height * 4;
+    return HG_OK;
+}
+
+hg_result d3d11_texture_update(d3d11_device* d, hg_image* img) {
+    d3d11_texture* t = img->gpu;
+    if (!t) return HG_OK;
+    ID3D11DeviceContext_UpdateSubresource(d->imm, (ID3D11Resource*)t->tex, 0, NULL, img->pixels, img->width * 4, 0);
     return HG_OK;
 }
 

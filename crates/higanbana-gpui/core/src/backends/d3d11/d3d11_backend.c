@@ -81,6 +81,10 @@ static hg_result d3d11_tex_create(hg_context* ctx, struct hg_image* img) {
     return d3d11_texture_create(device_of(ctx), img);
 }
 
+static hg_result d3d11_tex_update(hg_context* ctx, struct hg_image* img) {
+    return d3d11_texture_update(device_of(ctx), img);
+}
+
 static void d3d11_tex_destroy(hg_context* ctx, struct hg_image* img) {
     d3d11_texture_destroy(device_of(ctx), img);
 }
@@ -101,4 +105,5 @@ const hg_backend_vtbl hg__d3d11_backend = {
     .texture_create = d3d11_tex_create,
     .texture_destroy = d3d11_tex_destroy,
     .read_pixel = d3d11_read_pixel,
+    .texture_update = d3d11_tex_update,
 };

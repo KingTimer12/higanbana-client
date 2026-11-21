@@ -86,6 +86,10 @@ static hg_result opengl_tex_create(hg_context* ctx, struct hg_image* img) {
     return gl_texture_create(device_of(ctx), img);
 }
 
+static hg_result opengl_tex_update(hg_context* ctx, struct hg_image* img) {
+    return gl_texture_update(device_of(ctx), img);
+}
+
 static void opengl_tex_destroy(hg_context* ctx, struct hg_image* img) {
     gl_texture_destroy(device_of(ctx), img);
 }
@@ -104,6 +108,7 @@ const hg_backend_vtbl hg__opengl_backend = {
     .submit = opengl_submit,
     .end_frame = opengl_end_frame,
     .texture_create = opengl_tex_create,
+    .texture_update = opengl_tex_update,
     .texture_destroy = opengl_tex_destroy,
     .read_pixel = opengl_read_pixel,
 };

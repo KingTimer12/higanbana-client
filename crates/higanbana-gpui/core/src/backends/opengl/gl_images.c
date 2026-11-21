@@ -41,6 +41,19 @@ hg_result gl_texture_create(gl_device* d, hg_image* img) {
     return HG_OK;
 }
 
+hg_result gl_texture_update(gl_device* d, hg_image* img) {
+    GLuint* t = img->gpu;
+    if (!t) return HG_OK;
+    hg_result r = ensure_current(d);
+    if (r != HG_OK) return r;
+    const gl_api* gl = &d->ctx.gl;
+    gl->BindTexture(GL_TEXTURE_2D, *t);
+    gl->PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    gl->PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    gl->TexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, (GLsizei)img->width, (GLsizei)img->height, GL_RGBA, GL_UNSIGNED_BYTE, img->pixels);
+    return HG_OK;
+}
+
 void gl_texture_destroy(gl_device* d, hg_image* img) {
     GLuint* t = img->gpu;
     if (!t) return;

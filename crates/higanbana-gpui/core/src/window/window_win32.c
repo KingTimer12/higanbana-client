@@ -5,6 +5,7 @@
 #include <stdlib.h>
 
 static const WCHAR k_class_name[] = L"HiganbanaGpuiWindow";
+#define WM_HG_WAKE (WM_APP + 7)
 
 static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     hg_window* win = (hg_window*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
@@ -37,6 +38,11 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_SETCURSOR:
         if (hg__window_on_setcursor(win, lp)) return TRUE;
         return DefWindowProcW(hwnd, msg, wp, lp);
+    case WM_HG_WAKE: {
+        hg_event ev = { .kind = HG_EVENT_WAKE };
+        hg_queue_push(&win->events, &ev);
+        return 0;
+    }
     case WM_ERASEBKGND:
         return 1; /* evita flicker: backend pinta tudo */
     default:
@@ -184,6 +190,10 @@ hg_result hg_window_wait_event(hg_window* win, hg_event* out) {
     }
     hg_queue_pop(&win->events, out);
     return HG_OK;
+}
+
+void hg_window_wake(hg_window* win) {
+    if (win) PostMessageW(win->hwnd, WM_HG_WAKE, 0, 0);
 }
 
 float hg_window_dpi_scale(const hg_window* win) { return win ? win->dpi_scale : 1.0f; }

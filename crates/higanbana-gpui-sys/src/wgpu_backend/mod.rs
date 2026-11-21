@@ -60,6 +60,7 @@ static VTBL: SyncVtbl = SyncVtbl(hg_backend_vtbl {
     texture_create: Some(ffi::texture_create),
     texture_destroy: Some(ffi::texture_destroy),
     read_pixel: Some(ffi::read_pixel),
+    texture_update: Some(ffi::texture_update),
 });
 
 /// Registra o backend WGPU no core (idempotente). Deve rodar antes do primeiro

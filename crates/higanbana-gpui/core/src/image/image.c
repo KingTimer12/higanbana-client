@@ -35,6 +35,17 @@ void hg_image_destroy(hg_image* img) {
     free(img);
 }
 
+hg_result hg_image_update(hg_image* img, const uint8_t* rgba, uint32_t stride) {
+    if (!img || !rgba || stride < img->width * 4) return hg__fail(HG_ERR_INVALID, "hg_image_update: argumento inválido");
+    for (uint32_t y = 0; y < img->height; y++)
+        memcpy(img->pixels + (size_t)y * img->width * 4, rgba + (size_t)y * stride, img->width * 4);
+    if (!img->gpu) return HG_OK;
+    const hg_backend_vtbl* vt = img->ctx->backend;
+    if (vt->texture_update) return vt->texture_update(img->ctx, img);
+    vt->texture_destroy(img->ctx, img); /* recria com os pixels novos no próximo desenho */
+    return HG_OK;
+}
+
 void hg_image_size(const hg_image* img, uint32_t* width, uint32_t* height) {
     if (width) *width = img ? img->width : 0;
     if (height) *height = img ? img->height : 0;

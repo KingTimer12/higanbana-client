@@ -8,7 +8,7 @@ use crate::*;
 
 /// Textura de uma imagem; vive atrás de `img->gpu` até `texture_destroy`.
 pub struct Texture {
-    _texture: wgpu::Texture,
+    texture: wgpu::Texture,
     group: wgpu::BindGroup,
     bytes: u64,
 }
@@ -46,9 +46,24 @@ pub fn create(device: &wgpu::Device, queue: &wgpu::Queue, pipes: &Pipelines, img
             wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&pipes.linear) },
         ],
     });
-    let tex = Box::new(Texture { _texture: texture, group, bytes });
+    let tex = Box::new(Texture { texture, group, bytes });
     unsafe { hg__image_set_gpu_data(img, Box::into_raw(tex).cast()) };
     bytes
+}
+
+/// Reenvia os pixels do core para a textura existente (vídeo: um quadro por frame).
+pub fn update(queue: &wgpu::Queue, img: *mut hg_image) {
+    let p = unsafe { hg__image_gpu_data(img) } as *mut Texture;
+    if p.is_null() { return }
+    let (w, h) = image_size(img);
+    let t = unsafe { &*p };
+    // SAFETY: mesmo contrato de `create`: `width*height*4` bytes compactos.
+    let pixels = unsafe { std::slice::from_raw_parts(hg__image_pixels(img), w as usize * h as usize * 4) };
+    queue.write_texture(
+        t.texture.as_image_copy(), pixels,
+        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(w * 4), rows_per_image: None },
+        wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+    );
 }
 
 /// Solta a textura de `img` (o wgpu adia a liberação real até a GPU terminar).

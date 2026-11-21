@@ -29,6 +29,8 @@ typedef struct hg_backend_vtbl {
     void      (*texture_destroy)(hg_context* ctx, struct hg_image* img);
     /* Testes: lê um pixel BGRA8 do backbuffer. */
     hg_result (*read_pixel)(struct hg_window* win, uint32_t x, uint32_t y, uint32_t* out);
+    /* Opcional: reenvia img->pixels para a textura existente (NULL = destroy + create lazy). */
+    hg_result (*texture_update)(hg_context* ctx, struct hg_image* img);
 } hg_backend_vtbl;
 
 /* Registro: backends compilados nesta build, em ordem de fallback. */

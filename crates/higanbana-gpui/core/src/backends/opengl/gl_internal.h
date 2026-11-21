@@ -83,6 +83,7 @@ struct hg_image;
 struct hg_batch;
 /* Textura da imagem (img->gpu = GLuint*); tornam o contexto corrente se preciso. */
 hg_result gl_texture_create(gl_device* d, struct hg_image* img);
+hg_result gl_texture_update(gl_device* d, struct hg_image* img);
 void      gl_texture_destroy(gl_device* d, struct hg_image* img);
 /* Garante texturas e sobe as instâncias de imagem do frame. */
 hg_result gl_images_prepare(gl_device* d, const hg_draw_list* dl);

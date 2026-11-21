@@ -161,3 +161,16 @@ fn switch_d3d11_wgpu_d3d11_keeps_image() {
     }
     unsafe { hg_image_destroy(img) };
 }
+
+#[test]
+fn image_update_in_place() {
+    if !wgpu_available() { return }
+    let f = Fixture::new(WGPU);
+    let img = solid_image(f.ctx, [255, 0, 0, 255], 4, 4);
+    unsafe { assert_eq!(hg_draw_image(f.dl, img, &draw(rect(0.0, 0.0, 40.0, 40.0), WHITE, 0.0)), OK) };
+    assert_eq!(f.pixel(20, 20), 0x00ff_0000);
+    let blue: Vec<u8> = (0..16).flat_map(|_| [0u8, 0, 255, 255]).collect();
+    unsafe { assert_eq!(hg_image_update(img, blue.as_ptr(), 16), OK) };
+    assert_eq!(f.pixel(20, 20), 0x0000_00ff);
+    unsafe { hg_image_destroy(img) };
+}

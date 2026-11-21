@@ -115,6 +115,15 @@ pub unsafe extern "C" fn texture_create(ctx: *mut hg_context, img: *mut hg_image
     })
 }
 
+/// Atualiza a textura de `img` no lugar com os pixels novos do core.
+pub unsafe extern "C" fn texture_update(ctx: *mut hg_context, img: *mut hg_image) -> hg_result {
+    guard(|| {
+        let gpu = unsafe { gpu_of(ctx)? };
+        images::update(&gpu.queue, img);
+        Ok(())
+    })
+}
+
 /// Solta a textura de `img` (troca de backend, destroy do contexto ou da imagem).
 pub unsafe extern "C" fn texture_destroy(ctx: *mut hg_context, img: *mut hg_image) {
     guard(|| {
