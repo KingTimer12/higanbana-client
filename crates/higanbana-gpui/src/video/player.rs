@@ -40,6 +40,16 @@ impl Player {
 
     /// Como `new`, com opções próprias (cache, threads, idioma...).
     pub fn with_options(waker: Waker, options: PlayerOptions) -> Result<Player, String> {
+        Player::start(waker, options, true)
+    }
+
+    /// Sem quadros (nem thread de render): para tarefas de fundo, como miniaturas
+    /// (`vo=null` + `screenshot-to-file`). Crie e use na mesma thread.
+    pub fn headless(options: PlayerOptions) -> Result<Player, String> {
+        Player::start(Waker::noop(), options, false)
+    }
+
+    fn start(waker: Waker, options: PlayerOptions, render: bool) -> Result<Player, String> {
         let api = api()?;
         // SAFETY: handle novo; strings vivem até o fim de cada chamada.
         let handle = unsafe { (api.create)() };
@@ -62,12 +72,16 @@ impl Player {
         let handle = SharedHandle(handle);
         let state = Arc::new(Mutex::new(PlayerState::default()));
         let slot: Slot = Arc::default();
-        let render = match RenderThread::start(handle, state.clone(), slot.clone(), waker.clone()) {
-            Ok(r) => r,
-            Err(e) => {
-                unsafe { (api.terminate_destroy)(handle.0) };
-                return Err(e);
+        let render = if render {
+            match RenderThread::start(handle, state.clone(), slot.clone(), waker.clone()) {
+                Ok(r) => Some(r),
+                Err(e) => {
+                    unsafe { (api.terminate_destroy)(handle.0) };
+                    return Err(e);
+                }
             }
+        } else {
+            None
         };
         let st = state.clone();
         let events = std::thread::Builder::new()
@@ -82,7 +96,7 @@ impl Player {
             }
         };
         Ok(Player {
-            core: Some(Core { handle, render: Some(render), events: Some(events) }),
+            core: Some(Core { handle, render, events: Some(events) }),
             state,
             slot,
             image: None,
@@ -139,6 +153,16 @@ impl Player {
     /// Muda uma propriedade do mpv ao vivo (`set_property_string`).
     pub fn set_property(&self, name: &str, value: &str) {
         self.set(name, value);
+    }
+
+    /// `mpv_command` síncrono; devolve o erro do mpv. Bloqueia: fora da thread da UI.
+    pub fn command_blocking(&self, args: &[&str]) -> Result<(), String> {
+        let Some(core) = &self.core else {
+            self.log.borrow_mut().push(args.join(" "));
+            return Ok(());
+        };
+        let code = command_raw(core.handle, args);
+        if code < 0 { Err(error_text(code)) } else { Ok(()) }
     }
 
     fn set(&self, name: &str, value: &str) {
@@ -243,12 +267,12 @@ impl Drop for Player {
 }
 
 /// `mpv_command` com argumentos UTF-8.
-fn command_raw(handle: SharedHandle, args: &[&str]) {
-    let Ok(api) = api() else { return };
+fn command_raw(handle: SharedHandle, args: &[&str]) -> std::ffi::c_int {
+    let Ok(api) = api() else { return -1 };
     let owned: Vec<_> = args.iter().map(|a| cstr(a)).collect();
     let mut ptrs: Vec<*const std::ffi::c_char> = owned.iter().map(|c| c.as_ptr()).collect();
     ptrs.push(std::ptr::null());
-    unsafe { (api.command)(handle.0, ptrs.as_mut_ptr()) };
+    unsafe { (api.command)(handle.0, ptrs.as_mut_ptr()) }
 }
 
 /// Lê eventos até o `quit`; atualiza o estado e acorda a UI.
