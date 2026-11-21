@@ -73,6 +73,19 @@ fn event_cx_queues_scroll_requests_and_tree_applies() {
 }
 
 #[test]
+fn render_cx_pede_rolagem_aplicada_depois_do_layout() {
+    let theme = Theme::dark();
+    let mut anim = crate::anim::Animator::default();
+    let mut cx: RenderCx<'_, V> = RenderCx::new(&theme, BackendKind::D3D11, &[], crate::Stats::default(), &mut anim);
+    cx.scroll_to("linha", 120.0);
+    let mut t = build::<V>(row(), 300.0, 300.0);
+    for r in cx.scroll_requests.drain(..) {
+        t.apply_scroll(r);
+    }
+    assert_eq!(t.scroll_offset("linha"), 120.0);
+}
+
+#[test]
 fn render_cx_reads_scroll_snapshot() {
     let theme = Theme::dark();
     let mut anim = crate::anim::Animator::default();

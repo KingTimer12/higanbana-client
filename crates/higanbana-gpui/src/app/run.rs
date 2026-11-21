@@ -134,10 +134,12 @@ impl<V: View> Runner<'_, V> {
         let root = self.view.render(&mut cx);
         let wake = cx.wake;
         let waker = cx.waker.clone();
+        let scrolls = std::mem::take(&mut cx.scroll_requests);
         for req in std::mem::take(&mut cx.tasks) {
             self.tasks.submit(req, &waker);
         }
         self.tree.rebuild(root, &base, self.viewport, measurer);
+        self.scrolls.extend(scrolls);
         let next = self.animator.next_frame();
         self.animator.end();
         let wake = match next {

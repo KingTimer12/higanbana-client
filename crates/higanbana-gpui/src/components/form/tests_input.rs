@@ -61,3 +61,16 @@ fn disabled_input_ignores_typing() {
     assert!(!t.char_input('x', &mut v, &mut EventCx::default()));
     assert!(v.s.is_empty() && v.log.is_empty());
 }
+
+#[test]
+fn prefixo_empurra_o_texto_e_altura_muda() {
+    let v = V::default();
+    let mut a = Animator::default();
+    let e = with_cx(&mut a, |cx| div().flex_col().child(Input::new("f", &v.s, |v: &mut V| &mut v.s).width(200.0).prefix("search").height(32.0).render(cx)));
+    let t = build(e);
+    let f = t.find("f").expect("campo");
+    assert_eq!(t.rect(f).size.height, 32.0);
+    assert_eq!(t.rect(f).size.width, 200.0);
+    let icon_x = (0..t.len()).find(|&i| i != f && t.rect(i).size.width == 14.0).map(|i| t.rect(i).origin.x);
+    assert_eq!(icon_x, Some(10.0), "lupa a 10 px da borda");
+}

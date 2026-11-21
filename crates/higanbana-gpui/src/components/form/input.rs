@@ -28,6 +28,8 @@ pub struct Input<'a, V, L> {
     disabled: bool,
     password: bool,
     invalid: bool,
+    height: f32,
+    prefix: Option<&'static str>,
     cbs: Callbacks<V>,
 }
 
@@ -45,6 +47,8 @@ where
             disabled: false,
             password: false,
             invalid: false,
+            height: 36.0,
+            prefix: None,
             cbs: Callbacks { change: None, submit: None },
         }
     }
@@ -58,6 +62,18 @@ where
     /// Largura (padrão: 100% do pai, como `w-full`).
     pub fn width(mut self, w: impl Into<Length>) -> Self {
         self.width = w.into();
+        self
+    }
+
+    /// Ícone à esquerda dentro do campo (ex.: `"search"`), 14 px.
+    pub fn prefix(mut self, icon: &'static str) -> Self {
+        self.prefix = Some(icon);
+        self
+    }
+
+    /// Altura (padrão 36; `small` do kit = 32).
+    pub fn height(mut self, h: f32) -> Self {
+        self.height = h;
         self
     }
 
@@ -100,10 +116,12 @@ where
         let accent = if self.invalid { t.destructive } else { t.ring };
         let border = if self.invalid { t.destructive } else { t.input };
         let bg = if t.dark { t.input.alpha(0.3) } else { Color::TRANSPARENT };
+        let (width, prefix, muted) = (self.width, self.prefix, t.muted_foreground);
         let mut e = text_field(self.id, self.state, self.lens.clone())
-            .w(self.width)
-            .h(36.0)
+            .w(if prefix.is_some() { pct(100.0) } else { width })
+            .h(self.height)
             .px(12.0)
+            .when(prefix.is_some(), |e| e.pl(32.0))
             .py(4.0)
             .rounded(t.radius - 2.0)
             .border(1.0, border)
@@ -116,7 +134,13 @@ where
             .focus(ring(accent))
             .when(self.invalid, |e| e.shadow(t.destructive.alpha(0.2), 3.0));
         patch_field(&mut e, self.state, self.password, self.placeholder);
-        let e = attach(e, self.lens, self.password, self.cbs);
-        disabled_look(e, self.disabled)
+        let e = disabled_look(attach(e, self.lens, self.password, self.cbs), self.disabled);
+        match prefix {
+            None => e,
+            Some(name) => {
+                let ic = crate::icon::icon(name).size(14.0).text_color(muted);
+                crate::element::div().relative().w(width).flex_shrink_0().child(e).child(crate::element::div().absolute().left(10.0).top(0.0).bottom(0.0).items_center().child(ic))
+            }
+        }
     }
 }

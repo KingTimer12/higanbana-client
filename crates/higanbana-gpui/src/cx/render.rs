@@ -39,12 +39,14 @@ pub struct RenderCx<'a, V: ?Sized> {
     pub(crate) bounds: Vec<(ElementId, crate::geometry::Rect)>,
     /// Elementos com `on_hover` sob o mouse.
     pub(crate) hovered: Vec<ElementId>,
+    /// Rolagens pedidas no render (aplicadas depois do layout deste frame).
+    pub(crate) scroll_requests: Vec<super::ScrollRequest>,
     pub(crate) _view: PhantomData<fn(&mut V)>,
 }
 
 impl<'a, V: ?Sized> RenderCx<'a, V> {
     pub fn new(theme: &'a Theme, backend: BackendKind, backends: &'a [BackendInfo], stats: Stats, animator: &'a mut Animator) -> Self {
-        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), viewport: crate::geometry::Size::default(), waker: Waker::noop(), tasks: Vec::new(), scroll_view: Vec::new(), bounds: Vec::new(), hovered: Vec::new(), scroll: Vec::new(), _view: PhantomData }
+        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), viewport: crate::geometry::Size::default(), waker: Waker::noop(), tasks: Vec::new(), scroll_view: Vec::new(), bounds: Vec::new(), hovered: Vec::new(), scroll_requests: Vec::new(), scroll: Vec::new(), _view: PhantomData }
     }
 
     pub(crate) fn with_focus(mut self, focus: FocusInfo) -> Self {
@@ -76,6 +78,12 @@ impl<'a, V: ?Sized> RenderCx<'a, V> {
     pub fn scroll_offset(&self, id: impl Into<ElementId>) -> f32 {
         let id = id.into();
         self.scroll.iter().find(|s| s.0 == id).map_or(0.0, |s| s.1)
+    }
+
+    /// Rola o contêiner `id` para `offset` depois do layout deste frame (ex.: voltar
+    /// à posição salva ao reabrir uma tela). Preso ao máximo.
+    pub fn scroll_to(&mut self, id: impl Into<ElementId>, offset: f32) {
+        self.scroll_requests.push(super::ScrollRequest::To(id.into(), offset));
     }
 
     /// O mouse está sobre o elemento `id` (que precisa de `on_hover`; um handler
