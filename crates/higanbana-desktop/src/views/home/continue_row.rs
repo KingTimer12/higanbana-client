@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use higanbana_core::anilist::MediaType;
 use higanbana_core::continue_list::{reading, watching, ContinueItem};
 use higanbana_core::library::{folder_title, parse_episode, strip_ext};
-use higanbana_gpui::components::{Carousel, Component as _};
+use higanbana_gpui::components::Carousel;
 use higanbana_gpui::prelude::*;
 
 use super::continue_card::{card, featured, CARD_H};

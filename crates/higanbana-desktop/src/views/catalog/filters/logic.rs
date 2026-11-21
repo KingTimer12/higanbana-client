@@ -1,45 +1,27 @@
-//! Barra de filtros do catálogo de Animes: botões que abrem menus (Formato,
-//! Gênero, Ano, Temporada), Dublado, chips removíveis, ordenação e coleções.
-//!
-//! A barra guarda os filtros escolhidos; o texto da busca continua na tela do
-//! catálogo, que junta os dois para montar a lista.
+//! Regras da barra de filtros do catálogo (sem interface): rótulos, anos,
+//! gêneros oferecidos, lista filtrada e ordenada, avisos e linha de status.
 
 use std::{collections::HashSet, time::Duration};
 
-use gpui_kit::{
-    Anchor, AnyElement, App, Context, ElementId, Entity, EventEmitter, IntoElement, ParentElement, Render, Styled,
-    Subscription, Window, assets::IconName, div, prelude::*, px,
-};
-use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _, h_flex,
-    button::{Button as KitButton, ButtonVariants as _},
-    input::{Input, InputEvent, InputState},
-    menu::{DropdownMenu as _, PopupMenuItem},
-    popover::Popover,
-};
 use higanbana_core::{
     anilist::types::MediaSummary,
-    anime_index::{IndexEntry, LETTERS},
-    catalog_filter::{Filters, Season, Sort, Verdict, judge, sort_key_score, sort_key_year},
-    library::{WorkKind, is_dated, join_path, split_path},
+    anime_index::IndexEntry,
+    catalog_filter::{judge, sort_key_score, sort_key_year, Filters, Season, Sort, Verdict},
+    library::{is_dated, split_path, WorkKind},
     nuvem::SearchResult,
 };
 
-use crate::{
-    interact::{Button, Pointer},
-    series::Series,
-    state::AppState,
-};
+use crate::series::Series;
 
 /// Limites aceitos nos campos de ano.
-const YEAR_MIN: i32 = 1900;
-const YEAR_MAX: i32 = 2100;
+pub const YEAR_MIN: i32 = 1900;
+pub const YEAR_MAX: i32 = 2100;
 
-const KINDS: [WorkKind; 5] = [WorkKind::Tv, WorkKind::Movie, WorkKind::Ova, WorkKind::Ona, WorkKind::Special];
-const SEASONS: [Season; 4] = [Season::Winter, Season::Spring, Season::Summer, Season::Fall];
-const SORTS: [Sort; 3] = [Sort::Az, Sort::Year, Sort::Score];
+pub const KINDS: [WorkKind; 5] = [WorkKind::Tv, WorkKind::Movie, WorkKind::Ova, WorkKind::Ona, WorkKind::Special];
+pub const SEASONS: [Season; 4] = [Season::Winter, Season::Spring, Season::Summer, Season::Fall];
+pub const SORTS: [Sort; 3] = [Sort::Az, Sort::Year, Sort::Score];
 
-fn kind_label(k: WorkKind) -> &'static str {
+pub fn kind_label(k: WorkKind) -> &'static str {
     match k {
         WorkKind::Tv => "TV",
         WorkKind::Movie => "Filme",
@@ -49,7 +31,7 @@ fn kind_label(k: WorkKind) -> &'static str {
     }
 }
 
-fn season_label(s: Season) -> &'static str {
+pub fn season_label(s: Season) -> &'static str {
     match s {
         Season::Winter => "Inverno",
         Season::Spring => "Primavera",
@@ -58,7 +40,7 @@ fn season_label(s: Season) -> &'static str {
     }
 }
 
-fn sort_label(s: Sort) -> &'static str {
+pub fn sort_label(s: Sort) -> &'static str {
     match s {
         Sort::Az => "A–Z",
         Sort::Year => "Ano",
@@ -67,7 +49,7 @@ fn sort_label(s: Sort) -> &'static str {
 }
 
 /// Ano de quatro dígitos dentro dos limites; o resto não conta.
-fn parse_year(text: &str) -> Option<i32> {
+pub fn parse_year(text: &str) -> Option<i32> {
     let t = text.trim();
     if t.len() != 4 || !t.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -76,7 +58,7 @@ fn parse_year(text: &str) -> Option<i32> {
 }
 
 /// Faixa de anos dos campos "de"/"até": invertida vira na ordem certa; um lado vazio fica aberto.
-fn year_range(from: Option<i32>, to: Option<i32>) -> Option<(i32, i32)> {
+pub fn year_range(from: Option<i32>, to: Option<i32>) -> Option<(i32, i32)> {
     match (from, to) {
         (None, None) => None,
         (from, to) => {
@@ -87,7 +69,7 @@ fn year_range(from: Option<i32>, to: Option<i32>) -> Option<(i32, i32)> {
 }
 
 /// Texto do chip de ano.
-fn year_label((from, to): (i32, i32)) -> String {
+pub fn year_label((from, to): (i32, i32)) -> String {
     match (from, to) {
         _ if from == to => from.to_string(),
         (YEAR_MIN, to) => format!("Até {to}"),
@@ -97,7 +79,7 @@ fn year_label((from, to): (i32, i32)) -> String {
 }
 
 /// Gêneros dos metadados já carregados, sem repetir (sem diferenciar caixa), em ordem alfabética.
-fn loaded_genres<'a>(metas: impl IntoIterator<Item = &'a MediaSummary>) -> Vec<String> {
+pub fn loaded_genres<'a>(metas: impl IntoIterator<Item = &'a MediaSummary>) -> Vec<String> {
     // Mesmo resultado de `genres_to_offer(&[], todos)`, copiando só os gêneros novos.
     let mut seen = HashSet::new();
     let mut genres: Vec<String> = metas.into_iter().flat_map(|m| &m.genres).filter(|g| seen.insert(g.to_lowercase())).cloned().collect();
@@ -106,7 +88,7 @@ fn loaded_genres<'a>(metas: impl IntoIterator<Item = &'a MediaSummary>) -> Vec<S
 }
 
 /// Os gêneros carregados mais os escolhidos (que sempre entram), em ordem alfabética.
-fn genres_to_offer(loaded: &[String], selected: &[String]) -> Vec<String> {
+pub fn genres_to_offer(loaded: &[String], selected: &[String]) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut genres: Vec<String> = loaded.iter().chain(selected).filter(|g| seen.insert(g.to_lowercase())).cloned().collect();
     genres.sort_by_cached_key(|g| g.to_lowercase());
@@ -114,7 +96,7 @@ fn genres_to_offer(loaded: &[String], selected: &[String]) -> Vec<String> {
 }
 
 /// Liga ou desliga `x` na lista.
-fn toggle<T: PartialEq>(list: &mut Vec<T>, x: T) {
+pub fn toggle<T: PartialEq>(list: &mut Vec<T>, x: T) {
     match list.iter().position(|y| *y == x) {
         Some(pos) => {
             list.remove(pos);
@@ -124,7 +106,7 @@ fn toggle<T: PartialEq>(list: &mut Vec<T>, x: T) {
 }
 
 /// "Gênero · 2" quando há escolhas.
-fn trigger_label(name: &str, count: usize) -> String {
+pub fn trigger_label(name: &str, count: usize) -> String {
     if count == 0 { name.to_owned() } else { format!("{name} · {count}") }
 }
 
@@ -181,7 +163,7 @@ pub fn empty_notice(flat: bool, searching: bool, nothing_shown: bool, franchise_
 }
 
 /// Texto dos campos "de"/"até" para uma faixa guardada (lado aberto fica vazio).
-fn year_fields_text(years: Option<(i32, i32)>) -> (String, String) {
+pub fn year_fields_text(years: Option<(i32, i32)>) -> (String, String) {
     let Some((from, to)) = years else { return (String::new(), String::new()) };
     let side = |y: i32, open: i32| if y == open { String::new() } else { y.to_string() };
     (side(from, YEAR_MIN), side(to, YEAR_MAX))
@@ -222,327 +204,12 @@ pub fn franchise_results(results: Vec<SearchResult>, series: Series) -> Vec<Sear
         .collect()
 }
 
-/// Menus da barra que abrem num popover.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Menu {
-    Kind,
-    Genre,
-    Year,
-    Season,
-}
-
-/// Os filtros ou a ordenação mudaram.
-pub struct FiltersChanged;
-
-pub struct FilterBar {
-    state: Entity<AppState>,
-    series: Series,
-    /// Sem `query`: a busca fica na tela do catálogo.
-    filters: Filters,
-    sort: Sort,
-    year_from: Entity<InputState>,
-    year_to: Entity<InputState>,
-    menu: Option<Menu>,
-    /// Gêneros carregados em cache, pela contagem de metadados (`metadata_progress`).
-    genres: Option<((usize, usize), Vec<String>)>,
-    _subs: Vec<Subscription>,
-}
-
-impl EventEmitter<FiltersChanged> for FilterBar {}
-
-impl FilterBar {
-    /// Começa com o que estava escolhido da última vez (guardado em `AppState`).
-    pub fn new(state: Entity<AppState>, series: Series, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let saved = state.read(cx).catalog_choice(series.media).clone();
-        let filters = Filters { query: String::new(), ..saved.filters };
-        let (from, to) = year_fields_text(filters.years);
-        let year_from = cx.new(|cx| InputState::new(window, cx).placeholder("De").default_value(from));
-        let year_to = cx.new(|cx| InputState::new(window, cx).placeholder("Até").default_value(to));
-        let on_year = |this: &mut Self, _: Entity<InputState>, e: &InputEvent, cx: &mut Context<Self>| {
-            if matches!(e, InputEvent::Change) {
-                this.read_years(cx);
-            }
-        };
-        let subs = vec![cx.subscribe(&year_from, on_year), cx.subscribe(&year_to, on_year)];
-        Self { state, series, filters, sort: saved.sort, year_from, year_to, menu: None, genres: None, _subs: subs }
-    }
-
-    pub fn filters(&self) -> &Filters {
-        &self.filters
-    }
-
-    pub fn sort(&self) -> Sort {
-        self.sort
-    }
-
-    /// Algum filtro escolhido (a ordenação não conta).
-    pub fn is_active(&self) -> bool {
-        !self.filters.is_empty()
-    }
-
-    fn changed(&mut self, cx: &mut Context<Self>) {
-        let (filters, sort, media) = (self.filters.clone(), self.sort, self.series.media);
-        self.state.update(cx, |s, _| s.save_catalog_filters(media, &filters, sort));
-        cx.emit(FiltersChanged);
-        cx.notify();
-    }
-
-    fn read_years(&mut self, cx: &mut Context<Self>) {
-        let from = parse_year(&self.year_from.read(cx).value());
-        let to = parse_year(&self.year_to.read(cx).value());
-        let years = year_range(from, to);
-        if years != self.filters.years {
-            self.filters.years = years;
-            self.changed(cx);
-        }
-    }
-
-    fn set_sort(&mut self, sort: Sort, cx: &mut Context<Self>) {
-        if sort != self.sort {
-            self.sort = sort;
-            self.changed(cx);
-        }
-    }
-
-    fn clear_years(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // `set_value` não avisa a mudança: os anos saem do filtro aqui.
-        self.year_from.update(cx, |s, cx| s.set_value("", window, cx));
-        self.year_to.update(cx, |s, cx| s.set_value("", window, cx));
-        self.filters.years = None;
-    }
-
-    /// Tira todos os filtros; a ordenação fica.
-    pub fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.clear_years(window, cx);
-        self.filters = Filters::default();
-        self.changed(cx);
-    }
-
-    /// Gêneros dos metadados de todas as letras já indexadas; refeito só quando chegam metadados.
-    fn refresh_genres(&mut self, cx: &App) {
-        let st = self.state.read(cx);
-        let progress = st.metadata_progress(self.series.media);
-        if self.genres.as_ref().is_some_and(|(k, _)| *k == progress) {
-            return;
-        }
-        let letters: Vec<_> = LETTERS.iter().filter_map(|l| st.catalog_letter(self.series.media, l)).collect();
-        let metas = letters.iter().flat_map(|l| l.iter()).filter_map(|e| st.lookup_ref(&e.name, self.series.media).flatten());
-        self.genres = Some((progress, loaded_genres(metas)));
-    }
-
-    fn offered_genres(&self) -> Vec<String> {
-        genres_to_offer(self.genres.as_ref().map_or(&[][..], |(_, g)| g), &self.filters.genres)
-    }
-
-    /// Botão que abre um menu da barra; o conteúdo só é montado com o menu aberto.
-    fn menu_button(&self, menu: Menu, name: &'static str, count: usize, content: impl FnOnce(&Self, &mut Context<Self>) -> AnyElement, cx: &mut Context<Self>) -> Popover {
-        let open = self.menu == Some(menu);
-        let body = if open { content(self, cx) } else { div().into_any_element() };
-        Popover::new(ElementId::Name(format!("catalog-filter-menu:{name}").into()))
-            .open(open)
-            .on_open_change(cx.listener(move |b, open: &bool, _, cx| {
-                b.menu = if *open { Some(menu) } else if b.menu == Some(menu) { None } else { b.menu };
-                cx.notify();
-            }))
-            .trigger(
-                Button::new(ElementId::Name(format!("catalog-filter:{name}").into()))
-                    .outline()
-                    .small()
-                    .label(trigger_label(name, count))
-                    .dropdown_caret(true)
-                    .selected(count > 0),
-            )
-            .child(body)
-    }
-
-    /// Opções em chips que ligam e desligam sem fechar o menu.
-    fn options<T: Clone + PartialEq + 'static>(
-        &self,
-        id: &'static str,
-        items: impl IntoIterator<Item = (T, String)>,
-        chosen: impl Fn(&Filters) -> &Vec<T>,
-        pick: fn(&mut Filters) -> &mut Vec<T>,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        h_flex()
-            .flex_wrap()
-            .gap_1p5()
-            .max_w(px(360.))
-            .children(items.into_iter().map(|(x, label)| {
-                let on = chosen(&self.filters).contains(&x);
-                Button::new(ElementId::Name(format!("{id}:{label}").into()))
-                    .outline()
-                    .small()
-                    .rounded(px(999.))
-                    .label(label)
-                    .selected(on)
-                    .on_click(cx.listener(move |b, _, _, cx| {
-                        toggle(pick(&mut b.filters), x.clone());
-                        b.changed(cx);
-                    }))
-            }))
-            .into_any_element()
-    }
-
-    fn year_fields(&self) -> AnyElement {
-        h_flex()
-            .items_center()
-            .gap_2()
-            .child(div().w(px(88.)).child(Input::new(&self.year_from).small()))
-            .child("–")
-            .child(div().w(px(88.)).child(Input::new(&self.year_to).small()))
-            .into_any_element()
-    }
-
-    /// Chip de um filtro ativo; clicar tira o filtro.
-    fn chip(&self, id: String, label: String, remove: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static, cx: &mut Context<Self>) -> Button {
-        Button::new(ElementId::Name(id.into()))
-            .outline()
-            .small()
-            .rounded(px(999.))
-            .selected(true)
-            .label(label.clone())
-            .child(Icon::new(IconName::Close).xsmall())
-            .tooltip(format!("Remover {label}"))
-            .on_click(cx.listener(move |b, _, window, cx| {
-                remove(b, window, cx);
-                b.changed(cx);
-            }))
-    }
-
-    fn chips(&self, cx: &mut Context<Self>) -> Vec<Button> {
-        let f = self.filters.clone();
-        let mut chips = Vec::new();
-        for k in f.kinds {
-            chips.push(self.chip(format!("chip-kind:{}", kind_label(k)), kind_label(k).into(), move |b, _, _| b.filters.kinds.retain(|x| *x != k), cx));
-        }
-        for g in f.genres {
-            let name = g.clone();
-            chips.push(self.chip(format!("chip-genre:{g}"), g, move |b, _, _| b.filters.genres.retain(|x| *x != name), cx));
-        }
-        if let Some(years) = f.years {
-            chips.push(self.chip("chip-years".into(), year_label(years), |b, window, cx| b.clear_years(window, cx), cx));
-        }
-        for s in f.seasons {
-            chips.push(self.chip(format!("chip-season:{}", season_label(s)), season_label(s).into(), move |b, _, _| b.filters.seasons.retain(|x| *x != s), cx));
-        }
-        if f.dubbed {
-            chips.push(self.chip("chip-dubbed".into(), "Dublado".into(), |b, _, _| b.filters.dubbed = false, cx));
-        }
-        chips
-    }
-}
-
-impl Render for FilterBar {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme().clone();
-        if self.menu == Some(Menu::Genre) {
-            self.refresh_genres(cx);
-        }
-        let f = &self.filters;
-        let (kinds, genres, seasons, years) = (f.kinds.len(), f.genres.len(), f.seasons.len(), usize::from(f.years.is_some()));
-        let dubbed = f.dubbed;
-        let active = self.is_active();
-        let kind_menu = self.menu_button(
-            Menu::Kind,
-            "Formato",
-            kinds,
-            |b, cx| b.options("kind", KINDS.map(|k| (k, kind_label(k).to_owned())), |f| &f.kinds, |f| &mut f.kinds, cx),
-            cx,
-        );
-        let genre_menu = self.menu_button(
-            Menu::Genre,
-            "Gênero",
-            genres,
-            |b, cx| {
-                let offered = b.offered_genres();
-                if offered.is_empty() {
-                    return div()
-                        .max_w(px(280.))
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Os gêneros aparecem conforme os metadados das obras chegam.")
-                        .into_any_element();
-                }
-                b.options("genre", offered.into_iter().map(|g| (g.clone(), g)), |f| &f.genres, |f| &mut f.genres, cx)
-            },
-            cx,
-        );
-        let year_menu = self.menu_button(Menu::Year, "Ano", years, |b, _| b.year_fields(), cx);
-        let season_menu = self.menu_button(
-            Menu::Season,
-            "Temporada",
-            seasons,
-            |b, cx| b.options("season", SEASONS.map(|s| (s, season_label(s).to_owned())), |f| &f.seasons, |f| &mut f.seasons, cx),
-            cx,
-        );
-        let chips = if active { self.chips(cx) } else { Vec::new() };
-        h_flex()
-            .flex_wrap()
-            .items_center()
-            .gap_2()
-            .when(self.series.kind_filter, |d| d.child(kind_menu))
-            .child(genre_menu)
-            .child(year_menu)
-            .when(self.series.season_filter, |d| d.child(season_menu))
-            .when(self.series.dubbed_filter, |d| d.child(
-                Button::new("catalog-filter:dubbed")
-                    .outline()
-                    .small()
-                    .label("Dublado")
-                    .selected(dubbed)
-                    .on_click(cx.listener(|b, _, _, cx| {
-                        b.filters.dubbed = !b.filters.dubbed;
-                        b.changed(cx);
-                    })),
-            ))
-            .when(active, |d| {
-                d.child(div().w_px().h_5().mx_1().bg(theme.border))
-                    .children(chips)
-                    .child(Button::new("catalog-filter:clear").ghost().small().label("Limpar").on_click(cx.listener(|b, _, window, cx| b.clear(window, cx))))
-            })
-    }
-}
-
-/// "Ordenar: A–Z" com o menu das ordens.
-pub fn sort_menu(bar: &Entity<FilterBar>, cx: &App) -> impl IntoElement {
-    let sort = bar.read(cx).sort;
-    let bar = bar.clone();
-    let button = KitButton::new("catalog-sort").outline().label(format!("Ordenar: {}", sort_label(sort))).dropdown_caret(true);
-    Pointer::new(
-        button.dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, cx| {
-            let current = bar.read(cx).sort;
-            SORTS.into_iter().fold(menu, |menu, s| {
-                let bar = bar.clone();
-                menu.item(PopupMenuItem::new(sort_label(s)).checked(s == current).on_click(move |_, _, cx| bar.update(cx, |b, cx| b.set_sort(s, cx))))
-            })
-        }),
-        true,
-    )
-}
-
-/// Menu das coleções de `root` (pastas fora das letras); cada uma abre como estante.
-pub fn collections_menu(state: &Entity<AppState>, series: Series, cx: &App) -> impl IntoElement {
-    let (media, root) = (series.media, series.root);
-    let empty = state.read(cx).catalog_collections(media).is_empty();
-    let st = state.clone();
-    let button = KitButton::new("catalog-collections").outline().label("Coleções").dropdown_caret(true).disabled(empty);
-    Pointer::new(
-        button.dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, cx| {
-            st.read(cx).catalog_collections(media).into_iter().fold(menu.max_h(px(420.)).scrollable(true), |menu, name| {
-                let st = st.clone();
-                let target = join_path(root, &name);
-                menu.item(PopupMenuItem::new(name).on_click(move |_, _, cx| st.update(cx, |s, cx| s.go(target.clone(), cx))))
-            })
-        }),
-        !empty,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use higanbana_core::nuvem::SearchKind;
+    use higanbana_core::anime_index::IndexEntry;
+    use higanbana_core::catalog_filter::{Filters, Sort};
     use serde_json::json;
 
     fn summary(v: serde_json::Value) -> MediaSummary {
@@ -703,6 +370,8 @@ mod tests {
 #[test]
 fn keeps_manga_works_inside_franchises() {
     use higanbana_core::nuvem::SearchKind;
+    use higanbana_core::anime_index::IndexEntry;
+    use higanbana_core::catalog_filter::{Filters, Sort};
     let r = |path: &str, kind| SearchResult { name: path.rsplit('/').next().unwrap().into(), path: path.into(), kind };
     let found = franchise_results(
         vec![

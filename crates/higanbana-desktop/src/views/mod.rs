@@ -2,30 +2,51 @@
 //! existe enquanto a tela está aberta: trocar de rota solta o da anterior (RAM).
 //! O que precisa sobreviver (filtros e posição do catálogo) fica no `AppState`.
 
+pub mod catalog;
 pub mod home;
 
 #[cfg(test)]
 mod tests;
 
+use higanbana_core::anilist::MediaType;
 use higanbana_core::library::{classify, Place};
+
+use crate::state::{AppState, CatalogChoice};
 
 #[derive(Default)]
 pub struct Pages {
     route: Option<String>,
     pub home: Option<home::HomeUi>,
+    pub catalog: Option<catalog::CatalogUi>,
 }
 
 impl Pages {
     /// Garante o estado da tela de `route`; `true` se a tela mudou (o estado anterior foi solto).
-    pub fn sync(&mut self, route: &str) -> bool {
+    /// `saved` dá o que o catálogo de uma mídia tinha da última vez.
+    pub fn sync(&mut self, route: &str, saved: impl Fn(MediaType) -> CatalogChoice) -> bool {
         if self.route.as_deref() == Some(route) {
             return false;
         }
         *self = Pages { route: Some(route.to_owned()), ..Pages::default() };
-        if let Place::Home = classify(route) {
-            self.home = Some(home::HomeUi::default());
+        match classify(route) {
+            Place::Home => self.home = Some(home::HomeUi::default()),
+            Place::Catalog { media, letter } => self.catalog = Some(catalog::CatalogUi::new(&saved(media), media, letter)),
+            _ => {}
         }
         true
+    }
+
+    /// Mídia do catálogo aberto (pela rota).
+    pub fn catalog_media(&self) -> MediaType {
+        match self.route.as_deref().map(classify) {
+            Some(Place::Catalog { media, .. }) => media,
+            _ => self.catalog.as_ref().map_or(MediaType::Anime, |c| c.series.media),
+        }
+    }
+
+    /// Estado do catálogo (criado se faltar).
+    pub fn catalog(&mut self, state: &AppState, media: MediaType) -> &mut catalog::CatalogUi {
+        self.catalog.get_or_insert_with(|| catalog::CatalogUi::new(state.catalog_choice(media), media, None))
     }
 
     pub fn route(&self) -> Option<&str> {

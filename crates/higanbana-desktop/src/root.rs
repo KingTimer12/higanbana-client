@@ -134,7 +134,8 @@ impl Higanbana {
         let shift = if self.state.nav.went_back() { -motion::PAGE_SHIFT } else { motion::PAGE_SHIFT };
         let key = higanbana_gpui::ElementId::from(("pagina", path.as_str()));
         let t = cx.animate_from(key, 0.0, 1.0, motion::transition(motion::BASE));
-        self.pages.sync(&path);
+        let st = &self.state;
+        self.pages.sync(&path, |m| st.catalog_choice(m).clone());
         let page = crate::pages::page(self, cx);
         let body = div().id(key).w_full().opacity(t).ml(shift * (1.0 - t)).child(page);
         // Catálogo e pasta rolam sozinhos (lista virtual); o resto rola aqui (volta ao topo ao navegar).

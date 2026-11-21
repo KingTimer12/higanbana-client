@@ -21,17 +21,55 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(500);
 const INDEX_RETRY: Duration = Duration::from_secs(30);
 /// Espera antes de pedir de novo uma letra que falhou.
 const LETTER_COOLDOWN: Duration = Duration::from_secs(30);
+/// Espera depois da última tecla antes de buscar na nuvem.
+const CLOUD_DEBOUNCE: Duration = Duration::from_millis(400);
+/// Busca na nuvem só a partir deste tamanho.
+const CLOUD_MIN_CHARS: usize = 3;
+
+/// Busca na nuvem do catálogo (obras dentro de franquias). `geracao` descarta respostas velhas.
+#[derive(Default, Clone)]
+pub struct CloudSearch {
+    pub query: String,
+    pub results: Vec<higanbana_core::nuvem::SearchResult>,
+    pub failed: bool,
+    geracao: u64,
+}
+
+impl CloudSearch {
+    /// Novo texto: `Some(geração)` se precisa buscar (depois da espera).
+    fn ask(&mut self, q: &str) -> Option<u64> {
+        if self.query == q {
+            return None;
+        }
+        self.query = q.to_owned();
+        self.results.clear();
+        self.failed = false;
+        self.geracao += 1;
+        (q.chars().count() >= CLOUD_MIN_CHARS).then_some(self.geracao)
+    }
+
+    /// Resposta da geração `geracao`; `false` se já é velha.
+    fn answer(&mut self, geracao: u64, r: Option<Vec<higanbana_core::nuvem::SearchResult>>) -> bool {
+        if geracao != self.geracao {
+            return false;
+        }
+        self.failed = r.is_none();
+        self.results = r.unwrap_or_default();
+        true
+    }
+}
 
 pub struct CatalogState {
     lanes: HashMap<MediaType, Lane>,
     playing: bool,
     inner_works: HashMap<String, Vec<String>>,
     inner_gen: u64,
+    cloud: HashMap<MediaType, CloudSearch>,
 }
 
 impl Default for CatalogState {
     fn default() -> Self {
-        Self { lanes: CATALOG_MEDIA.into_iter().map(|m| (m, Lane::default())).collect(), playing: false, inner_works: HashMap::new(), inner_gen: 0 }
+        Self { lanes: CATALOG_MEDIA.into_iter().map(|m| (m, Lane::default())).collect(), playing: false, inner_works: HashMap::new(), inner_gen: 0, cloud: HashMap::new() }
     }
 }
 
@@ -317,6 +355,35 @@ impl AppState {
         self.cat_lane_mut(media).view.place = place;
     }
 
+    /// Busca na nuvem por `q` (só a partir de 3 letras, depois de 400 ms sem digitar).
+    pub fn catalog_cloud_search(&mut self, media: MediaType, q: &str) {
+        let Some(geracao) = self.catalog.cloud.entry(media).or_default().ask(q) else { return };
+        let q = q.to_owned();
+        self.after(CLOUD_DEBOUNCE, move |s, _| {
+            if s.catalog.cloud.get(&media).is_none_or(|c| c.geracao != geracao) {
+                return;
+            }
+            let core = s.core.clone();
+            let asked = q.clone();
+            s.run(async move { core.cloud().search(&asked).await }, move |s, r, cx| {
+                let r = match r {
+                    Ok(r) => Some(r.results),
+                    Err(e) => {
+                        tracing::warn!(query = %q, error = %e, "busca na nuvem falhou");
+                        None
+                    }
+                };
+                if s.catalog.cloud.entry(media).or_default().answer(geracao, r) {
+                    cx.notify();
+                }
+            });
+        });
+    }
+
+    pub fn catalog_cloud(&self, media: MediaType) -> Option<&CloudSearch> {
+        self.catalog.cloud.get(&media)
+    }
+
     pub fn inner_summaries(&self, media: MediaType, title_path: &str) -> Vec<MediaSummary> {
         self.catalog.inner_works.get(title_path).map(|names| names.iter().filter_map(|n| self.lookup_ref(n, media).flatten().cloned()).collect()).unwrap_or_default()
     }
@@ -357,6 +424,18 @@ mod tests {
         assert!(crawl_wanted(&choice(Filters { years: Some((2009, 2011)), ..Default::default() }, Sort::Az)));
         assert!(crawl_wanted(&choice(Filters::default(), Sort::Year)));
         assert!(crawl_wanted(&choice(Filters::default(), Sort::Score)));
+    }
+
+    #[test]
+    fn busca_velha_na_nuvem_descartada() {
+        let mut c = CloudSearch::default();
+        let a = c.ask("frieren").unwrap();
+        let b = c.ask("frieren b").unwrap();
+        assert!(!c.answer(a, Some(Vec::new())), "resposta do texto antigo");
+        assert!(c.answer(b, None));
+        assert!(c.failed);
+        assert_eq!(c.ask("fr"), None, "curta demais: não busca");
+        assert!(c.results.is_empty() && !c.failed);
     }
 
     #[test]

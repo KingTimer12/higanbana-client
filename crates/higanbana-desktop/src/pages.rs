@@ -17,6 +17,7 @@ pub fn page(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higa
     let path = v.state.path().to_owned();
     match classify(&path) {
         Place::Home => crate::views::home::page(v, cx),
+        Place::Catalog { .. } => crate::views::catalog::page(v, cx),
         _ => placeholder(&path, cx),
     }
 }
