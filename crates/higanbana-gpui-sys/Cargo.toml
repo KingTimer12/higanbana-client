@@ -1,0 +1,24 @@
+[package]
+name = "higanbana-gpui-sys"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+links = "hgui"
+description = "FFI cru para o core C do higanbana-gpui"
+
+[features]
+default = ["wgpu"]
+# Backend WGPU (Rust), registrado no core em runtime por `wgpu_backend::install()`.
+wgpu = ["dep:wgpu", "dep:pollster", "dep:raw-window-handle"]
+
+[dependencies]
+# Mesmas versões do Cargo.lock: não compila uma segunda cópia do wgpu.
+wgpu = { version = "30.0.1", optional = true }
+pollster = { version = "0.4.0", optional = true }
+raw-window-handle = { version = "0.6.2", optional = true }
+
+[build-dependencies]
+cc.workspace = true
+bindgen.workspace = true
+# Mesma versão do Cargo.lock (via wgpu): WGSL -> SPIR-V para o backend Vulkan.
+naga = { version = "=30.0.1", default-features = false, features = ["wgsl-in", "spv-out"] }

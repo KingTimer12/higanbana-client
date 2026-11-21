@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/higanbana-core", "crates/higanbana-desktop"]
+members = ["crates/higanbana-core", "crates/higanbana-desktop", "crates/higanbana-gpui", "crates/higanbana-gpui-sys"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,6 +9,7 @@ edition = "2024"
 
 [workspace.dependencies]
 higanbana-core = { path = "crates/higanbana-core" }
+higanbana-gpui-sys = { path = "crates/higanbana-gpui-sys" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -46,6 +47,8 @@ avif-parse = "2.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
 webp = "0.3"
+cc = "1"
+bindgen = "0.72"
 
 [profile.release]
 codegen-units = 1

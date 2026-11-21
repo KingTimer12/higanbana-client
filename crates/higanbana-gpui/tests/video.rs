@@ -1,0 +1,62 @@
+//! Player com libmpv real (render sw): quadro, estado, erro e descarte.
+use higanbana_gpui::video::{Player, Status};
+use higanbana_gpui::Waker;
+use std::time::{Duration, Instant};
+
+const RED: &str = "av://lavfi:color=c=red:size=64x48:rate=10";
+
+fn until(secs: u64, mut f: impl FnMut() -> bool) -> bool {
+    let end = Instant::now() + Duration::from_secs(secs);
+    while Instant::now() < end {
+        if f() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    false
+}
+
+#[test]
+fn plays_lavfi_and_delivers_frame() {
+    let mut p = Player::new(Waker::noop()).expect("libmpv");
+    p.load(RED);
+    assert!(until(5, || p.frame().is_some()), "nenhum quadro em 5 s");
+    let img = p.frame_source().unwrap();
+    assert_eq!(img.size(), (64, 48));
+    let px = p.last_pixel(32, 24).unwrap();
+    assert!(px[0] > 200 && px[1] < 40 && px[2] < 40 && px[3] == 255, "{px:?}");
+    assert!(until(3, || p.state().video_size == Some((64, 48))));
+    assert!(matches!(p.state().status, Status::Playing));
+}
+
+#[test]
+fn pause_and_seek_update_state() {
+    let p = Player::new(Waker::noop()).expect("libmpv");
+    p.load("av://lavfi:testsrc=size=64x48:rate=10:duration=30");
+    assert!(until(5, || p.state().duration > 1.0), "duração");
+    p.pause();
+    assert!(until(3, || matches!(p.state().status, Status::Paused)));
+    p.seek(10.0);
+    assert!(until(3, || (p.state().position - 10.0).abs() < 0.6), "pos {}", p.state().position);
+    p.toggle_pause();
+    assert!(until(3, || matches!(p.state().status, Status::Playing)));
+}
+
+#[test]
+fn invalid_file_reports_error() {
+    let p = Player::new(Waker::noop()).expect("libmpv");
+    p.load("C:/nao/existe/video.mkv");
+    assert!(until(5, || matches!(p.state().status, Status::Error(_))), "{:?}", p.state().status);
+}
+
+#[test]
+fn drop_while_playing() {
+    let t = Instant::now();
+    for _ in 0..5 {
+        let mut p = Player::new(Waker::noop()).expect("libmpv");
+        p.load(RED);
+        until(3, || p.frame().is_some());
+        drop(p);
+    }
+    assert!(t.elapsed() < Duration::from_secs(20));
+}

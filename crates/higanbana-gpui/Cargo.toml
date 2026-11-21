@@ -1,0 +1,32 @@
+[package]
+name = "higanbana-gpui"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[features]
+default = ["wgpu"]
+# Registra o backend WGPU (Rust) no core.
+wgpu = ["higanbana-gpui-sys/wgpu"]
+# Player de vídeo (libmpv carregada em runtime).
+video = ["dep:libloading"]
+
+[dependencies]
+higanbana-gpui-sys.workspace = true
+# Mesma versão do Cargo.lock; só os algoritmos usados (flexbox).
+taffy = { version = "=0.15.1", default-features = false, features = ["std", "taffy_tree", "flexbox", "content_size"] }
+# Movimento do cursor por grafema (emoji com ZWJ, acentos combinantes).
+unicode-segmentation = "1.13.3"
+libloading = { workspace = true, optional = true }
+
+[[test]]
+name = "video"
+required-features = ["video"]
+
+[[test]]
+name = "video_missing"
+required-features = ["video"]
+
+[[example]]
+name = "video_player"
+required-features = ["video"]
