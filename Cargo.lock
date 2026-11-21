@@ -3145,6 +3145,7 @@ dependencies = [
  "higanbana-gpui-sys",
  "libloading",
  "resvg 0.45.1",
+ "serde_json",
  "taffy",
  "unicode-segmentation",
 ]

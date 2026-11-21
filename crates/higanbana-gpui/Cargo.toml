@@ -20,6 +20,7 @@ unicode-segmentation = "1.13.3"
 # Rasteriza os ícones SVG (sem texto nem imagens embutidas).
 resvg = { version = "0.45", default-features = false }
 libloading = { workspace = true, optional = true }
+serde_json.workspace = true
 
 [[test]]
 name = "video"
