@@ -327,6 +327,13 @@ impl AppState {
         self.core.set_index_paused(playing);
     }
 
+    /// Como `set_inner_works`, só quando mudou (chamado a cada render da franquia).
+    pub fn set_inner_works_if_changed(&mut self, title_path: &str, names: &[String]) {
+        if self.catalog.inner_works.get(title_path).is_none_or(|n| n.as_slice() != names) {
+            self.set_inner_works(title_path, names.to_vec());
+        }
+    }
+
     pub fn set_inner_works(&mut self, title_path: &str, names: Vec<String>) {
         self.catalog.inner_works.insert(title_path.to_owned(), names);
         self.catalog.inner_gen += 1;

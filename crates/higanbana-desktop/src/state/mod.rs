@@ -7,6 +7,7 @@
 
 mod catalog;
 mod covers;
+pub mod details;
 mod listings;
 mod download_tasks;
 pub mod home;
@@ -113,6 +114,9 @@ pub struct AppState {
     sections_load: SectionsLoad,
     images: images::Images,
     covers: covers::Covers,
+    details: details::Details,
+    /// Pasta da tela cujos detalhes estão guardados (troca = solta).
+    details_root: Option<String>,
     pub(crate) catalog: catalog::CatalogState,
     listings: listings::Listings,
     /// Listas do início (soltas ao sair dele).
@@ -141,6 +145,8 @@ impl AppState {
             sections_load: SectionsLoad::default(),
             images: images::Images::default(),
             covers: covers::Covers::default(),
+            details: details::Details::default(),
+            details_root: None,
             catalog: catalog::CatalogState::default(),
             listings: listings::Listings::default(),
             home: home::HomeData::default(),
@@ -221,6 +227,10 @@ impl AppState {
         }
         let root = listings::screen_root(self.path());
         self.keep_listings(root.as_deref());
+        if root != self.details_root {
+            self.forget_details();
+            self.details_root = root;
+        }
         self.emit(AppEvent::Navigated);
     }
 

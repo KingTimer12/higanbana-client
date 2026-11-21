@@ -3,7 +3,9 @@
 //! O que precisa sobreviver (filtros e posição do catálogo) fica no `AppState`.
 
 pub mod catalog;
+pub mod franchise;
 pub mod home;
+pub mod title;
 
 #[cfg(test)]
 mod tests;
@@ -18,6 +20,7 @@ pub struct Pages {
     route: Option<String>,
     pub home: Option<home::HomeUi>,
     pub catalog: Option<catalog::CatalogUi>,
+    pub title: Option<title::TitleUi>,
 }
 
 impl Pages {
@@ -51,6 +54,11 @@ impl Pages {
 
     pub fn route(&self) -> Option<&str> {
         self.route.as_deref()
+    }
+
+    /// Estado do título (criado se faltar).
+    pub fn title(&mut self) -> &mut title::TitleUi {
+        self.title.get_or_insert_default()
     }
 
     /// Estado do início (criado se faltar: handlers atrasados nunca entram em pânico).

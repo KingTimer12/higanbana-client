@@ -208,8 +208,6 @@ pub fn franchise_results(results: Vec<SearchResult>, series: Series) -> Vec<Sear
 mod tests {
     use super::*;
     use higanbana_core::nuvem::SearchKind;
-    use higanbana_core::anime_index::IndexEntry;
-    use higanbana_core::catalog_filter::{Filters, Sort};
     use serde_json::json;
 
     fn summary(v: serde_json::Value) -> MediaSummary {

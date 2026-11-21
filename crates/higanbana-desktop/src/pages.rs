@@ -18,6 +18,7 @@ pub fn page(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higa
     match classify(&path) {
         Place::Home => crate::views::home::page(v, cx),
         Place::Catalog { .. } => crate::views::catalog::page(v, cx),
+        Place::Title { title_path, rest, media, .. } => crate::views::title::page(v, cx, &title_path, &rest, media),
         _ => placeholder(&path, cx),
     }
 }

@@ -18,6 +18,7 @@ serde_json.workspace = true
 base64.workspace = true
 image.workspace = true
 tracing.workspace = true
+open.workspace = true
 rav1d.workspace = true
 avif-parse.workspace = true
 tracing-subscriber.workspace = true
