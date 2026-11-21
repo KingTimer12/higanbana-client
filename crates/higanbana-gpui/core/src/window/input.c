@@ -18,6 +18,10 @@ static void push_mouse(hg_window* win, hg_event_kind kind, LPARAM lp, uint32_t b
     hg_queue_push(&win->events, &ev);
 }
 
+void hg__window_push_mouse(hg_window* win, hg_event_kind kind, int x, int y, uint32_t button) {
+    push_mouse(win, kind, MAKELPARAM((WORD)(short)x, (WORD)(short)y), button);
+}
+
 static void push_key(hg_window* win, hg_event_kind kind, WPARAM wp, LPARAM lp) {
     hg_event ev = { .kind = kind, .mods = current_mods() };
     ev.u.key.key = (uint32_t)wp;

@@ -9,6 +9,8 @@ static const WCHAR k_class_name[] = L"HiganbanaGpuiWindow";
 static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     hg_window* win = (hg_window*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
     if (!win) return DefWindowProcW(hwnd, msg, wp, lp);
+    LRESULT handled;
+    if (hg__decor_wndproc(win, msg, wp, lp, &handled)) return handled;
     switch (msg) {
     case WM_CLOSE: {
         hg_event ev = { .kind = HG_EVENT_CLOSE };
@@ -17,7 +19,13 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_SIZE:
         hg__window_apply_size(win, LOWORD(lp), HIWORD(lp));
+        hg__decor_update_state(win);
         return 0;
+    case WM_ACTIVATE: {
+        LRESULT r = DefWindowProcW(hwnd, msg, wp, lp);
+        hg__decor_update_state(win);
+        return r;
+    }
     case WM_DPICHANGED: {
         win->dpi_scale = (float)HIWORD(wp) / 96.0f;
         const RECT* r = (const RECT*)lp;
@@ -122,6 +130,7 @@ hg_result hg__window_recreate_hwnd(hg_window* win) {
     SetWindowLongPtrW(old, GWLP_USERDATA, 0);
     win->hwnd = fresh;
     DestroyWindow(old);
+    hg__decor_refresh_frame(win);
     return HG_OK;
 }
 
@@ -132,6 +141,7 @@ void hg_window_destroy(hg_window* win) {
         if (*p == win) { *p = win->next; break; }
     win->ctx->backend->detach(win->ctx, win);
     DestroyWindow(win->hwnd);
+    hg__decor_free(win);
     free(win);
 }
 

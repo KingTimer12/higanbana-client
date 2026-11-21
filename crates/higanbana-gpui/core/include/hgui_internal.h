@@ -41,6 +41,8 @@ int hg__detect_adapter(hg_backend_info* info);
 /* ---- Janela (testes) -------------------------------------------------- */
 void hg__window_inject_resize(hg_window* win, uint32_t width, uint32_t height);
 void hg__window_request_close(hg_window* win);
+/* Troca a HWND por uma idêntica (como na troca para OpenGL). */
+hg_result hg__window_recreate_hwnd(hg_window* win);
 /* Lê um pixel (BGRA8) do backbuffer atual; chamar entre submit e end. */
 hg_result hg__window_read_pixel(hg_window* win, uint32_t x, uint32_t y, uint32_t* out_bgra);
 

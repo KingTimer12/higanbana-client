@@ -96,7 +96,8 @@ typedef enum hg_event_kind {
     HG_EVENT_SCROLL,
     HG_EVENT_KEY_DOWN,
     HG_EVENT_KEY_UP,
-    HG_EVENT_CHAR
+    HG_EVENT_CHAR,
+    HG_EVENT_WINDOW_STATE /* u.state.flags (HG_WINDOW_*) mudou */
 } hg_event_kind;
 
 #define HG_MOD_SHIFT 1u
@@ -112,6 +113,7 @@ typedef struct hg_event {
         struct { uint32_t key; int repeat; } key; /* virtual key do Windows */
         struct { uint32_t codepoint; } text;
         struct { uint32_t width, height; float dpi_scale; } resize;
+        struct { uint32_t flags; } state;
     } u;
 } hg_event;
 
@@ -125,6 +127,36 @@ float     hg_window_dpi_scale(const hg_window* win);
 /* Espera um evento por até `timeout_ms`. Sem evento no prazo: out->kind = HG_EVENT_NONE.
  * Usado pelo laço enquanto há animação/timer pendente. */
 hg_result hg_window_wait_event_timeout(hg_window* win, uint32_t timeout_ms, hg_event* out);
+
+/* ---- Decorations e estado da janela ----------------------------------- */
+/* Região da janela publicada pelo app (pixels lógicos do cliente). */
+typedef enum hg_hit { HG_HIT_CLIENT = 0, HG_HIT_CAPTION, HG_HIT_MAXIMIZE } hg_hit;
+typedef struct hg_hit_region { float x, y, w, h; hg_hit kind; } hg_hit_region;
+
+typedef enum hg_window_cmd {
+    HG_WINDOW_MINIMIZE = 0,
+    HG_WINDOW_MAXIMIZE,
+    HG_WINDOW_RESTORE,
+    HG_WINDOW_TOGGLE_MAXIMIZE,
+    HG_WINDOW_CLOSE,
+    HG_WINDOW_ENTER_FULLSCREEN,
+    HG_WINDOW_EXIT_FULLSCREEN
+} hg_window_cmd;
+
+#define HG_WINDOW_MAXIMIZED  1u
+#define HG_WINDOW_MINIMIZED  2u
+#define HG_WINDOW_FULLSCREEN 4u
+#define HG_WINDOW_FOCUSED    8u
+
+/* custom != 0: sem barra nativa; o app desenha a barra e publica as regiões.
+ * Mantém snap, sombra e animações do Windows. */
+hg_result hg_window_set_decorations(hg_window* win, int custom);
+/* Copia as regiões; a última que contém o ponto vence (ordem de pintura).
+ * Bordas de redimensionar (6 px) são do core. */
+hg_result hg_window_set_hit_regions(hg_window* win, const hg_hit_region* regions, uint32_t count);
+hg_result hg_window_command(hg_window* win, hg_window_cmd cmd);
+/* Flags HG_WINDOW_* atuais. */
+uint32_t  hg_window_state(const hg_window* win);
 
 /* ---- Cursor ------------------------------------------------------------ */
 typedef enum hg_cursor {
