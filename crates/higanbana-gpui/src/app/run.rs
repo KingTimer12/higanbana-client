@@ -6,7 +6,7 @@ use crate::anim::Animator;
 use crate::cx::{RenderCx, Timers};
 use crate::error::Result;
 use crate::geometry::Size;
-use crate::gfx::{enumerate, BackendInfo, Context, DrawList, FontSpec, Window, WindowOptions};
+use crate::gfx::{enumerate, BackendInfo, Context, DrawList, FontSpec, Window, WindowOptions, WindowState};
 use crate::paint::{GpuCanvas, ImageCache};
 use crate::style::TextStyle;
 use crate::theme::Theme;
@@ -42,6 +42,8 @@ pub(super) struct Runner<'c, V> {
     pub wake: Option<Instant>,
     /// Próxima troca do cursor piscando (só repinta).
     pub blink: Option<Instant>,
+    /// Maximizada/fullscreen/foco (para a `TitleBar`).
+    pub window_state: WindowState,
 }
 
 pub(super) fn run<V: View>(app: App, options: WindowOptions, view: V) -> Result<()> {
@@ -65,7 +67,9 @@ pub(super) fn run<V: View>(app: App, options: WindowOptions, view: V) -> Result<
         timers: Timers::default(),
         wake: None,
         blink: None,
+        window_state: WindowState::default(),
     };
+    r.window_state = r.win.state();
     loop {
         r.frame();
         let mut next = match r.deadline() {

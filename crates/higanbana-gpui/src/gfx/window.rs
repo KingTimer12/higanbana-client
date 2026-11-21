@@ -1,6 +1,7 @@
 //! Janela nativa presa ao tempo de vida do `Context`.
 use super::context::Context;
 use super::draw::DrawList;
+use super::decor::{Decorations, HitKind, HitRegion, WindowCommand, WindowState};
 use super::event::Event;
 use crate::color::Color;
 use crate::error::{check, Error, Result};
@@ -16,11 +17,13 @@ pub struct WindowOptions {
     /// Tamanho inicial em pixels lógicos.
     pub size: Size,
     pub resizable: bool,
+    /// Barra nativa ou desenhada pelo app.
+    pub decorations: Decorations,
 }
 
 impl Default for WindowOptions {
     fn default() -> Self {
-        Self { title: "higanbana".into(), size: size(960.0, 640.0), resizable: true }
+        Self { title: "higanbana".into(), size: size(960.0, 640.0), resizable: true, decorations: Decorations::Native }
     }
 }
 
@@ -42,7 +45,51 @@ impl<'c> Window<'c> {
         let mut raw = std::ptr::null_mut();
         check(unsafe { sys::hg_window_create(ctx.raw(), &desc, &mut raw) })?;
         let raw = NonNull::new(raw).ok_or_else(|| Error::invalid("hg_window_create devolveu nulo"))?;
-        Ok(Self { raw, ctx })
+        let win = Self { raw, ctx };
+        if options.decorations == Decorations::Custom {
+            check(unsafe { sys::hg_window_set_decorations(win.raw.as_ptr(), 1) })?;
+        }
+        Ok(win)
+    }
+
+    /// Publica as regiões de hit test (arrastar, maximizar, cliente).
+    pub fn set_hit_regions(&self, regions: &[HitRegion]) {
+        let raw: Vec<sys::hg_hit_region> = regions
+            .iter()
+            .map(|r| sys::hg_hit_region {
+                x: r.rect.origin.x,
+                y: r.rect.origin.y,
+                w: r.rect.size.width,
+                h: r.rect.size.height,
+                kind: match r.kind {
+                    HitKind::Client => sys::hg_hit_HG_HIT_CLIENT,
+                    HitKind::Caption => sys::hg_hit_HG_HIT_CAPTION,
+                    HitKind::Maximize => sys::hg_hit_HG_HIT_MAXIMIZE,
+                },
+            })
+            .collect();
+        unsafe { sys::hg_window_set_hit_regions(self.raw.as_ptr(), raw.as_ptr(), raw.len() as u32) };
+    }
+
+    /// Minimizar, maximizar, fechar, fullscreen...
+    pub fn command(&self, cmd: WindowCommand) {
+        use WindowCommand::*;
+        let c = match cmd {
+            Minimize => sys::hg_window_cmd_HG_WINDOW_MINIMIZE,
+            Maximize => sys::hg_window_cmd_HG_WINDOW_MAXIMIZE,
+            Restore => sys::hg_window_cmd_HG_WINDOW_RESTORE,
+            ToggleMaximize => sys::hg_window_cmd_HG_WINDOW_TOGGLE_MAXIMIZE,
+            Close => sys::hg_window_cmd_HG_WINDOW_CLOSE,
+            EnterFullscreen => sys::hg_window_cmd_HG_WINDOW_ENTER_FULLSCREEN,
+            ExitFullscreen => sys::hg_window_cmd_HG_WINDOW_EXIT_FULLSCREEN,
+            ToggleFullscreen if self.state().fullscreen => sys::hg_window_cmd_HG_WINDOW_EXIT_FULLSCREEN,
+            ToggleFullscreen => sys::hg_window_cmd_HG_WINDOW_ENTER_FULLSCREEN,
+        };
+        unsafe { sys::hg_window_command(self.raw.as_ptr(), c) };
+    }
+
+    pub fn state(&self) -> WindowState {
+        WindowState::from_flags(unsafe { sys::hg_window_state(self.raw.as_ptr()) })
     }
 
     pub fn context(&self) -> &'c Context {

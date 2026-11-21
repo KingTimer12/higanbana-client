@@ -44,6 +44,12 @@ impl<V: View> Runner<'_, V> {
                 self.tree.char_input(c, &mut self.view, &mut cx);
             }
             Event::KeyUp { .. } => {}
+            Event::WindowState(s) => {
+                if s != self.window_state {
+                    self.window_state = s;
+                    self.mark(Dirty::Rebuild);
+                }
+            }
         }
         if matches!(ev, Event::MouseMove { .. } | Event::MouseDown { .. } | Event::MouseUp { .. }) {
             self.win.set_cursor(self.tree.cursor());

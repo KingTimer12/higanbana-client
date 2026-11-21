@@ -155,7 +155,7 @@ fn main() {
         tip: demo,
         dialog: demo,
     };
-    let opts = WindowOptions { title: "higanbana-gpui · elementos".into(), size: size(1100.0, 720.0), resizable: true };
+    let opts = WindowOptions { title: "higanbana-gpui · elementos".into(), size: size(1100.0, 720.0), resizable: true, ..Default::default() };
     if let Err(e) = App::new().show_stats(true).run(opts, view) {
         eprintln!("erro: {e}");
     }

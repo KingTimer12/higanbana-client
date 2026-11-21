@@ -15,7 +15,7 @@ fn setup() -> Context {
 }
 
 fn window(ctx: &Context) -> Window<'_> {
-    let opts = WindowOptions { title: "teste".into(), size: size(320.0, 240.0), resizable: false };
+    let opts = WindowOptions { title: "teste".into(), size: size(320.0, 240.0), resizable: false, ..Default::default() };
     Window::new(ctx, &opts).expect("janela")
 }
 
