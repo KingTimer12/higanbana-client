@@ -50,6 +50,8 @@ pub(super) const LUCIDE: &[(&str, &[u8])] = &[
     ("newspaper", include_bytes!("../../icons/lucide/newspaper.svg")),
     ("palette", include_bytes!("../../icons/lucide/palette.svg")),
     ("panel-left", include_bytes!("../../icons/lucide/panel-left.svg")),
+    ("panel-left-close", include_bytes!("../../icons/lucide/panel-left-close.svg")),
+    ("panel-left-open", include_bytes!("../../icons/lucide/panel-left-open.svg")),
     ("pause", include_bytes!("../../icons/lucide/pause.svg")),
     ("play", include_bytes!("../../icons/lucide/play.svg")),
     ("plus", include_bytes!("../../icons/lucide/plus.svg")),

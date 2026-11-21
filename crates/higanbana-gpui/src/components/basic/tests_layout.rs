@@ -74,3 +74,17 @@ fn avatar_initials_fallback_and_image() {
     assert!(matches!(e.children[0].kind, crate::element::Kind::Image(_)));
     assert_eq!(e.style.width, px(40.0));
 }
+
+#[test]
+fn button_tamanhos_do_kit() {
+    let h = |s| build(div().flex_col().items_start().child(render(Button::new("b", "Texto").size(s))), 400.0, 400.0).rect(1).size.height;
+    assert_eq!(h(ComponentSize::Xs), 20.0, "xsmall do kit = h-5");
+    assert_eq!(h(ComponentSize::Compact), 24.0, "small do kit = h-6");
+}
+
+#[test]
+fn button_so_icone_compacto_e_quadrado() {
+    let b = render(Button::new("b", "").size(ComponentSize::Compact).icon(crate::icon("search")));
+    let t = build(div().flex_col().items_start().child(b), 400.0, 400.0);
+    assert_eq!(t.rect(1).size, crate::size(24.0, 24.0));
+}

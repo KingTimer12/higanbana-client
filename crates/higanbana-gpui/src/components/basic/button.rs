@@ -75,6 +75,8 @@ fn metrics(size: ComponentSize) -> (f32, f32) {
         ComponentSize::Sm => (12.0, 6.0),
         ComponentSize::Md => (16.0, 8.0),
         ComponentSize::Lg => (24.0, 8.0),
+        ComponentSize::Xs => (4.0, 4.0),
+        ComponentSize::Compact => (8.0, 4.0),
         ComponentSize::Icon => (0.0, 0.0),
     }
 }
@@ -85,6 +87,8 @@ impl<V: 'static> Component<V> for Button<V> {
         let c = variant_colors(theme, self.variant);
         let (pad, gap) = metrics(self.size);
         let h = self.size.height();
+        // Tamanhos do kit: raio cheio do tema e só-ícone quadrado.
+        let kit = matches!(self.size, ComponentSize::Xs | ComponentSize::Compact);
         let ring = theme.ring;
         let shadowed = !matches!(self.variant, Variant::Ghost | Variant::Link);
         let mut e = div()
@@ -95,15 +99,15 @@ impl<V: 'static> Component<V> for Button<V> {
             .gap(gap)
             .h(h)
             .px(pad)
-            .rounded(theme.radius - 2.0)
+            .rounded(if kit { theme.radius } else { theme.radius - 2.0 })
             .bg(c.bg)
             .border(1.0, c.border)
             .text_color(c.fg)
-            .text_size(theme.typography.sm)
+            .text_size(if self.size == ComponentSize::Xs { theme.typography.xs } else { theme.typography.sm })
             .font_weight(500)
             .whitespace_nowrap()
             .when(shadowed, |e| e.shadow(Color::BLACK.alpha(0.05), 2.0))
-            .when(self.size == ComponentSize::Icon, |e| e.w(h))
+            .when(self.size == ComponentSize::Icon || (kit && self.label.is_empty()), |e| e.w(h).px(0.0))
             .when(self.full_width, |e| e.w_full());
         if self.disabled {
             e = e.opacity(0.5).cursor(CursorStyle::NotAllowed).disabled(true);
