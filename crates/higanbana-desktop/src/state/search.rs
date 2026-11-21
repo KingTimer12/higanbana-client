@@ -62,7 +62,19 @@ impl Search {
         true
     }
 
-    /// Abre limpa; `false` se já estava aberta (Ctrl K de novo não reabre).
+    /// Fecha e esquece a consulta: a próxima abertura vem limpa e uma resposta
+    /// atrasada não acha mais a consulta (é descartada).
+    pub fn close(&mut self) {
+        self.open = false;
+        if let Some(h) = self.pending.take() {
+            h.abort();
+        }
+        self.cmd.clear();
+        self.query.clear();
+        self.groups.clear();
+    }
+
+    /// Abre; `false` se já estava aberta (Ctrl K de novo não reabre).
     pub fn open(&mut self) -> bool {
         if self.open {
             return false;
@@ -84,7 +96,7 @@ impl AppState {
     }
 
     pub fn close_search(&mut self) {
-        self.search.open = false;
+        self.search.close();
     }
 
     /// Texto da busca mudou.
@@ -172,5 +184,25 @@ mod tests {
         assert!(s.accept("naruto", vec![r("Naruto", SearchKind::Anime)]));
         assert_eq!(s.at((0, 0)).map(|x| x.name.as_str()), Some("Naruto"));
         assert!(!s.cmd.loading);
+    }
+}
+
+#[cfg(test)]
+mod close_tests {
+    use super::*;
+
+    #[test]
+    fn fechar_limpa_para_reabrir() {
+        let mut s = Search::default();
+        s.open();
+        s.cmd.input.set_text("naruto");
+        s.query = "naruto".into();
+        s.cmd.set_loading(true);
+        s.groups = group_results(vec![SearchResult { name: "Naruto".into(), path: "a".into(), kind: SearchKind::Anime }]);
+        s.close();
+        assert!(!s.open && s.query.is_empty() && s.groups.is_empty());
+        assert_eq!(s.cmd.query(), "");
+        assert!(!s.cmd.loading, "sem spinner preso");
+        assert!(!s.accept("naruto", vec![]), "resposta atrasada da consulta fechada é descartada");
     }
 }

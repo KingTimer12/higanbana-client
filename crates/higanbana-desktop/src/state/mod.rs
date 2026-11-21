@@ -47,6 +47,42 @@ pub enum AppEvent {
     Notify(Tone, String),
 }
 
+/// Pausa antes de listar a raiz de novo depois de uma falha.
+const SECTIONS_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Carga da raiz: uma vez; depois de falhar, só após a pausa (nunca em laço).
+#[derive(Default)]
+enum SectionsLoad {
+    #[default]
+    Idle,
+    Loading,
+    Loaded,
+    RetryAt(std::time::Instant),
+}
+
+impl SectionsLoad {
+    /// Pode pedir agora? Se sim, passa a "carregando".
+    fn start(&mut self, now: std::time::Instant) -> bool {
+        let go = match self {
+            SectionsLoad::Idle => true,
+            SectionsLoad::RetryAt(t) => now >= *t,
+            SectionsLoad::Loading | SectionsLoad::Loaded => false,
+        };
+        if go {
+            *self = SectionsLoad::Loading;
+        }
+        go
+    }
+
+    fn loaded(&mut self) {
+        *self = SectionsLoad::Loaded;
+    }
+
+    fn failed(&mut self, now: std::time::Instant) {
+        *self = SectionsLoad::RetryAt(now + SECTIONS_RETRY);
+    }
+}
+
 pub struct AppState {
     pub core: Arc<Core>,
     post: Post,
@@ -64,7 +100,7 @@ pub struct AppState {
     pub season: Vec<higanbana_core::anilist::types::MediaSummary>,
     /// Fim do login pelo navegador: `Some(erro)` quando falhou.
     pub login_result: Option<Option<String>>,
-    sections_loading: bool,
+    sections_load: SectionsLoad,
     images: images::Images,
     lookups: lookup::Lookups,
     events: Vec<AppEvent>,
@@ -86,7 +122,7 @@ impl AppState {
             sections: Vec::new(),
             season: Vec::new(),
             login_result: None,
-            sections_loading: false,
+            sections_load: SectionsLoad::default(),
             images: images::Images::default(),
             lookups: lookup::Lookups::default(),
             events: Vec::new(),
@@ -153,20 +189,45 @@ impl AppState {
     }
 
     /// Lista a raiz da nuvem uma vez (só a raiz; nada de varrer pastas).
+    /// Falha (rede, 429, sessão) espera `SECTIONS_RETRY` antes de tentar de novo.
     pub fn load_sections(&mut self) {
-        if self.sections_loading || !self.sections.is_empty() || self.user.is_none() {
+        if self.user.is_none() || !self.sections_load.start(std::time::Instant::now()) {
             return;
         }
-        self.sections_loading = true;
         let core = self.core.clone();
-        self.run(async move { core.cloud().list("").await.map(|l| l.files).unwrap_or_default() }, |s, files, _| {
-            s.sections_loading = false;
-            let names = files.into_iter().filter(|f| f.is_directory).map(|f| f.name).collect();
-            s.sections = crate::chrome::sort_sections(names);
+        self.run(async move { core.cloud().list("").await.map(|l| l.files) }, |s, result, _| match result {
+            Ok(files) => {
+                s.sections_load.loaded();
+                let names = files.into_iter().filter(|f| f.is_directory).map(|f| f.name).collect();
+                s.sections = crate::chrome::sort_sections(names);
+            }
+            Err(e) => {
+                tracing::warn!(erro = %e, "raiz da nuvem");
+                s.sections_load.failed(std::time::Instant::now());
+            }
         });
     }
 
     pub fn refresh_player_data(&mut self) {
         self.player_data = self.core.player().data();
+    }
+}
+
+#[cfg(test)]
+mod sections_tests {
+    use super::SectionsLoad;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn raiz_falha_espera_antes_de_tentar_de_novo() {
+        let t0 = Instant::now();
+        let mut s = SectionsLoad::default();
+        assert!(s.start(t0));
+        assert!(!s.start(t0), "já carregando");
+        s.failed(t0);
+        assert!(!s.start(t0 + Duration::from_secs(1)), "não repete na hora");
+        assert!(s.start(t0 + Duration::from_secs(31)), "tenta de novo depois da pausa");
+        s.loaded();
+        assert!(!s.start(t0 + Duration::from_secs(999)), "carregou: nunca mais");
     }
 }

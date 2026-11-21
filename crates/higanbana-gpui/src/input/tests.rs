@@ -141,3 +141,15 @@ fn botao_esquerdo_nao_navega() {
     side(&mut t, &mut v, MouseButton::Left);
     assert!(v.log.is_empty());
 }
+
+#[test]
+fn navegar_nao_atravessa_modal() {
+    let modal = overlay(Anchor::center(), div().id("modal").w(50.0).h(50.0)).modal();
+    let root = div().w(200.0).h(200.0).on_navigate(|v: &mut Nav, d, _| v.log.push(d)).child(modal);
+    let mut t = Tree::new();
+    t.rebuild(root, &TextStyle::default(), size(200.0, 200.0), &mut FakeMeasurer);
+    let mut v = Nav::default();
+    let mut cx = EventCx::default();
+    t.mouse_up(point(100.0, 100.0), MouseButton::Back, Modifiers::default(), &mut v, &mut cx);
+    assert!(v.log.is_empty(), "página atrás do modal não muda");
+}
