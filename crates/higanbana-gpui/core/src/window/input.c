@@ -19,7 +19,12 @@ static void push_mouse(hg_window* win, hg_event_kind kind, LPARAM lp, uint32_t b
 }
 
 void hg__window_push_mouse(hg_window* win, hg_event_kind kind, int x, int y, uint32_t button) {
-    push_mouse(win, kind, MAKELPARAM((WORD)(short)x, (WORD)(short)y), button);
+    /* Sem passar por LPARAM: coordenadas fora de 16 bits (ponteiro "fora da janela"). */
+    hg_event ev = { .kind = kind, .mods = current_mods() };
+    ev.u.mouse.x = (float)x / win->dpi_scale;
+    ev.u.mouse.y = (float)y / win->dpi_scale;
+    ev.u.mouse.button = button;
+    hg_queue_push(&win->events, &ev);
 }
 
 static void push_key(hg_window* win, hg_event_kind kind, WPARAM wp, LPARAM lp) {

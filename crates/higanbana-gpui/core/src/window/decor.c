@@ -5,15 +5,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <windowsx.h>
+#include <shellapi.h>
 
 #define RESIZE_BORDER 6.0f /* pixels lógicos */
 
 static uint32_t compute_state(const hg_window* win) {
     uint32_t s = 0;
-    if (IsZoomed(win->hwnd)) s |= HG_WINDOW_MAXIMIZED;
+    if (IsZoomed(win->hwnd) && !win->fullscreen) s |= HG_WINDOW_MAXIMIZED;
     if (IsIconic(win->hwnd)) s |= HG_WINDOW_MINIMIZED;
     if (win->fullscreen) s |= HG_WINDOW_FULLSCREEN;
-    if (GetForegroundWindow() == win->hwnd) s |= HG_WINDOW_FOCUSED;
+    if (win->active) s |= HG_WINDOW_FOCUSED;
     return s;
 }
 
@@ -49,6 +50,27 @@ static void inset_maximized(hg_window* win, RECT* r) {
     r->right -= f;
     r->top += fy;
     r->bottom -= fy;
+    /* Barra de tarefas auto-ocultável: área de trabalho = monitor inteiro e o Windows
+     * trataria a janela como fullscreen (a barra não sobe). Deixa 1 px na borda dela. */
+    APPBARDATA ab = { sizeof ab };
+    if (!(SHAppBarMessage(ABM_GETSTATE, &ab) & ABS_AUTOHIDE)) return;
+    HMONITOR mon = MonitorFromWindow(win->hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof mi };
+    GetMonitorInfoW(mon, &mi);
+    static const UINT edges[] = { ABE_BOTTOM, ABE_TOP, ABE_LEFT, ABE_RIGHT };
+    for (int i = 0; i < 4; i++) {
+        APPBARDATA q = { sizeof q };
+        q.uEdge = edges[i];
+        q.rc = mi.rcMonitor;
+        if (!SHAppBarMessage(ABM_GETAUTOHIDEBAREX, &q)) continue;
+        switch (edges[i]) {
+        case ABE_BOTTOM: r->bottom -= 1; break;
+        case ABE_TOP:    r->top += 1; break;
+        case ABE_LEFT:   r->left += 1; break;
+        default:         r->right -= 1; break;
+        }
+        return;
+    }
 }
 
 static LRESULT border_hit(hg_window* win, float x, float y, float w, float h) {
@@ -113,7 +135,13 @@ int hg__decor_wndproc(hg_window* win, UINT msg, WPARAM wp, LPARAM lp, LRESULT* o
         *out = hit_test(win, lp);
         return 1;
     case WM_NCMOUSEMOVE:
-        if (wp != HTMAXBUTTON) return 0;
+        if (wp != HTMAXBUTTON) {
+            /* Saiu do botão para outra área não-cliente (barra, borda): tira o hover. */
+            if (win->nc_hover) hg__window_push_mouse(win, HG_EVENT_MOUSE_MOVE, -100000, -100000, 0);
+            win->nc_hover = 0;
+            return 0;
+        }
+        win->nc_hover = 1;
         track_nc_leave(win);
         push_nc_mouse(win, HG_EVENT_MOUSE_MOVE, lp);
         *out = 0;
@@ -131,6 +159,7 @@ int hg__decor_wndproc(hg_window* win, UINT msg, WPARAM wp, LPARAM lp, LRESULT* o
         return 1;
     case WM_NCMOUSELEAVE:
         win->nc_tracking = 0;
+        win->nc_hover = 0;
         hg__window_push_mouse(win, HG_EVENT_MOUSE_MOVE, -100000, -100000, 0);
         *out = 0;
         return 1;

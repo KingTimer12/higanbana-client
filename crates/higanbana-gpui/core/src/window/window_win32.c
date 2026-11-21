@@ -22,6 +22,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         hg__decor_update_state(win);
         return 0;
     case WM_ACTIVATE: {
+        win->active = LOWORD(wp) != WA_INACTIVE;
         LRESULT r = DefWindowProcW(hwnd, msg, wp, lp);
         hg__decor_update_state(win);
         return r;
@@ -102,6 +103,7 @@ hg_result hg_window_create(hg_context* ctx, const hg_window_desc* desc, hg_windo
     if (r != HG_OK) { DestroyWindow(win->hwnd); free(win); return r; }
     /* USERDATA só depois do attach: WM_SIZE antes disso não toca no backend. */
     SetWindowLongPtrW(win->hwnd, GWLP_USERDATA, (LONG_PTR)win);
+    win->active = GetForegroundWindow() == win->hwnd; /* WM_ACTIVATE do show veio antes */
     win->next = ctx->windows;
     ctx->windows = win;
     *out = win;
@@ -129,7 +131,9 @@ hg_result hg__window_recreate_hwnd(hg_window* win) {
     SetWindowLongPtrW(fresh, GWLP_USERDATA, (LONG_PTR)win);
     SetWindowLongPtrW(old, GWLP_USERDATA, 0);
     win->hwnd = fresh;
+    win->nc_tracking = win->nc_hover = 0;
     DestroyWindow(old);
+    win->active = GetForegroundWindow() == fresh;
     hg__decor_refresh_frame(win);
     return HG_OK;
 }

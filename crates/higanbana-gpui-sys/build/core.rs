@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-const SYSTEM_LIBS: &[&str] = &["user32", "gdi32", "dxguid"];
+const SYSTEM_LIBS: &[&str] = &["user32", "gdi32", "dxguid", "shell32"];
 
 fn walk(dir: &Path, sources: &mut Vec<PathBuf>, dirs: &mut Vec<PathBuf>) {
     dirs.push(dir.to_path_buf());

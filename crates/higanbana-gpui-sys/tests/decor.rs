@@ -188,3 +188,40 @@ fn recreate_keeps_custom_frame() {
     unsafe { GetWindowRect(hwnd(&f), &mut w) };
     assert_eq!(client_size(&f), (w.r - w.l, w.b - w.t));
 }
+
+const WM_ACTIVATE: u32 = 0x0006;
+
+#[test]
+fn leaving_max_button_into_caption_clears_hover() {
+    let f = Fixture::new();
+    custom(&f);
+    // Sem drenar entre os dois: o TrackMouseEvent do teste posta WM_NCMOUSELEAVE na hora
+    // (o cursor real não está na barra) e limparia o hover antes do segundo move.
+    unsafe { SendMessageW(hwnd(&f), WM_NCMOUSEMOVE, HTMAXBUTTON as usize, screen_lp(&f, 250.0, 16.0)) };
+    unsafe { SendMessageW(hwnd(&f), WM_NCMOUSEMOVE, HTCAPTION as usize, screen_lp(&f, 100.0, 16.0)) };
+    let moves: Vec<_> = drain(&f).into_iter().filter(|e| e.kind == hg_event_kind_HG_EVENT_MOUSE_MOVE).collect();
+    let m = unsafe { moves.last().expect("mouse move ao sair do botão").u.mouse };
+    let all: Vec<(f32, f32)> = moves.iter().map(|e| unsafe { (e.u.mouse.x, e.u.mouse.y) }).collect();
+    assert!(m.x < -1000.0 && m.y < -1000.0, "ponteiro fora da janela: {all:?}");
+}
+
+#[test]
+fn focus_flag_follows_wm_activate() {
+    let f = Fixture::new();
+    unsafe { SendMessageW(hwnd(&f), WM_ACTIVATE, 0, 0) }; // WA_INACTIVE
+    assert_eq!(unsafe { hg_window_state(f.win) } & HG_WINDOW_FOCUSED, 0);
+    unsafe { SendMessageW(hwnd(&f), WM_ACTIVATE, 1, 0) }; // WA_ACTIVE
+    assert_ne!(unsafe { hg_window_state(f.win) } & HG_WINDOW_FOCUSED, 0);
+}
+
+#[test]
+fn fullscreen_from_maximized_is_not_maximized() {
+    let f = Fixture::new();
+    unsafe { hg_window_command(f.win, hg_window_cmd_HG_WINDOW_MAXIMIZE) };
+    unsafe { hg_window_command(f.win, hg_window_cmd_HG_WINDOW_ENTER_FULLSCREEN) };
+    let s = unsafe { hg_window_state(f.win) };
+    assert_ne!(s & HG_WINDOW_FULLSCREEN, 0);
+    assert_eq!(s & HG_WINDOW_MAXIMIZED, 0);
+    unsafe { hg_window_command(f.win, hg_window_cmd_HG_WINDOW_EXIT_FULLSCREEN) };
+    assert_ne!(unsafe { hg_window_state(f.win) } & HG_WINDOW_MAXIMIZED, 0, "volta maximizada");
+}

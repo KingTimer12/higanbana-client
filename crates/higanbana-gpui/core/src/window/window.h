@@ -22,6 +22,8 @@ struct hg_window {
     uint32_t       state;         /* últimas flags HG_WINDOW_* enviadas */
     int            fullscreen;
     int            nc_tracking;   /* TrackMouseEvent(TME_NONCLIENT) ativo */
+    int            nc_hover;      /* ponteiro sobre o botão maximizar (não-cliente) */
+    int            active;        /* último WM_ACTIVATE */
     WINDOWPLACEMENT saved_place;  /* antes do fullscreen */
     LONG_PTR       saved_style;
 };
