@@ -1,26 +1,23 @@
-//! Leitor de mangá.
+//! Leitor de mangá: estado e navegação puros (`state`, `nav`), carga (`load`) e tela.
 
-mod view;
+pub mod nav;
+pub mod state;
 
-use std::collections::HashMap;
+use std::sync::Arc;
 
-use higanbana_core::{nuvem::FileEntry, reader::store::ReadProgress};
+use higanbana_core::nuvem::FileEntry;
 
-use crate::state::AppState;
-
-pub use view::{ReaderEvent, ReaderView};
+pub use state::ReaderUi;
 
 /// O que está aberto no leitor. `dir` é a pasta dos arquivos; `title_path`, a chave das preferências.
 #[derive(Debug, Clone)]
 pub struct ReadTarget {
     pub dir: String,
     pub file: FileEntry,
-    pub files: Vec<FileEntry>,
+    pub files: Arc<[FileEntry]>,
     pub title_path: String,
     pub title: String,
 }
 
-/// Progresso de leitura por caminho (lido do núcleo).
-pub fn progress_map(s: &AppState) -> HashMap<String, ReadProgress> {
-    s.core.reader().store.data().progress
-}
+#[cfg(test)]
+mod tests_nav;
