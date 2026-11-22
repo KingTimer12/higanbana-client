@@ -15,7 +15,8 @@ static HWND create_hidden_window(void) {
     wc.hInstance = inst;
     wc.lpszClassName = k_hidden_class;
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return NULL;
-    return CreateWindowExW(0, k_hidden_class, L"", WS_POPUP, 0, 0, 1, 1, NULL, NULL, inst, NULL);
+    /* Só de mensagens: não recebe broadcast (a thread do vídeo não processa mensagens). */
+    return CreateWindowExW(0, k_hidden_class, L"", WS_POPUP, 0, 0, 1, 1, HWND_MESSAGE, NULL, inst, NULL);
 }
 
 static int choose_format(gl_wgl_context* c) {

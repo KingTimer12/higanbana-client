@@ -25,10 +25,11 @@ struct hg_video_target {
     video_gl*        gl;      /* só a thread de render mexe */
     video_slot       slots[HG_VIDEO_SLOTS];
     int              writing; /* slot do quadro em curso; -1 fora de quadro */
-    int              next;    /* próximo slot a escrever */
-    CRITICAL_SECTION lock;    /* protege pub_* entre as threads */
+    CRITICAL_SECTION lock;    /* protege pub_* e ui_slot entre as threads */
     void*            pub_tex; /* último publicado (AddRef) */
     void*            pub_srv;
+    int              pub_slot; /* slot do publicado; -1 nenhum */
+    int              ui_slot;  /* slot que a UI está mostrando; -1 nenhum */
     uint64_t         pub_seq, seen_seq;
 };
 
@@ -38,6 +39,8 @@ hg_result video_d3d_device(hg_context* ctx, void** dev);
 hg_result video_d3d_texture(void* dev, uint32_t w, uint32_t h, void** tex, void** srv);
 void      video_d3d_addref(void* unk);
 void      video_d3d_release(void* unk);
+/* 1 se o contexto ainda está no D3D11 e com o mesmo device do alvo. */
+int       video_d3d_same_device(hg_context* ctx, void* dev);
 /* A imagem externa passa a mostrar tex/srv. */
 hg_result video_d3d_wrap(hg_image* img, void* tex, void* srv);
 

@@ -196,9 +196,15 @@ fn first_mode(api: &Api, handle: Handle, signal: &Arc<Signal>, link: Option<&Gpu
 fn switch_mode(api: &Api, handle: Handle, signal: &Arc<Signal>, link: &GpuLink, mode: Mode) -> Result<Mode, String> {
     match mode {
         Mode::Gl(g) if link.failed() => {
+            // A saída de vídeo do mpv não sobrevive à troca de contexto: fecha a trilha de
+            // vídeo antes, solta o GL, cria o "sw" e reabre a trilha nele (o áudio segue).
+            let h = SharedHandle(handle);
+            super::player::command_raw(h, &["set", "vid", "no"]);
             g.free(api);
             link.set_active(false);
-            create_context(api, handle, signal).map(Mode::Sw)
+            let sw = create_context(api, handle, signal).map(Mode::Sw)?;
+            super::player::command_raw(h, &["set", "vid", "auto"]);
+            Ok(sw)
         }
         m => Ok(m),
     }
@@ -230,9 +236,16 @@ fn run(handle: SharedHandle, signal: Arc<Signal>, state: Arc<Mutex<PlayerState>>
             }
             f.pending = false;
         }
+        let mut switched = false;
         if let Some(link) = &link {
+            let was_gl = matches!(mode, Mode::Gl(_));
             mode = match switch_mode(api, handle.0, &signal, link, mode) {
-                Ok(m) => m,
+                Ok(m) => {
+                    // Contexto novo não avisa quadro: sem um render logo, o mpv dá a saída
+                    // de vídeo por perdida (~400 ms) e encerra o arquivo.
+                    switched = was_gl && matches!(m, Mode::Sw(_));
+                    m
+                }
                 Err(e) => {
                     eprintln!("higanbana-gpui: render do mpv parou: {e}");
                     return;
@@ -256,7 +269,7 @@ fn run(handle: SharedHandle, signal: Arc<Signal>, state: Arc<Mutex<PlayerState>>
             continue;
         };
         retries = 0;
-        if unsafe { (api.render_update)(mode.ctx()) } & RENDER_UPDATE_FRAME == 0 {
+        if unsafe { (api.render_update)(mode.ctx()) } & RENDER_UPDATE_FRAME == 0 && !switched {
             continue;
         }
         let size = target_size(video, view);

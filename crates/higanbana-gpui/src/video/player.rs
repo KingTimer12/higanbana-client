@@ -80,7 +80,7 @@ impl Player {
         let pool: Pool = Arc::default();
         // Vídeo na GPU: o alvo nasce no contexto desta thread (a da UI), antes do render.
         let link = match (render && options.uses_gpu()).then(VideoTarget::create_current).flatten() {
-            Some(Ok(t)) => Some(Arc::new(GpuLink::with_target(t))),
+            Some((Ok(t), ctx)) => Some(Arc::new(GpuLink::with_target(t, ctx))),
             _ => None,
         };
         let render = if render {
@@ -328,7 +328,7 @@ impl Drop for Player {
 }
 
 /// `mpv_command` com argumentos UTF-8.
-fn command_raw(handle: SharedHandle, args: &[&str]) -> std::ffi::c_int {
+pub(super) fn command_raw(handle: SharedHandle, args: &[&str]) -> std::ffi::c_int {
     let Ok(api) = api() else { return -1 };
     let owned: Vec<_> = args.iter().map(|a| cstr(a)).collect();
     let mut ptrs: Vec<*const std::ffi::c_char> = owned.iter().map(|c| c.as_ptr()).collect();

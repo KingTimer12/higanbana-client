@@ -21,9 +21,10 @@ impl VideoTarget {
         Self::create_in(ctx.raw())
     }
 
-    /// No contexto vivo desta thread (thread da UI); `None` se não há contexto.
-    pub(crate) fn create_current() -> Option<Result<VideoTarget>> {
-        super::context::current_raw().map(|c| Self::create_in(c.as_ptr()))
+    /// No contexto vivo desta thread (thread da UI), com o endereço dele para conferir
+    /// depois quem desenha; `None` se não há contexto.
+    pub(crate) fn create_current() -> Option<(Result<VideoTarget>, usize)> {
+        super::context::current_raw().map(|c| (Self::create_in(c.as_ptr()), c.as_ptr() as usize))
     }
 
     fn create_in(ctx: *mut sys::hg_context) -> Result<VideoTarget> {

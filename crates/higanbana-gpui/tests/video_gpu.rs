@@ -15,6 +15,8 @@ fn near(px: u32, rgb: u32) -> bool {
 
 const RED: &str = "av://lavfi:color=c=red:size=64x48:rate=10";
 const BLUE: &str = "av://lavfi:color=c=blue:size=64x48:rate=10";
+/// Vermelho com áudio (como um episódio): perder o vídeo não encerra o arquivo.
+const RED_AUDIO: &str = "av://lavfi:color=c=red:size=64x48:rate=10[out0];sine=f=440[out1]";
 /// Metade de cima vermelha, de baixo azul (confere a orientação).
 const SPLIT: &str = "av://lavfi:color=c=red:size=64x24:rate=10[a];color=c=blue:size=64x24:rate=10[b];[a][b]vstack";
 
@@ -111,4 +113,32 @@ fn backend_sem_d3d11_fica_no_sw() {
     p.load(RED);
     until(&ctx, &win, &mut cache, &mut p, &[(20.0, 20.0)], 8, |_, px| near(px[0], 0xff0000));
     assert_eq!(p.render_path(), RenderPath::Cpu);
+}
+
+#[test]
+fn troca_de_backend_volta_ao_sw_com_imagem() {
+    let ctx = Context::new(BackendKind::D3D11).unwrap();
+    let win = window(&ctx);
+    let mut cache = ImageCache::new(&ctx);
+    let mut p = Player::new(Waker::noop()).expect("libmpv");
+    p.load(RED_AUDIO);
+    until(&ctx, &win, &mut cache, &mut p, &[(20.0, 20.0)], 8, |p, px| p.render_path() == RenderPath::Gpu && near(px[0], 0xff0000));
+    if ctx.switch_backend(BackendKind::OpenGL).is_err() {
+        return;
+    }
+    // A GPU cai e o vídeo continua (pela CPU), sem precisar reabrir.
+    until(&ctx, &win, &mut cache, &mut p, &[(20.0, 20.0)], 8, |p, px| p.render_path() == RenderPath::Cpu && near(px[0], 0xff0000));
+}
+
+#[test]
+fn player_de_outro_contexto_cai_no_sw() {
+    let a = Context::new(BackendKind::D3D11).unwrap();
+    let win = window(&a);
+    let mut cache = ImageCache::new(&a);
+    let b = Context::new(BackendKind::D3D11).unwrap(); // vira o "atual" da thread
+    let mut p = Player::new(Waker::noop()).expect("libmpv");
+    p.load(RED_AUDIO);
+    until(&a, &win, &mut cache, &mut p, &[(20.0, 20.0)], 8, |p, px| p.render_path() == RenderPath::Cpu && near(px[0], 0xff0000));
+    drop(p);
+    drop(b);
 }

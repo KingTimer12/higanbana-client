@@ -22,6 +22,8 @@ pub enum RenderPath {
 #[derive(Default)]
 struct Inner {
     target: Option<VideoTarget>,
+    /// Contexto em que o alvo nasceu (`Context::id`): só ele pode desenhar a imagem.
+    ctx: usize,
     failed: bool,
     active: bool,
 }
@@ -30,8 +32,8 @@ struct Inner {
 pub(crate) struct GpuLink(Mutex<Inner>);
 
 impl GpuLink {
-    pub fn with_target(target: VideoTarget) -> GpuLink {
-        GpuLink(Mutex::new(Inner { target: Some(target), failed: false, active: false }))
+    pub fn with_target(target: VideoTarget, ctx: usize) -> GpuLink {
+        GpuLink(Mutex::new(Inner { target: Some(target), ctx, failed: false, active: false }))
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -71,10 +73,15 @@ impl GpuLink {
 pub(crate) struct GpuSource(pub Arc<GpuLink>);
 
 impl ExternalImage for GpuSource {
-    fn image(&self, _ctx: &Context) -> Option<NonNull<sys::hg_image>> {
+    fn image(&self, ctx: &Context) -> Option<NonNull<sys::hg_image>> {
         let target = {
-            let g = self.0.lock();
+            let mut g = self.0.lock();
             if g.failed || !g.active {
+                return None;
+            }
+            if g.ctx != ctx.id() {
+                eprintln!("higanbana-gpui: vídeo desenhado em outro contexto, volta à CPU");
+                g.failed = true;
                 return None;
             }
             g.target?

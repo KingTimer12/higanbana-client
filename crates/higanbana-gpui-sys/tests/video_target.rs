@@ -142,3 +142,141 @@ fn sem_d3d11_fica_indisponivel() {
     assert!(t.is_null());
     unsafe { hg_context_destroy(ctx) };
 }
+
+// ---- Correções da revisão final ----------------------------------------
+
+#[link(name = "user32")]
+unsafe extern "system" {
+    fn EnumThreadWindows(thread: u32, f: unsafe extern "system" fn(*mut c_void, isize) -> i32, l: isize) -> i32;
+}
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetCurrentThreadId() -> u32;
+}
+
+unsafe extern "system" fn count_window(_: *mut c_void, l: isize) -> i32 {
+    unsafe { *(l as *mut u32) += 1 };
+    1
+}
+
+enum Cmd {
+    Paint(u32, u32, [f32; 3]),
+    Windows,
+    Stop,
+}
+
+/// Thread de render que mantém o GL entre quadros (como a do mpv).
+struct GlThread {
+    tx: std::sync::mpsc::Sender<Cmd>,
+    rx: std::sync::mpsc::Receiver<u32>,
+    join: Option<std::thread::JoinHandle<()>>,
+}
+
+impl GlThread {
+    fn start(t: *mut hg_video_target) -> Option<GlThread> {
+        let (tx, crx) = std::sync::mpsc::channel::<Cmd>();
+        let (ctx_, rx) = std::sync::mpsc::channel::<u32>();
+        let tp = Ptr(t);
+        let join = std::thread::spawn(move || unsafe {
+            let tp = tp;
+            let t = tp.0;
+            if hg_video_target_gl_init(t) != OK {
+                let _ = ctx_.send(0);
+                return;
+            }
+            let _ = ctx_.send(1);
+            let clear_color: ClearColor = std::mem::transmute(proc(t, c"glClearColor"));
+            let clear: Clear = std::mem::transmute(proc(t, c"glClear"));
+            for cmd in crx {
+                match cmd {
+                    Cmd::Paint(w, h, rgb) => {
+                        let mut fbo = 0;
+                        assert_eq!(hg_video_target_begin(t, w, h, &mut fbo), OK);
+                        clear_color(rgb[0], rgb[1], rgb[2], 1.0);
+                        clear(GL_COLOR_BUFFER_BIT);
+                        assert_eq!(hg_video_target_end(t), OK);
+                        let _ = ctx_.send(1);
+                    }
+                    Cmd::Windows => {
+                        let mut n = 0u32;
+                        EnumThreadWindows(GetCurrentThreadId(), count_window, &mut n as *mut u32 as isize);
+                        let _ = ctx_.send(n);
+                    }
+                    Cmd::Stop => break,
+                }
+            }
+            hg_video_target_gl_release(t);
+        });
+        let g = GlThread { tx, rx, join: Some(join) };
+        (g.rx.recv().ok()? == 1).then_some(g)
+    }
+
+    fn ask(&self, c: Cmd) -> u32 {
+        self.tx.send(c).unwrap();
+        self.rx.recv().unwrap()
+    }
+}
+
+impl Drop for GlThread {
+    fn drop(&mut self) {
+        let _ = self.tx.send(Cmd::Stop);
+        if let Some(j) = self.join.take() {
+            let _ = j.join();
+        }
+    }
+}
+
+#[test]
+fn thread_de_render_sem_janela_que_recebe_broadcast() {
+    let f = Fixture::new();
+    let mut t = ptr::null_mut();
+    assert_eq!(unsafe { hg_video_target_create(f.ctx, &mut t) }, OK);
+    let Some(g) = GlThread::start(t) else { return };
+    // Janela de topo numa thread que não processa mensagens trava quem faz broadcast.
+    assert_eq!(g.ask(Cmd::Windows), 0, "janela escondida deve ser só de mensagens");
+    drop(g);
+    unsafe { hg_video_target_destroy(t) };
+}
+
+#[test]
+fn slot_que_a_ui_mostra_nao_e_reescrito() {
+    let f = Fixture::new();
+    let mut t = ptr::null_mut();
+    assert_eq!(unsafe { hg_video_target_create(f.ctx, &mut t) }, OK);
+    let Some(g) = GlThread::start(t) else { return };
+    let (mut img, mut fresh) = (ptr::null_mut(), 0);
+    g.ask(Cmd::Paint(64, 48, [1.0, 0.0, 0.0]));
+    assert_eq!(unsafe { hg_video_target_image(t, &mut img, &mut fresh) }, OK);
+    // Dois quadros sem a UI pegar nenhum: o que ela mostra (vermelho) fica intacto.
+    g.ask(Cmd::Paint(64, 48, [0.0, 0.0, 1.0]));
+    g.ask(Cmd::Paint(64, 48, [0.0, 1.0, 0.0]));
+    draw(&f, img);
+    assert_eq!(pixel(&f, 20, 20), 0x00ff_0000, "UI redesenha o quadro que já tinha");
+    assert_eq!(unsafe { hg_video_target_image(t, &mut img, &mut fresh) }, OK);
+    assert_eq!(fresh, 1);
+    draw(&f, img);
+    assert_eq!(pixel(&f, 20, 20), 0x0000_ff00, "e depois pega o último");
+    drop(g);
+    unsafe { hg_video_target_destroy(t) };
+}
+
+#[test]
+fn troca_de_backend_acusa_erro_em_vez_de_usar_o_device_velho() {
+    let f = Fixture::new();
+    let mut t = ptr::null_mut();
+    assert_eq!(unsafe { hg_video_target_create(f.ctx, &mut t) }, OK);
+    let Some(g) = GlThread::start(t) else { return };
+    let (mut img, mut fresh) = (ptr::null_mut(), 0);
+    g.ask(Cmd::Paint(64, 48, [1.0, 0.0, 0.0]));
+    assert_eq!(unsafe { hg_video_target_image(t, &mut img, &mut fresh) }, OK);
+    if unsafe { hg_context_switch_backend(f.ctx, hg_backend_kind_HG_BACKEND_OPENGL) } != OK {
+        return;
+    }
+    // Pausado (sem quadro novo): mesmo assim a UI fica sabendo.
+    assert_ne!(unsafe { hg_video_target_image(t, &mut img, &mut fresh) }, OK, "imagem sem textura no backend novo");
+    assert_eq!(unsafe { hg_context_switch_backend(f.ctx, hg_backend_kind_HG_BACKEND_D3D11) }, OK);
+    g.ask(Cmd::Paint(64, 48, [0.0, 0.0, 1.0]));
+    assert_ne!(unsafe { hg_video_target_image(t, &mut img, &mut fresh) }, OK, "textura do device D3D11 antigo");
+    drop(g);
+    unsafe { hg_video_target_destroy(t) };
+}

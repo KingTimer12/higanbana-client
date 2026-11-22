@@ -51,6 +51,10 @@ void video_d3d_release(void* unk) {
     if (unk) IUnknown_Release((IUnknown*)unk);
 }
 
+int video_d3d_same_device(hg_context* ctx, void* dev) {
+    return ctx->backend == &hg__d3d11_backend && ctx->backend_data && ((d3d11_device*)ctx->backend_data)->dev == dev;
+}
+
 hg_result video_d3d_wrap(hg_image* img, void* tex, void* srv) {
     hg_context* ctx = img->ctx;
     if (ctx->backend != &hg__d3d11_backend || !ctx->backend_data)

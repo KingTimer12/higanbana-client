@@ -47,6 +47,11 @@ impl Context {
         Ok(Self { raw, fonts: RefCell::new(FontCache::default()), _not_send: PhantomData })
     }
 
+    /// Endereço do contexto no core (identidade, ex.: de qual contexto é um alvo de vídeo).
+    pub(crate) fn id(&self) -> usize {
+        self.raw.as_ptr() as usize
+    }
+
     pub(crate) fn raw(&self) -> *mut sys::hg_context {
         self.raw.as_ptr()
     }

@@ -19,19 +19,39 @@ hg_result hg_video_target_create(hg_context* ctx, hg_video_target** out) {
     t->ctx = ctx;
     t->device = dev;
     t->writing = -1;
+    t->pub_slot = -1;
+    t->ui_slot = -1;
     InitializeCriticalSection(&t->lock);
     *out = t;
     return HG_OK;
 }
 
-hg_result hg_video_target_gl_init(hg_video_target* t) {
-    if (!t) return hg__fail(HG_ERR_INVALID, "hg_video_target_gl_init: alvo nulo");
-    if (t->gl) return HG_OK;
-    return video_gl_create(t->device, &t->gl);
-}
 
 void* hg_video_target_gl_proc(hg_video_target* t, const char* name) {
     return t && t->gl && name ? video_gl_proc(t->gl, name) : NULL;
+}
+
+static hg_result slot_ready(hg_video_target* t, video_slot* s, uint32_t w, uint32_t h);
+static void slot_free(hg_video_target* t, video_slot* s);
+
+hg_result hg_video_target_gl_init(hg_video_target* t) {
+    if (!t) return hg__fail(HG_ERR_INVALID, "hg_video_target_gl_init: alvo nulo");
+    if (t->gl) return HG_OK;
+    hg_result r = video_gl_create(t->device, &t->gl);
+    if (r != HG_OK) return r;
+    /* Sonda: registrar e travar uma textura agora, para a falha (ex.: GL e D3D11 em GPUs
+     * diferentes) aparecer antes de o mpv abrir a saída de vídeo no GL. */
+    video_slot probe = { 0 };
+    uint32_t fbo = 0;
+    r = slot_ready(t, &probe, 16, 16);
+    if (r == HG_OK) r = video_gl_bind(t->gl, probe.handle, probe.gl_tex, &fbo);
+    if (r == HG_OK) r = video_gl_unbind(t->gl, probe.handle);
+    slot_free(t, &probe);
+    if (r != HG_OK) {
+        video_gl_destroy(t->gl);
+        t->gl = NULL;
+    }
+    return r;
 }
 
 static void slot_free(hg_video_target* t, video_slot* s) {
@@ -59,10 +79,28 @@ static hg_result slot_ready(hg_video_target* t, video_slot* s, uint32_t w, uint3
 hg_result hg_video_target_begin(hg_video_target* t, uint32_t width, uint32_t height, uint32_t* fbo) {
     if (!t || !t->gl || !fbo || width == 0 || height == 0 || t->writing >= 0)
         return hg__fail(HG_ERR_INVALID, "hg_video_target_begin: argumento inválido");
-    video_slot* s = &t->slots[t->next];
+    /* Nunca o slot que a UI mostra (a interop descarta o conteúdo ao travar). Se a UI
+     * ainda não pegou o último publicado, ele é retomado: ela continua no que já tinha. */
+    void *drop_tex = NULL, *drop_srv = NULL;
+    EnterCriticalSection(&t->lock);
+    int slot;
+    if (t->pub_slot >= 0 && t->pub_seq != t->seen_seq) {
+        slot = t->pub_slot;
+        drop_tex = t->pub_tex;
+        drop_srv = t->pub_srv;
+        t->pub_tex = t->pub_srv = NULL;
+        t->pub_slot = -1;
+        t->pub_seq = t->seen_seq;
+    } else {
+        slot = t->ui_slot == 0 ? 1 : 0;
+    }
+    LeaveCriticalSection(&t->lock);
+    video_d3d_release(drop_srv);
+    video_d3d_release(drop_tex);
+    video_slot* s = &t->slots[slot];
     hg_result r = slot_ready(t, s, width, height);
     if (r == HG_OK) r = video_gl_bind(t->gl, s->handle, s->gl_tex, fbo);
-    if (r == HG_OK) t->writing = t->next;
+    if (r == HG_OK) t->writing = slot;
     return r;
 }
 
@@ -77,11 +115,11 @@ hg_result hg_video_target_end(hg_video_target* t) {
         void *old_tex = t->pub_tex, *old_srv = t->pub_srv;
         t->pub_tex = s->tex;
         t->pub_srv = s->srv;
+        t->pub_slot = t->writing;
         t->pub_seq++;
         LeaveCriticalSection(&t->lock);
         video_d3d_release(old_srv);
         video_d3d_release(old_tex);
-        t->next = (t->writing + 1) % HG_VIDEO_SLOTS;
     }
     t->writing = -1;
     return r;
@@ -104,10 +142,18 @@ hg_result hg_video_target_image(hg_video_target* t, hg_image** out, int* fresh) 
         video_d3d_addref(tex);
         video_d3d_addref(srv);
         t->seen_seq = t->pub_seq;
+        t->ui_slot = t->pub_slot;
     }
     LeaveCriticalSection(&t->lock);
+    /* Backend trocado (mesmo sem quadro novo): a textura é de um device que não vale mais. */
     hg_result r = HG_OK;
-    if (tex) {
+    if (!video_d3d_same_device(t->ctx, t->device) || (t->image && !t->image->gpu && !tex))
+        r = hg__fail(HG_ERR_UNAVAILABLE, "alvo de vídeo: backend trocado");
+    if (r != HG_OK) {
+        video_d3d_release(srv);
+        video_d3d_release(tex);
+        tex = srv = NULL;
+    } else if (tex) {
         if (!t->image) r = hg__image_create_external(t->ctx, &t->image);
         if (r == HG_OK) r = video_d3d_wrap(t->image, tex, srv);
         video_d3d_release(srv);
