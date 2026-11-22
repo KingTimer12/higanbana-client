@@ -75,7 +75,7 @@ fn item(v: &Higanbana, cx: &mut RenderCx<'_, Higanbana>, it: &StripItem, long: b
         StripKind::Loading => boxed(Spinner::new(("leitor-carregando", it.key.0.as_str())).render(cx)),
         StripKind::End(ch) => boxed(end::chapter_end(v, cx, *ch)),
         StripKind::Seam(ch) => boxed(div().text_size(t.typography.sm).text_color(t.muted_foreground).child(text(label(ch + 1)))),
-        StripKind::Failed(_, msg) => boxed(end::open_failed(v, cx, msg.clone())),
+        StripKind::Failed(ch, msg) => boxed(end::open_failed(v, cx, *ch, msg.clone())),
     }
 }
 

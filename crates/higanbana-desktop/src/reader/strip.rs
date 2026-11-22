@@ -37,7 +37,12 @@ impl ReaderUi {
                 items.push(StripItem { key: (u.key.clone(), 0), kind: StripKind::Failed(ch, e.clone()) });
                 continue;
             }
-            let list = self.list_of(u).unwrap_or_default();
+            let opened = self.list_of(u);
+            if opened.as_ref().is_some_and(|l| l.is_empty()) && !self.expanded.contains_key(&u.path) {
+                items.push(StripItem { key: (u.key.clone(), 0), kind: StripKind::Failed(ch, "O arquivo não tem páginas de imagem.".into()) });
+                continue;
+            }
+            let list = opened.unwrap_or_default();
             for (pg, info) in list.iter().enumerate() {
                 items.push(StripItem { key: (u.key.clone(), pg), kind: StripKind::Page { unit: u.clone(), page: pg, index: info.index } });
             }
@@ -61,6 +66,10 @@ impl ReaderUi {
     /// Item `ix` no topo (ou no centro): vira a posição atual. Devolve se mudou.
     pub fn on_strip_top(&mut self, items: &[StripItem], ix: usize) -> bool {
         let Some(item) = items.get(ix) else { return false };
+        // Só páginas viram posição de leitura (carregando/emenda/fim não).
+        if !matches!(item.kind, StripKind::Page { .. }) {
+            return false;
+        }
         let (key, pg) = item.key.clone();
         if key == self.cur_key && Some(pg) == self.page {
             return false;

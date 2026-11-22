@@ -87,3 +87,59 @@ fn janela_da_faixa_pede_so_perto_do_visivel() {
     r.request_pages();
     assert!(r.pages.len() <= 14, "solta o que saiu da janela");
 }
+
+#[test]
+fn proporcoes_ficam_na_faixa() {
+    let mut r = long(&["Cap 1.cbz"]);
+    open(&mut r, "Cap 1.cbz", 40);
+    let items = r.strip_items();
+    for i in &items {
+        if let StripKind::Page { unit, page, .. } = &i.kind {
+            r.ratios.insert(super::state::page_key(unit, *page), 0.2);
+        }
+    }
+    r.set_strip_window(&items, 20..22);
+    r.request_pages();
+    assert_eq!(r.ratios.len(), 40, "altura das páginas não pode mudar ao rolar");
+}
+
+#[test]
+fn carregando_nao_vira_posicao() {
+    let mut r = long(&["Cap 1.cbz", "Cap 2.cbz"]);
+    open(&mut r, "Cap 1.cbz", 2);
+    r.extend_strip();
+    let items = r.strip_items();
+    let ix = items.iter().position(|i| matches!(i.kind, StripKind::Loading)).unwrap();
+    assert!(!r.on_strip_top(&items, ix));
+    assert_eq!(r.chapter(), 0);
+}
+
+#[test]
+fn capitulo_vazio_na_faixa_vira_erro() {
+    let mut r = long(&["Cap 1.cbz", "Cap 2.cbz"]);
+    open(&mut r, "Cap 1.cbz", 2);
+    r.extend_strip();
+    open(&mut r, "Cap 2.cbz", 0);
+    assert!(kinds(&r).contains(&"erro1".to_string()), "{:?}", kinds(&r));
+}
+
+#[test]
+fn tentar_de_novo_no_capitulo_certo() {
+    let mut r = long(&["Cap 1.cbz", "Cap 2.cbz"]);
+    open(&mut r, "Cap 1.cbz", 2);
+    r.extend_strip();
+    r.on_opened("Mangás/X/Cap 2.cbz", Err("x".into()));
+    assert!(r.strip_opens().is_empty());
+    r.retry_chapter(1);
+    assert_eq!(r.strip_opens().len(), 1, "pede de novo o capítulo que falhou");
+}
+
+#[test]
+fn trocar_modo_limpa_janela_da_faixa() {
+    let mut r = long(&["Cap 1.cbz"]);
+    open(&mut r, "Cap 1.cbz", 20);
+    let items = r.strip_items();
+    r.set_strip_window(&items, 0..2);
+    r.set_mode(ReadMode::Single);
+    assert!(r.strip_keep.is_empty() && r.strip_wants.is_empty());
+}

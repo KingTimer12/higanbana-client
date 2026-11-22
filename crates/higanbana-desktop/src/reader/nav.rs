@@ -68,6 +68,8 @@ impl ReaderUi {
         self.page = pg;
         self.end = false;
         self.panel = None;
+        self.strip_keep.clear();
+        self.strip_wants.clear();
         self.strip = vec![u.key.clone()];
         if self.is_strip() {
             self.pending_scroll = Some((u.key, pg.unwrap_or(0)));
@@ -153,6 +155,8 @@ impl ReaderUi {
 
     pub fn set_mode(&mut self, m: ReadMode) {
         self.prefs.mode = m;
+        self.strip_keep.clear();
+        self.strip_wants.clear();
         self.strip = vec![self.cur_key.clone()];
         self.end = false;
         if self.is_strip() {
@@ -188,6 +192,13 @@ impl ReaderUi {
             }
         }
         self.settle();
+    }
+
+    /// Esquece o erro do capítulo `ch` (item da faixa) para pedir de novo.
+    pub fn retry_chapter(&mut self, ch: usize) {
+        if let Some(u) = self.chapters.get(ch) {
+            self.opened.remove(&open_key(u));
+        }
     }
 
     /// Esquece o erro do capítulo atual para tentar de novo.

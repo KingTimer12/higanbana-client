@@ -198,7 +198,7 @@ pub fn view(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higa
     let title = r.target.title.clone();
     let failure = r.open_error().map(str::to_owned).or_else(|| r.empty_chapter().then(|| "O arquivo não tem páginas de imagem.".to_owned()));
     let body = match (failure, total) {
-        (Some(msg), _) => end::open_failed(v, cx, msg),
+        (Some(msg), _) => end::open_failed(v, cx, chapter, msg),
         _ if strip => strip::view(v, cx, area.0, area.1),
         (None, 0) => div().size_full().items_center().justify_center().child(Skeleton::new("leitor-esqueleto").w(380.0).h(area.1 * 0.78).render(cx)),
         _ => pages_body(v, cx, area.0, area.1),

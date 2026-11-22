@@ -50,23 +50,24 @@ pub fn chapter_end(v: &Higanbana, cx: &mut RenderCx<'_, Higanbana>, ch: usize) -
 }
 
 /// Arquivo que não abriu (ou abriu vazio): explicação, tentar de novo e baixar.
-pub fn open_failed(v: &Higanbana, cx: &mut RenderCx<'_, Higanbana>, msg: String) -> Element<Higanbana> {
+/// `ch`: capítulo que falhou (na faixa pode não ser o atual).
+pub fn open_failed(v: &Higanbana, cx: &mut RenderCx<'_, Higanbana>, ch: usize, msg: String) -> Element<Higanbana> {
     let t = cx.theme().clone();
-    let path = v.state.reader.as_ref().and_then(|r| r.unit()).map(|u| u.path);
+    let path = v.state.reader.as_ref().and_then(|r| r.chapters.get(ch).cloned()).map(|u| u.path);
     let download = match path.as_deref().and_then(|p| v.state.downloads.get(p)).map(|d| d.status) {
         Some(DlStatus::Done) => "Baixado",
         Some(DlStatus::Running | DlStatus::Queued) => "Baixando…",
         _ => "Baixar",
     };
-    let retry = Button::new("tentar-abrir", "Tentar de novo").on_click(|v: &mut Higanbana, _, cx| {
+    let retry = Button::new(("tentar-abrir", ch), "Tentar de novo").on_click(move |v: &mut Higanbana, _, cx| {
         cx.stop_propagation();
         if let Some(r) = v.state.reader.as_mut() {
-            r.retry_open();
+            r.retry_chapter(ch);
         }
         v.state.pump_reader();
         cx.notify();
     });
-    let get = Button::new("baixar-arquivo", download).variant(Variant::Outline).icon(icon("download").size(16.0)).on_click(move |v: &mut Higanbana, _, cx| {
+    let get = Button::new(("baixar-arquivo", ch), download).variant(Variant::Outline).icon(icon("download").size(16.0)).on_click(move |v: &mut Higanbana, _, cx| {
         cx.stop_propagation();
         if let Some(p) = path.clone() {
             v.state.start_downloads(&[p]);

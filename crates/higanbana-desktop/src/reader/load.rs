@@ -55,7 +55,10 @@ impl ReaderUi {
     pub fn request_pages(&mut self) -> Vec<PageWant> {
         if let Some(keep) = self.window() {
             self.pages.retain_window(&keep);
-            self.ratios.retain(|k, _| keep.contains(k));
+            // Na faixa a proporção define a altura de cada página: fica (um f32 por página).
+            if !self.is_strip() {
+                self.ratios.retain(|k, _| keep.contains(k));
+            }
         }
         let mut wants = self.wants().pages;
         wants.extend(std::mem::take(&mut self.strip_wants));
