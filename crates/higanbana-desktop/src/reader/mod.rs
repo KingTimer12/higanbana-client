@@ -1,5 +1,6 @@
 //! Leitor de mangá: estado e navegação puros (`state`, `nav`), carga (`load`) e tela.
 
+pub mod load;
 pub mod nav;
 pub mod state;
 
@@ -21,3 +22,5 @@ pub struct ReadTarget {
 
 #[cfg(test)]
 mod tests_nav;
+#[cfg(test)]
+mod tests_load;

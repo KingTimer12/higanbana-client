@@ -65,6 +65,13 @@ pub struct ReaderUi {
     pub stirred: bool,
     pub stir_timer: Option<TimerId>,
     pub filter: TextInputState,
+    /// Páginas baixadas (só a janela em volta da atual).
+    pub pages: super::load::PageCache,
+    /// Na faixa: chaves que podem ficar no cache e páginas pedidas pela tela (Task da faixa).
+    pub strip_keep: HashSet<String>,
+    pub strip_wants: Vec<super::nav::PageWant>,
+    /// Última posição gravada (não regrava a cada quadro).
+    pub last_saved: Option<(String, usize)>,
 }
 
 impl ReaderUi {
@@ -89,6 +96,10 @@ impl ReaderUi {
             stirred: false,
             stir_timer: None,
             filter: TextInputState::new().placeholder("Buscar capítulo ou volume"),
+            pages: Default::default(),
+            strip_keep: HashSet::new(),
+            strip_wants: Vec::new(),
+            last_saved: None,
         };
         r.refresh_chapters();
         let i = r.index_of(&start).unwrap_or(0);
@@ -167,6 +178,12 @@ impl ReaderUi {
     pub fn resume_at(&self, u: Option<&Unit>) -> Option<usize> {
         let p = u.and_then(|u| self.progress.get(&u.key));
         Some(p.filter(|p| !p.read && p.unit.is_none()).map_or(0, |p| p.page))
+    }
+
+    /// Arquivo aberto sem nenhuma página (nada a mostrar além do aviso).
+    pub fn empty_chapter(&self) -> bool {
+        let Some(u) = self.chapters.get(self.chapter()) else { return false };
+        matches!(self.opened.get(&open_key(u)), Some(Opened::Ok(_))) && !self.split_away(u) && self.total() == 0
     }
 
     pub fn has_next(&self) -> bool {

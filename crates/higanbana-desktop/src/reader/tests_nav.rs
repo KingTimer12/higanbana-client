@@ -10,22 +10,22 @@ use super::nav::Step;
 use super::state::ReaderUi;
 use super::ReadTarget;
 
-fn cbz(name: &str) -> FileEntry {
+pub(super) fn cbz(name: &str) -> FileEntry {
     FileEntry { name: name.into(), is_directory: false, size: 100, modified: String::new(), extension: Some(".cbz".into()) }
 }
 
-fn pages(n: usize) -> OpenResult {
+pub(super) fn pages(n: usize) -> OpenResult {
     OpenResult { pages: (0..n).map(|i| PageInfo { index: i, name: format!("{i:03}.jpg") }).collect(), archives: vec![] }
 }
 
-fn reader(files: &[&str], start: &str) -> ReaderUi {
+pub(super) fn reader(files: &[&str], start: &str) -> ReaderUi {
     let files: Arc<[FileEntry]> = files.iter().map(|f| cbz(f)).collect();
     let file = files.iter().find(|f| f.name == start).unwrap().clone();
     let t = ReadTarget { dir: "Mangás/X".into(), file, files, title_path: "Mangás/X".into(), title: "X".into() };
     ReaderUi::new(t, &ReaderData::default())
 }
 
-fn open(r: &mut ReaderUi, name: &str, n: usize) {
+pub(super) fn open(r: &mut ReaderUi, name: &str, n: usize) {
     r.on_opened(&format!("Mangás/X/{name}"), Ok(pages(n)));
 }
 

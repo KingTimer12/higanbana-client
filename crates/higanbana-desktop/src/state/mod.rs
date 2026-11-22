@@ -113,6 +113,8 @@ pub struct AppState {
     pub player_inbox: Vec<crate::video::PlayerMsg>,
     sections_load: SectionsLoad,
     images: images::Images,
+    /// Leitor aberto (solto ao fechar).
+    pub reader: Option<crate::reader::ReaderUi>,
     covers: covers::Covers,
     details: details::Details,
     /// Pasta da tela cujos detalhes estão guardados (troca = solta).
@@ -144,6 +146,7 @@ impl AppState {
             player_inbox: Vec::new(),
             sections_load: SectionsLoad::default(),
             images: images::Images::default(),
+            reader: None,
             covers: covers::Covers::default(),
             details: details::Details::default(),
             details_root: None,
