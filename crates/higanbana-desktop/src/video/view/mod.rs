@@ -64,6 +64,12 @@ pub struct PlayerView {
     last_mouse: Option<Point>,
 }
 
+/// O gerador de miniaturas pode ficar aberto? Tocando com os controles escondidos não
+/// (o `sync` fecha e nada pode reabrir até os controles voltarem); pausado ou arrastando, sim.
+pub fn thumbs_allowed(controls_hidden: bool, playing: bool, dragging: bool) -> bool {
+    !(controls_hidden && playing && !dragging)
+}
+
 impl PlayerView {
     pub fn open(core: Arc<Core>, post: Post, target: PlayTarget, data: higanbana_core::player::store::PlayerData, waker: Waker) -> PlayerView {
         let now = Instant::now();
@@ -147,6 +153,11 @@ impl PlayerView {
         if !self.session.settings().thumbnails || !self.video_ready() || self.thumbs.is_some() {
             return;
         }
+        // Mesma regra do `sync` que fecha: sem ela, um hover parado na barra reabria o
+        // gerador a cada quadro (um mpv novo por vez, GBs de RAM e pedidos à nuvem).
+        if !thumbs_allowed(self.hide.hidden(false), self.last.status == Status::Playing, self.seek.drag.is_some()) {
+            return;
+        }
         let seq = self.load_seq;
         let path = self.session.remote_path();
         let url = self.core.player().preview_url(&path, self.session.target.file.size);
@@ -196,7 +207,7 @@ impl PlayerView {
         self.run(actions);
         if let Some(left) = self.hide.tick(now) {
             cx.request_redraw_in(left);
-        } else if self.last.status == Status::Playing && self.seek.drag.is_none() {
+        } else if !thumbs_allowed(true, self.last.status == Status::Playing, self.seek.drag.is_some()) {
             // Controles sumiram: o segundo mpv (miniaturas) fecha e reabre no próximo movimento.
             self.thumbs = None;
         }

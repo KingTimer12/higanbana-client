@@ -95,3 +95,14 @@ fn lente_sem_player_usa_reserva() {
     super::seek_of(&mut none, &mut spare).drag = Some(0.5);
     assert_eq!(spare.seek.drag, Some(0.5));
 }
+
+#[test]
+fn miniaturas_fechadas_nao_reabrem_com_controles_escondidos() {
+    use super::thumbs_allowed;
+    // Tocando com os controles escondidos: o sync fecha; o pedido de miniatura (hover
+    // parado na barra) não pode reabrir, senão abre/fecha um mpv por quadro.
+    assert!(!thumbs_allowed(true, true, false));
+    assert!(thumbs_allowed(false, true, false), "controles visíveis");
+    assert!(thumbs_allowed(true, false, false), "pausado mostra a prévia");
+    assert!(thumbs_allowed(true, true, true), "arrastando a barra");
+}
