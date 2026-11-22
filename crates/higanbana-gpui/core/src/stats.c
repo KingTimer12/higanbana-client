@@ -18,4 +18,5 @@ void hg_context_stats(const hg_context* ctx, hg_stats* out) {
     if (!ctx) { memset(out, 0, sizeof *out); return; }
     *out = ctx->stats;
     out->atlas_entries = ctx->text ? hg__atlas_entry_count(ctx->text->atlas) : 0;
+    out->image_ram_bytes = ctx->image_ram;
 }

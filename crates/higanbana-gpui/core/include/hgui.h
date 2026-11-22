@@ -199,7 +199,9 @@ hg_result hg_frame_end(hg_window* win, int vsync);
 typedef struct hg_image hg_image;
 
 /* Pixels RGBA8 com alfa pré-multiplicado; `stride` = bytes por linha. O core copia
- * os pixels (reenvio à GPU na troca de backend) e cria a textura no primeiro uso.
+ * os pixels, cria a textura no primeiro uso e solta a cópia (a imagem que recebe
+ * hg_image_update guarda a dela). Na troca de backend, imagem sem cópia volta vazia
+ * até ser recriada por quem tem os pixels.
  * Destruir só depois de enviar (hg_frame_submit) os frames que a usam. */
 hg_result hg_image_create(hg_context* ctx, uint32_t width, uint32_t height, const uint8_t* rgba,
                           uint32_t stride, hg_image** out);
@@ -249,6 +251,7 @@ typedef struct hg_stats {
     uint64_t arena_bytes;   /* memória reservada pela última draw list enviada */
     uint32_t draw_calls;    /* do último frame */
     uint32_t atlas_entries; /* glyphs residentes no atlas */
+    uint64_t image_ram_bytes; /* cópias de pixels de imagem ainda na RAM (dinâmicas ou não enviadas) */
 } hg_stats;
 
 void hg_context_stats(const hg_context* ctx, hg_stats* out);

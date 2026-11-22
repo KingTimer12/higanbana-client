@@ -91,7 +91,7 @@ fn layer_puts_quad_over_image() {
 }
 
 #[test]
-fn images_survive_backend_switch_and_context_destroy_frees_leftovers() {
+fn backend_switch_keeps_drawing_and_context_destroy_frees_leftovers() {
     let f = Fixture::new();
     let img = solid_image(f.ctx, [0, 0, 255, 255], 2, 2);
     let _leak = solid_image(f.ctx, [1, 2, 3, 255], 2, 2); // liberada por hg_context_destroy
@@ -107,6 +107,67 @@ fn images_survive_backend_switch_and_context_destroy_frees_leftovers() {
         pixel(&f, 20, 20); // backends sem imagem ainda apenas pulam
     }
     unsafe { assert_eq!(hg_context_switch_backend(f.ctx, hg_backend_kind_HG_BACKEND_D3D11), OK) };
-    assert_eq!(pixel(&f, 20, 20), 0x0000_00ff, "textura recriada após troca");
+    // A cópia em RAM saiu no primeiro envio: depois da troca a imagem volta vazia
+    // (quem tem os pixels recria), sem falhar o frame.
+    assert_eq!(pixel(&f, 20, 20), 0x0000_0000, "imagem vazia após troca");
     unsafe { hg_image_destroy(img) };
+}
+
+fn image_ram(f: &Fixture) -> u64 {
+    let mut s = unsafe { std::mem::zeroed::<hg_stats>() };
+    unsafe { hg_context_stats(f.ctx, &mut s) };
+    s.image_ram_bytes
+}
+
+fn draw_full(f: &Fixture, img: *mut hg_image) {
+    let r = hg_rect { x: 0.0, y: 0.0, w: 40.0, h: 40.0 };
+    unsafe { assert_eq!(hg_draw_image(f.dl, img, &draw(r, WHITE, 0.0)), OK) };
+}
+
+#[test]
+fn imagem_estatica_solta_a_copia_depois_de_enviar() {
+    let f = Fixture::new();
+    let img = solid_image(f.ctx, [0, 255, 0, 255], 64, 64);
+    assert_eq!(image_ram(&f), 64 * 64 * 4, "antes do envio a cópia existe");
+    draw_full(&f, img);
+    assert_eq!(pixel(&f, 20, 20), 0x0000_ff00);
+    assert_eq!(image_ram(&f), 0, "textura criada: a cópia em RAM sai");
+    assert_eq!(pixel(&f, 20, 20), 0x0000_ff00, "e continua desenhando");
+    unsafe { hg_image_destroy(img) };
+    assert_eq!(image_ram(&f), 0);
+}
+
+#[test]
+fn imagem_dinamica_mantem_a_copia() {
+    let f = Fixture::new();
+    let img = solid_image(f.ctx, [0, 255, 0, 255], 8, 8);
+    draw_full(&f, img);
+    pixel(&f, 20, 20);
+    let blue: Vec<u8> = (0..64).flat_map(|_| [0u8, 0, 255, 255]).collect();
+    unsafe { assert_eq!(hg_image_update(img, blue.as_ptr(), 32), OK) };
+    assert_eq!(pixel(&f, 20, 20), 0x0000_00ff);
+    assert_eq!(image_ram(&f), 8 * 8 * 4, "quadro de vídeo: a cópia fica para o próximo update");
+    unsafe { hg_image_destroy(img) };
+}
+
+#[test]
+fn troca_de_backend_com_imagem_sem_copia_segue_desenhando() {
+    let f = Fixture::new();
+    let img = solid_image(f.ctx, [0, 255, 0, 255], 16, 16);
+    draw_full(&f, img);
+    pixel(&f, 20, 20);
+    assert_eq!(image_ram(&f), 0);
+    if unsafe { hg_context_switch_backend(f.ctx, hg_backend_kind_HG_BACKEND_OPENGL) } != OK {
+        unsafe { hg_image_destroy(img) };
+        return;
+    }
+    // Sem a cópia, a imagem volta vazia (quem tem os pixels reenvia), mas o frame não falha.
+    let clear = hg_color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+    unsafe {
+        assert_eq!(hg_frame_begin(f.win, clear), OK);
+        assert_eq!(hg_frame_submit(f.win, f.dl), OK);
+        assert_eq!(hg_frame_end(f.win, 0), OK);
+        assert_eq!(hg_context_switch_backend(f.ctx, hg_backend_kind_HG_BACKEND_D3D11), OK);
+        hg_image_destroy(img);
+    }
 }

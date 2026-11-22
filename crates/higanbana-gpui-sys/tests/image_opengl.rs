@@ -130,6 +130,9 @@ fn gl_image_survives_switch_d3d11_opengl_d3d11() {
     }
     let f = Fixture::new();
     let img = solid_image(f.ctx, [0, 0, 255, 255], 2, 2);
+    // Imagem com update (dinâmica) guarda a cópia: é ela que a troca recria.
+    let px: Vec<u8> = (0..4).flat_map(|_| [0u8, 0, 255, 255]).collect();
+    unsafe { assert_eq!(hg_image_update(img, px.as_ptr(), 8), OK) };
     let _leak = solid_image(f.ctx, [1, 2, 3, 255], 2, 2); // liberada por hg_context_destroy
     unsafe { assert_eq!(hg_draw_image(f.dl, img, &draw(rect(0.0, 0.0, 40.0, 40.0), WHITE, 0.0)), OK) };
     assert_eq!(pixel(&f, 20, 20), 0x0000_00ff, "D3D11");

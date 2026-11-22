@@ -18,6 +18,7 @@ hg_result hg_image_create(hg_context* ctx, uint32_t width, uint32_t height, cons
     img->width = width;
     img->height = height;
     img->pixels = px;
+    ctx->image_ram += (uint64_t)width * height * 4;
     img->next = ctx->images;
     if (ctx->images) ctx->images->prev = img;
     ctx->images = img;
@@ -43,12 +44,19 @@ void hg_image_destroy(hg_image* img) {
     if (img->gpu && ctx->backend && ctx->backend->texture_destroy) ctx->backend->texture_destroy(ctx, img);
     if (img->prev) img->prev->next = img->next; else ctx->images = img->next;
     if (img->next) img->next->prev = img->prev;
+    if (img->pixels) ctx->image_ram -= (uint64_t)img->width * img->height * 4;
     free(img->pixels);
     free(img);
 }
 
 hg_result hg_image_update(hg_image* img, const uint8_t* rgba, uint32_t stride) {
     if (!img || !rgba || img->external || stride < img->width * 4) return hg__fail(HG_ERR_INVALID, "hg_image_update: argumento inválido");
+    img->dynamic = 1;
+    if (!img->pixels) {
+        img->pixels = malloc((size_t)img->width * img->height * 4);
+        if (!img->pixels) return hg__fail(HG_ERR_OOM, "hg_image_update: sem memória");
+        img->ctx->image_ram += (uint64_t)img->width * img->height * 4;
+    }
     for (uint32_t y = 0; y < img->height; y++)
         memcpy(img->pixels + (size_t)y * img->width * 4, rgba + (size_t)y * stride, img->width * 4);
     if (!img->gpu) return HG_OK;
@@ -68,7 +76,24 @@ hg_result hg__image_gpu(hg_image* img) {
     if (img->external) return hg__fail(HG_ERR_UNAVAILABLE, "imagem externa sem textura neste backend");
     const hg_backend_vtbl* vt = img->ctx->backend;
     if (!vt->texture_create) return HG_ERR_UNAVAILABLE;
-    return vt->texture_create(img->ctx, img);
+    size_t bytes = (size_t)img->width * img->height * 4;
+    if (!img->pixels) {
+        /* Cópia já solta (troca de backend): textura vazia até alguém reenviar. */
+        img->pixels = calloc(1, bytes);
+        if (!img->pixels) return hg__fail(HG_ERR_OOM, "imagem: sem memória");
+        hg_result r = vt->texture_create(img->ctx, img);
+        free(img->pixels);
+        img->pixels = NULL;
+        return r;
+    }
+    hg_result r = vt->texture_create(img->ctx, img);
+    if (r == HG_OK && !img->dynamic) {
+        /* A textura tem os pixels: a cópia em RAM só dobraria a memória da imagem. */
+        free(img->pixels);
+        img->pixels = NULL;
+        img->ctx->image_ram -= bytes;
+    }
+    return r;
 }
 
 void hg__images_release_gpu(hg_context* ctx) {

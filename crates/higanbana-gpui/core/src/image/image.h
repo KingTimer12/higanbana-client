@@ -9,6 +9,7 @@ struct hg_image {
     uint8_t*         pixels;     /* RGBA8 pré-multiplicado, compacto (stride = width*4) */
     void*            gpu;        /* dono: backend->texture_create/destroy */
     int              external;   /* textura vem de fora (alvo de vídeo): sem pixels */
+    int              dynamic;    /* já recebeu hg_image_update: mantém a cópia */
     struct hg_image* prev;       /* lista do contexto */
     struct hg_image* next;
 };

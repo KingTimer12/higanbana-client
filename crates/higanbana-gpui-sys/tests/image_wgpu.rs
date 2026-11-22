@@ -153,6 +153,9 @@ fn switch_d3d11_wgpu_d3d11_keeps_image() {
     if !wgpu_available() { return }
     let f = Fixture::new(D3D11);
     let img = solid_image(f.ctx, [0, 0, 255, 255], 2, 2);
+    // Imagem com update (dinâmica) guarda a cópia: é ela que a troca recria.
+    let px: Vec<u8> = (0..4).flat_map(|_| [0u8, 0, 255, 255]).collect();
+    unsafe { assert_eq!(hg_image_update(img, px.as_ptr(), 8), OK) };
     let _leak = solid_image(f.ctx, [1, 2, 3, 255], 2, 2); // liberada por hg_context_destroy
     unsafe { assert_eq!(hg_draw_image(f.dl, img, &draw(rect(0.0, 0.0, 40.0, 40.0), WHITE, 0.0)), OK) };
     for kind in [D3D11, WGPU, D3D11, WGPU] {

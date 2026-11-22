@@ -12,6 +12,7 @@ struct hg_context {
     hg_stats               stats;        /* backend preenche gpu_bytes/draw_calls */
     long long              last_frame_ticks;
     struct hg_image*       images;       /* lista p/ liberar/recriar texturas */
+    uint64_t               image_ram;    /* bytes em hg_image.pixels (stats) */
     struct hg_window*      windows;      /* lista intrusiva (hg_window.next) p/ troca de backend */
 };
 /* stats.c */

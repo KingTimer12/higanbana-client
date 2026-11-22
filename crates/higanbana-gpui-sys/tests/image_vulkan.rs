@@ -148,6 +148,9 @@ fn vulkan_image_survives_switch_d3d11_vulkan_d3d11() {
     }
     let f = Fixture::new();
     let img = solid_image(f.ctx, [0, 0, 255, 255], 2, 2);
+    // Imagem com update (dinâmica) guarda a cópia: é ela que a troca recria.
+    let px: Vec<u8> = (0..4).flat_map(|_| [0u8, 0, 255, 255]).collect();
+    unsafe { assert_eq!(hg_image_update(img, px.as_ptr(), 8), OK) };
     unsafe { assert_eq!(hg_draw_image(f.dl, img, &draw(rect(0.0, 40.0), WHITE, 0.0)), OK) };
     assert_eq!(pixel(&f, 20, 20), 0x0000_00ff);
     unsafe { assert_eq!(hg_context_switch_backend(f.ctx, VULKAN), OK, "{}", err()) };

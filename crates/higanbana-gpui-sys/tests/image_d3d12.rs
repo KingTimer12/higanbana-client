@@ -162,6 +162,9 @@ fn switch_d3d11_d3d12_d3d11_redraws_image() {
     if !d3d12_available() { return; }
     let f = Fx::new(D3D11);
     let img = f.image([0, 0, 255, 255], 2, 2);
+    // Imagem com update (dinâmica) guarda a cópia: é ela que a troca recria.
+    let px: Vec<u8> = (0..4).flat_map(|_| [0u8, 0, 255, 255]).collect();
+    unsafe { assert_eq!(hg_image_update(img, px.as_ptr(), 8), OK) };
     unsafe { assert_eq!(hg_draw_image(f.dl, img, &draw(rect(0.0, 40.0), WHITE, 0.0)), OK) };
     assert_eq!(f.pixel(20, 20), 0x0000_00ff);
     for kind in [D3D12, D3D11, D3D12, D3D11] {

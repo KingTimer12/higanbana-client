@@ -180,7 +180,7 @@ fn opcoes_sem_superficie() {
     assert!(!keys.contains(&"wid") && !keys.contains(&"force-window"));
     assert!(o.pairs().any(|p| p == ("vo", "libmpv")));
     assert!(o.pairs().any(|p| p == ("hwdec", "auto-copy")));
-    assert!(o.pairs().any(|p| p == ("demuxer-max-bytes", "100MiB")));
+    assert!(o.pairs().any(|p| p == ("demuxer-max-bytes", "50MiB")));
 }
 
 #[test]
