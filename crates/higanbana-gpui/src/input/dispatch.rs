@@ -110,11 +110,10 @@ impl<V> Tree<V> {
             _ => None,
         } {
             let nav = |n: &crate::tree::node::Node<V>| !n.disabled && n.interact.as_ref().is_some_and(|x| x.on_navigate.is_some());
-            if let Some(t) = self.hit_test(p).and_then(|i| self.nearest(i, nav)) {
-                if let Some(h) = self.nodes[t].interact.as_ref().and_then(|x| x.on_navigate.as_ref()) {
+            if let Some(t) = self.hit_test(p).and_then(|i| self.nearest(i, nav))
+                && let Some(h) = self.nodes[t].interact.as_ref().and_then(|x| x.on_navigate.as_ref()) {
                     h(view, d, cx);
                 }
-            }
         }
         if button != MouseButton::Left {
             return false;

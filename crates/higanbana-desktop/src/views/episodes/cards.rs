@@ -192,11 +192,10 @@ pub fn list_card(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, it: &Item,
     }
     body = body.child(foot.child(div().flex_1()).child(actions(v, cx, it, on_play, 1.0)));
     let mut card = div().relative().w(w).min_h(LIST_MIN_H).rounded(r).overflow_hidden().bg(t.popover).cursor_pointer().on_click(play_click(on_play, it));
-    if e > 0. {
-        if let Some(b) = bleed(v, it, r, e) {
+    if e > 0.
+        && let Some(b) = bleed(v, it, r, e) {
             card = card.child(b);
         }
-    }
     card = card.child(thumb).child(body).child(ring(Corners::all(r), t.border.fade(1. - e), t.primary.fade(0.47 * e)));
     let k = rise(cx, ("ep-entra-lista", it.path.as_str()), i);
     let card = card.opacity(k).translate_y(RISE_DISTANCE * (1.0 - k));

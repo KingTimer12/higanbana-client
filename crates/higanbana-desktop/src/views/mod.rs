@@ -69,7 +69,7 @@ impl Pages {
     }
 
     pub fn shelf(&mut self) -> &mut shelf::ShelfUi {
-        self.shelf.get_or_insert_with(|| shelf::ShelfUi::new())
+        self.shelf.get_or_insert_with(shelf::ShelfUi::new)
     }
 
     /// Estado do título (criado se faltar).

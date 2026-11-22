@@ -68,7 +68,7 @@ pub fn strip_fractions(w: f32, h: f32, bl: f32, br: f32, fraction: f32) -> Vec<(
 /// Triângulo do corte diagonal (frações): de cima à direita até `1 - corte` embaixo.
 pub fn cut_triangle(amount: f32) -> Option<[(f32, f32); 3]> {
     let cut = LIST_CUT * amount.clamp(0., 1.);
-    (cut > 0.).then(|| [(1.0, 0.0), (1.0, 1.0), (1.0 - cut, 1.0)])
+    (cut > 0.).then_some([(1.0, 0.0), (1.0, 1.0), (1.0 - cut, 1.0)])
 }
 
 #[cfg(test)]

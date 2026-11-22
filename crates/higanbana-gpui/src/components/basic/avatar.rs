@@ -34,7 +34,7 @@ impl Avatar {
 pub fn initials(name: &str) -> String {
     let mut words = name.split_whitespace().filter_map(|w| w.chars().next());
     let first = words.next();
-    let last = words.last();
+    let last = words.next_back();
     first.into_iter().chain(last).flat_map(char::to_uppercase).collect()
 }
 

@@ -83,11 +83,10 @@ impl<V: 'static> Component<V> for Slider<V> {
         let (t, r, value, id) = (cx.theme(), self.range, self.value, self.id);
         let cb = self.on_change;
         let emit: Rc<dyn Fn(&mut V, f32, &mut EventCx)> = Rc::new(move |v, n, cx| {
-            if n != value {
-                if let Some(f) = &cb {
+            if n != value
+                && let Some(f) = &cb {
                     f(v, n, cx);
                 }
-            }
             cx.notify();
         });
         let (e1, e2, e3) = (emit.clone(), emit.clone(), emit);

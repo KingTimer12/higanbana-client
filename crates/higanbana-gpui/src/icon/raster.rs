@@ -49,7 +49,7 @@ fn rasterize(svg: &[u8], px: u32, step: u32) -> Option<ImageSource> {
     resvg::render(&tree, t, &mut pix.as_mut());
     // Só a cobertura importa: branco + alfa, tingido no desenho.
     let mut out = pix.take();
-    for p in out.chunks_exact_mut(4) {
+    for p in out.as_chunks_mut::<4>().0 {
         let a = p[3];
         p.copy_from_slice(&[255, 255, 255, a]);
     }

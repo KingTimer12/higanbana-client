@@ -187,11 +187,10 @@ impl<V: 'static> Component<V> for Command<'_, V> {
         let edit = field.interact().on_key_down.take();
         field = field.on_key_down(move |v, ev, cx| {
             keys(v, ev, cx);
-            if !cx.propagation_stopped() {
-                if let Some(h) = &edit {
+            if !cx.propagation_stopped()
+                && let Some(h) = &edit {
                     h(v, ev, cx);
                 }
-            }
         });
         let mut bar = div().flex_shrink_0().items_center().gap(8.0).px(12.0).child(icon("search").size(16.0).text_color(muted)).child(field);
         if self.state.loading {

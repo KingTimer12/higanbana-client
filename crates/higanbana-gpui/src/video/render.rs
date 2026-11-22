@@ -118,7 +118,7 @@ fn render_frame(api: &Api, ctx: *mut c_void, (w, h): (u32, u32)) -> Option<Frame
     if unsafe { (api.render_render)(ctx, params.as_mut_ptr()) } < 0 {
         return None;
     }
-    for px in pixels.chunks_exact_mut(4) {
+    for px in pixels.as_chunks_mut::<4>().0 {
         px[3] = 255;
     }
     Some(Frame { width: w, height: h, pixels })

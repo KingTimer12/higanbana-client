@@ -49,11 +49,10 @@ pub(crate) fn position<V>(
         if n.style.overflow.is_scroll() {
             let max = scroll_extent(engine, nodes, i);
             nodes[i].scroll_max = max;
-            if let Some(id) = nodes[i].id {
-                if let Some(off) = offsets.get_mut(&id) {
+            if let Some(id) = nodes[i].id
+                && let Some(off) = offsets.get_mut(&id) {
                     *off = off.clamp(0.0, nodes[i].scroll_max);
                 }
-            }
         }
     }
 }

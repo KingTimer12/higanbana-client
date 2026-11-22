@@ -41,11 +41,10 @@ impl CommandState {
 
 /// Seleção efetiva: a guardada se existe, senão o primeiro item; `None` sem itens.
 pub(super) fn clamp(sel: Option<(usize, usize)>, sizes: &[usize]) -> Option<(usize, usize)> {
-    if let Some((g, i)) = sel {
-        if sizes.get(g).is_some_and(|&n| i < n) {
+    if let Some((g, i)) = sel
+        && sizes.get(g).is_some_and(|&n| i < n) {
             return Some((g, i));
         }
-    }
     sizes.iter().position(|&n| n > 0).map(|g| (g, 0))
 }
 

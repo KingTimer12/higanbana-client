@@ -213,7 +213,7 @@ impl View for Higanbana {
 }
 
 /// Dev: `HIGANBANA_PLAY=<pasta>|<arquivo>|<bytes>` abre direto no player (conferência visual
-/// sem as telas do Plano 4). Só o arquivo pedido; nada de listar a pasta na nuvem.
+/// direta). Só o arquivo pedido; nada de listar a pasta na nuvem.
 fn dev_play_target() -> Option<crate::video::PlayTarget> {
     let raw = std::env::var("HIGANBANA_PLAY").ok()?;
     let mut parts = raw.split('|');

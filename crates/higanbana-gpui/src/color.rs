@@ -65,7 +65,7 @@ impl Color {
 
 /// Converte RGBA8 de alfa reto para pré-multiplicado, no lugar (formato do core).
 pub fn premultiply_rgba8(pixels: &mut [u8]) {
-    for px in pixels.chunks_exact_mut(4) {
+    for px in pixels.as_chunks_mut::<4>().0 {
         let a = px[3] as u32;
         if a == 255 {
             continue;

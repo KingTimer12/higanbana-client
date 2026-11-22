@@ -99,7 +99,7 @@ pub(crate) fn clamp_text(cache: &mut MeasureCache, m: &mut dyn TextMeasurer, tex
     let cut = |k: usize| format!("{}…", text[..ends[k]].trim_end());
     let (mut lo, mut hi) = (0usize, ends.len() - 1);
     while lo < hi {
-        let mid = (lo + hi + 1) / 2;
+        let mid = (lo + hi).div_ceil(2);
         if cache.measure(m, &cut(mid), style, Some(w)).height <= limit {
             lo = mid;
         } else {
