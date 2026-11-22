@@ -82,3 +82,14 @@ fn backdrop_click_and_close_button_close() {
     click(&mut t, &mut v, p);
     assert_eq!((v.open, v.closes), (false, 1));
 }
+
+#[test]
+fn kit_abre_perto_do_topo() {
+    let (mut h, mut t, v) = (Harness::new(), Tree::<V>::new(), V { open: true, closes: 0 });
+    for _ in 0..4 {
+        h.frame(&mut t, |cx| div().size_full().child(Dialog::new("dlg", v.open).title("T").kit().render(cx)));
+        h.advance(500);
+    }
+    let i = t.find("dlg").expect("painel");
+    assert_eq!(t.nodes[i].rect.origin.y, 60.0, "1/10 da altura (600)");
+}

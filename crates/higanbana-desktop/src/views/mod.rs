@@ -8,6 +8,7 @@ pub mod episodes;
 pub mod folder;
 pub mod franchise;
 pub mod home;
+pub mod settings;
 pub mod shelf;
 pub mod title;
 

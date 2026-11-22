@@ -42,6 +42,7 @@ impl Harness {
         let mut cx = RenderCx::new(&self.theme, BackendKind::Auto, &[], Stats::default(), &mut self.anim)
             .with_focus(FocusInfo { focused: tree.focused(), visible: false });
         cx.now = self.now;
+        cx.viewport = size(800.0, 600.0);
         let root = f(&mut cx);
         self.wake = cx.wake;
         self.anim.end();

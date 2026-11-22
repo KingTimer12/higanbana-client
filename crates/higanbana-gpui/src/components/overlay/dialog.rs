@@ -19,12 +19,16 @@ pub struct Dialog<V> {
     body: Vec<Element<V>>,
     footer: Vec<Element<V>>,
     width: f32,
+    kit: bool,
 }
+
+/// Folga que o overlay já guarda da borda da janela.
+const OVERLAY_EDGE: f32 = 4.0;
 
 impl<V: 'static> Dialog<V> {
     pub fn new(id: impl Into<ElementId>, open: bool) -> Self {
         let id = id.into();
-        Self { id, open, on_open_change: None, title: None, description: None, body: Vec::new(), footer: Vec::new(), width: 512.0 }
+        Self { id, open, on_open_change: None, title: None, description: None, body: Vec::new(), footer: Vec::new(), width: 512.0, kit: false }
     }
 
     /// Id do botão "×" (recebe o foco ao abrir via [`Dialog::open`]).
@@ -62,6 +66,12 @@ impl<V: 'static> Dialog<V> {
     }
 
     /// Largura máxima do painel (padrão 512, `max-w-lg`).
+    /// Visual do gpui-kit: abre a 1/10 da altura (não no centro), padding 16 e título menor.
+    pub fn kit(mut self) -> Self {
+        self.kit = true;
+        self
+    }
+
     pub fn width(mut self, w: f32) -> Self {
         self.width = w;
         self
@@ -96,7 +106,8 @@ impl<V: 'static> Component<V> for Dialog<V> {
         };
         let mut header = div().flex_col().gap(6.0).pr(24.0);
         if let Some(title) = self.title {
-            header = header.child(text(title).text_size(theme.typography.lg).font_weight(600).text_color(theme.foreground));
+            let size = if self.kit { theme.typography.base } else { theme.typography.lg };
+            header = header.child(text(title).text_size(size).font_weight(600).text_color(theme.foreground));
         }
         if let Some(d) = self.description {
             header = header.child(text(d).text_color(theme.muted_foreground));
@@ -105,7 +116,7 @@ impl<V: 'static> Component<V> for Dialog<V> {
             .id(self.id)
             .relative()
             .w(self.width)
-            .p(24.0)
+            .p(if self.kit { 16.0 } else { 24.0 })
             .gap(16.0)
             .bg(theme.background)
             .mt(8.0 * (1.0 - t))
@@ -116,7 +127,8 @@ impl<V: 'static> Component<V> for Dialog<V> {
             p = p.child(div().justify_end().gap(8.0).children(self.footer));
         }
         p = p.child(div().absolute().top(16.0).right(16.0).child(close_btn));
-        let o = overlay(Anchor::center(), p).backdrop(rgba(0x0000_00cc).fade(t));
+        let (anchor, p) = if self.kit { (Anchor::window(0.5, 0.0), div().pt((cx.viewport().height / 10.0 - OVERLAY_EDGE).max(0.0)).child(p)) } else { (Anchor::center(), p) };
+        let o = overlay(anchor, p).backdrop(rgba(0x0000_00cc).fade(t));
         // Fechando: sem modal nem dismiss, só a animação de saída.
         if self.open { o.modal().on_dismiss(close).into() } else { o.into() }
     }

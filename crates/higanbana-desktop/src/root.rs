@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use higanbana_core::{Core, Event};
-use higanbana_gpui::components::{Component, Dialog, Notifier, PopoverState, SidebarState, Toasts};
+use higanbana_gpui::components::{Component, Notifier, PopoverState, SidebarState, Toasts};
 use higanbana_gpui::prelude::*;
 
 use crate::chrome::{self, Tips};
@@ -19,7 +19,7 @@ pub struct Higanbana {
     pub dl_pop: PopoverState,
     pub notes: Toasts,
     pub login: Login,
-    /// Configurações (diálogo provisório até o Plano 4).
+    /// Diálogo de configurações aberto.
     pub settings_open: bool,
     /// Player aberto: a janela mostra só ele.
     pub player: Option<crate::video::PlayerView>,
@@ -203,14 +203,7 @@ impl View for Higanbana {
         let bar = chrome::title_bar(self, cx);
         let work = self.workspace(cx);
         let palette = chrome::palette(self, cx);
-        let settings = Dialog::new("configuracoes", self.settings_open)
-            .title("Configurações")
-            .description("As configurações voltam quando esta tela for migrada.")
-            .on_open_change(|v: &mut Self, open, cx| {
-                v.settings_open = open;
-                cx.notify();
-            })
-            .render(cx);
+        let settings = crate::views::settings::dialog(self, cx);
         let music = self.state.music.has_album().then(|| {
             let t = cx.animate_from("barra-musica", 0.0, 1.0, motion::transition(motion::BASE));
             div().w_full().opacity(t).child(crate::music::bar::bar(self, cx))
