@@ -4,6 +4,7 @@ pub mod keys;
 pub mod load;
 pub mod nav;
 pub mod state;
+pub mod strip;
 pub mod view;
 
 use std::sync::Arc;
@@ -28,3 +29,5 @@ mod tests_nav;
 mod tests_load;
 #[cfg(test)]
 mod tests_keys;
+#[cfg(test)]
+mod tests_strip;

@@ -99,7 +99,12 @@ impl AppState {
     /// Depois de mudar a posição: pede o que falta, poda o cache e grava onde parou.
     pub fn pump_reader(&mut self) {
         let Some(r) = self.reader.as_mut() else { return };
-        let opens = r.wants().open;
+        let mut opens = r.wants().open;
+        for u in r.strip_opens() {
+            if !opens.iter().any(|o| o.key == u.key) {
+                opens.push(u);
+            }
+        }
         for u in &opens {
             r.mark_loading(u);
         }

@@ -72,6 +72,8 @@ pub struct ReaderUi {
     /// Na faixa: chaves que podem ficar no cache e páginas pedidas pela tela (Task da faixa).
     pub strip_keep: HashSet<String>,
     pub strip_wants: Vec<super::nav::PageWant>,
+    /// Faixa: deslocamento e tamanho da vista no último quadro (para rolar por tecla).
+    pub strip_scroll: (f32, f32),
     /// Última posição gravada (não regrava a cada quadro).
     pub last_saved: Option<(String, usize)>,
 }
@@ -102,6 +104,7 @@ impl ReaderUi {
             pages: Default::default(),
             strip_keep: HashSet::new(),
             strip_wants: Vec::new(),
+            strip_scroll: (0.0, 0.0),
             last_saved: None,
         };
         r.refresh_chapters();

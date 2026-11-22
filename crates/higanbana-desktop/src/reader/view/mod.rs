@@ -4,6 +4,7 @@
 mod end;
 mod margins;
 mod page;
+mod strip;
 
 use higanbana_core::reader::logic::{Direction, ReadMode, Turn};
 use higanbana_gpui::components::{Component, Skeleton, TitleBar};
@@ -76,8 +77,17 @@ fn turn(v: &mut Higanbana, t: Turn, cx: &mut EventCx) {
     }
 }
 
-/// Faixa: rola 85% da área no sentido de leitura (implementado com a faixa).
-fn scroll_screen(_: &mut Higanbana, _: f32, _: &mut EventCx) {}
+/// Faixa: rola 85% da área no sentido de leitura.
+fn scroll_screen(v: &mut Higanbana, sign: f32, cx: &mut EventCx) {
+    let Some(r) = v.state.reader.as_ref() else { return };
+    let (offset, view) = r.strip_scroll;
+    let long = r.prefs.mode == ReadMode::Long;
+    let mut d = view * 0.85 * sign;
+    if !long && r.prefs.direction == Direction::Rtl {
+        d = -d;
+    }
+    cx.scroll_to(if long { strip::LONG } else { strip::WIDE }, (offset + d).max(0.0));
+}
 
 fn go_chapter(v: &mut Higanbana, delta: isize) {
     let Some(r) = v.state.reader.as_mut() else { return };
@@ -110,7 +120,10 @@ fn apply(v: &mut Higanbana, k: ReaderKey, cx: &mut EventCx) {
         ReaderKey::Fullscreen => cx.window_command(WindowCommand::ToggleFullscreen),
         ReaderKey::PrevChapter => go_chapter(v, -1),
         ReaderKey::NextChapter => go_chapter(v, 1),
-        ReaderKey::Scroll(_) => {}
+        ReaderKey::Scroll(px) => {
+            let offset = v.state.reader.as_ref().map_or(0.0, |r| r.strip_scroll.0);
+            cx.scroll_to(strip::LONG, (offset + px).max(0.0));
+        }
         ReaderKey::Turn(t) => turn(v, t, cx),
     }
     cx.stop_propagation();
@@ -184,6 +197,7 @@ pub fn view(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higa
     let failure = r.open_error().map(str::to_owned).or_else(|| r.empty_chapter().then(|| "O arquivo não tem páginas de imagem.".to_owned()));
     let body = match (failure, total) {
         (Some(msg), _) => end::open_failed(v, cx, msg),
+        _ if strip => strip::view(v, cx, area.0, area.1),
         (None, 0) => div().size_full().items_center().justify_center().child(Skeleton::new("leitor-esqueleto").w(380.0).h(area.1 * 0.78).render(cx)),
         _ => pages_body(v, cx, area.0, area.1),
     };
