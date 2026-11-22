@@ -81,6 +81,8 @@ typedef struct d3d11_device {
 
 hg_result d3d11_texture_create(d3d11_device* d, struct hg_image* img);
 hg_result d3d11_texture_update(d3d11_device* d, hg_image* img);
+/* Imagem externa passa a mostrar `tex`/`srv` (AddRef; solta a anterior; tamanho da textura). */
+hg_result d3d11_texture_wrap(d3d11_device* d, struct hg_image* img, ID3D11Texture2D* tex, ID3D11ShaderResourceView* srv);
 void      d3d11_texture_destroy(d3d11_device* d, struct hg_image* img);
 /* Garante texturas e sobe as instâncias de imagem do frame. */
 hg_result d3d11_images_prepare(d3d11_device* d, const hg_draw_list* dl);

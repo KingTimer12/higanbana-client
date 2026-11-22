@@ -25,6 +25,18 @@ hg_result hg_image_create(hg_context* ctx, uint32_t width, uint32_t height, cons
     return HG_OK;
 }
 
+hg_result hg__image_create_external(hg_context* ctx, hg_image** out) {
+    hg_image* img = calloc(1, sizeof *img);
+    if (!img) return hg__fail(HG_ERR_OOM, "imagem externa: sem memória");
+    img->ctx = ctx;
+    img->external = 1;
+    img->next = ctx->images;
+    if (ctx->images) ctx->images->prev = img;
+    ctx->images = img;
+    *out = img;
+    return HG_OK;
+}
+
 void hg_image_destroy(hg_image* img) {
     if (!img) return;
     hg_context* ctx = img->ctx;
@@ -36,7 +48,7 @@ void hg_image_destroy(hg_image* img) {
 }
 
 hg_result hg_image_update(hg_image* img, const uint8_t* rgba, uint32_t stride) {
-    if (!img || !rgba || stride < img->width * 4) return hg__fail(HG_ERR_INVALID, "hg_image_update: argumento inválido");
+    if (!img || !rgba || img->external || stride < img->width * 4) return hg__fail(HG_ERR_INVALID, "hg_image_update: argumento inválido");
     for (uint32_t y = 0; y < img->height; y++)
         memcpy(img->pixels + (size_t)y * img->width * 4, rgba + (size_t)y * stride, img->width * 4);
     if (!img->gpu) return HG_OK;
@@ -53,6 +65,7 @@ void hg_image_size(const hg_image* img, uint32_t* width, uint32_t* height) {
 
 hg_result hg__image_gpu(hg_image* img) {
     if (img->gpu) return HG_OK;
+    if (img->external) return hg__fail(HG_ERR_UNAVAILABLE, "imagem externa sem textura neste backend");
     const hg_backend_vtbl* vt = img->ctx->backend;
     if (!vt->texture_create) return HG_ERR_UNAVAILABLE;
     return vt->texture_create(img->ctx, img);

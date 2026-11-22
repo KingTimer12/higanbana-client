@@ -218,6 +218,30 @@ typedef struct hg_image_draw {
 
 hg_result hg_draw_image(hg_draw_list* dl, hg_image* img, const hg_image_draw* draw);
 
+/* ---- Alvo de vídeo (OpenGL → textura D3D11, só no backend D3D11) ------- */
+/* Uma thread de render (mpv) desenha com OpenGL em texturas D3D11 do device da UI
+ * (WGL_NV_DX_interop2); a UI desenha a última publicada como hg_image.
+ * create, image e destroy: thread da UI; gl_init, gl_proc, begin, end e gl_release: thread de render. */
+typedef struct hg_video_target hg_video_target;
+
+/* HG_ERR_UNAVAILABLE se o backend atual não é D3D11. */
+hg_result hg_video_target_create(hg_context* ctx, hg_video_target** out);
+/* Contexto OpenGL escondido + interop, corrente nesta thread. HG_ERR_UNAVAILABLE sem a extensão. */
+hg_result hg_video_target_gl_init(hg_video_target* t);
+/* Função GL/WGL pelo nome (para o mpv). NULL se não existir. */
+void*     hg_video_target_gl_proc(hg_video_target* t, const char* name);
+/* Começa um quadro w×h: *fbo fica ligado com a textura livre como cor. */
+hg_result hg_video_target_begin(hg_video_target* t, uint32_t width, uint32_t height, uint32_t* fbo);
+/* Termina o quadro e o publica para a UI. */
+hg_result hg_video_target_end(hg_video_target* t);
+/* Libera GL e interop (antes de a thread de render sair). */
+void      hg_video_target_gl_release(hg_video_target* t);
+/* Imagem com o último quadro publicado (*out NULL antes do primeiro); *fresh = 1 se trocou
+ * desde a chamada anterior. A imagem pertence ao alvo: vale até hg_video_target_destroy. */
+hg_result hg_video_target_image(hg_video_target* t, hg_image** out, int* fresh);
+/* Depois de hg_video_target_gl_release (ou se o GL nunca iniciou). */
+void      hg_video_target_destroy(hg_video_target* t);
+
 /* ---- Estatísticas ----------------------------------------------------- */
 typedef struct hg_stats {
     float    frame_ms;      /* intervalo entre os dois últimos hg_frame_end */

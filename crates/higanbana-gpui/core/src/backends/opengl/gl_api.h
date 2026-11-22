@@ -111,4 +111,6 @@ int  gl_wgl_open(gl_wgl* w);
 void gl_wgl_close(gl_wgl* w);
 /* Resolve a tabela GL (contexto precisa estar corrente). 0 se faltar alguma. */
 int  gl_api_load(gl_wgl* w, gl_api* api);
+/* Função GL/WGL pelo nome: exportada pela DLL (GL 1.1) ou de wglGetProcAddress. NULL se não houver. */
+void* gl_resolve(const gl_wgl* w, const char* name);
 #endif

@@ -29,7 +29,7 @@ void gl_wgl_close(gl_wgl* w) {
 
 /* GL 1.1 vem exportado pela DLL; o resto, de wglGetProcAddress (que devolve
  * 0, 1, 2, 3 ou -1 quando não conhece a função). */
-static void* resolve(const gl_wgl* w, const char* name) {
+void* gl_resolve(const gl_wgl* w, const char* name) {
     void* p = (void*)GetProcAddress(w->lib, name);
     if (p) return p;
     p = (void*)w->get_proc(name);
@@ -40,10 +40,10 @@ static void* resolve(const gl_wgl* w, const char* name) {
 int gl_api_load(gl_wgl* w, gl_api* api) {
     int ok = 1;
 #define HG_GL_LOAD(name, ret, args) \
-    api->name = (hg_gl_##name##_fn)resolve(w, "gl" #name); \
+    api->name = (hg_gl_##name##_fn)gl_resolve(w, "gl" #name); \
     ok &= api->name != NULL;
     HG_GL_FUNCS(HG_GL_LOAD)
 #undef HG_GL_LOAD
-    w->swap_interval = (hg_wgl_swap_interval_fn)resolve(w, "wglSwapIntervalEXT");
+    w->swap_interval = (hg_wgl_swap_interval_fn)gl_resolve(w, "wglSwapIntervalEXT");
     return ok;
 }

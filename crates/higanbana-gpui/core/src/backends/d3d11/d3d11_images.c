@@ -39,6 +39,29 @@ hg_result d3d11_texture_create(d3d11_device* d, hg_image* img) {
     return HG_OK;
 }
 
+hg_result d3d11_texture_wrap(d3d11_device* d, hg_image* img, ID3D11Texture2D* tex, ID3D11ShaderResourceView* srv) {
+    d3d11_texture* t = img->gpu;
+    if (!t) {
+        t = calloc(1, sizeof *t);
+        if (!t) return hg__fail(HG_ERR_OOM, "d3d11: sem memória para textura externa");
+        img->gpu = t;
+    } else {
+        d->images.texture_bytes -= (uint64_t)img->width * img->height * 4;
+    }
+    ID3D11Texture2D_AddRef(tex);
+    ID3D11ShaderResourceView_AddRef(srv);
+    D3D11_RELEASE(t->srv);
+    D3D11_RELEASE(t->tex);
+    t->tex = tex;
+    t->srv = srv;
+    D3D11_TEXTURE2D_DESC td;
+    ID3D11Texture2D_GetDesc(tex, &td);
+    img->width = td.Width;
+    img->height = td.Height;
+    d->images.texture_bytes += (uint64_t)img->width * img->height * 4;
+    return HG_OK;
+}
+
 hg_result d3d11_texture_update(d3d11_device* d, hg_image* img) {
     d3d11_texture* t = img->gpu;
     if (!t) return HG_OK;

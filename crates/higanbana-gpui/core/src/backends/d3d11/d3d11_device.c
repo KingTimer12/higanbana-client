@@ -5,7 +5,8 @@
 
 static HRESULT create_with(d3d11_device* d, D3D_DRIVER_TYPE type) {
     static const D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0 };
-    UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_SINGLETHREADED;
+    /* Sem SINGLETHREADED: o alvo de vídeo usa o device a partir da thread de render (interop GL). */
+    UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
     HRESULT hr = d->loader.create_device(NULL, type, NULL, flags, levels, 3, D3D11_SDK_VERSION, &d->dev, NULL, &d->imm);
     if (hr == E_INVALIDARG) /* runtime sem 11_1 */
         hr = d->loader.create_device(NULL, type, NULL, flags, levels + 1, 2, D3D11_SDK_VERSION, &d->dev, NULL, &d->imm);
