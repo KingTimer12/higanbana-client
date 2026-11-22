@@ -51,10 +51,10 @@ impl Default for Settings {
             show_skip_intro: true,
             sub_lang: "por".into(),
             audio_lang: "jpn".into(),
-            cache_mib: 100,
+            cache_mib: 50,
             thumbnails: true,
             decode_threads: 0,
-            back_cache_mib: 32,
+            back_cache_mib: 0,
             disk_cache: false,
         }
     }
@@ -129,10 +129,10 @@ mod tests {
         assert!(s.show_skip_intro);
         assert_eq!(s.sub_lang, "por");
         assert_eq!(s.audio_lang, "jpn");
-        assert_eq!(s.cache_mib, 100);
+        assert_eq!(s.cache_mib, 50);
         assert!(s.thumbnails);
         assert_eq!(s.decode_threads, 0);
-        assert_eq!(s.back_cache_mib, 32);
+        assert_eq!(s.back_cache_mib, 0);
         assert!(!s.disk_cache);
     }
 
@@ -145,7 +145,7 @@ mod tests {
         assert_eq!(data.settings.cache_mib, 300);
         assert!(data.settings.thumbnails);
         assert_eq!(data.settings.decode_threads, 0);
-        assert_eq!(data.settings.back_cache_mib, 32);
+        assert_eq!(data.settings.back_cache_mib, 0);
         assert!(!data.settings.disk_cache);
     }
 
@@ -175,8 +175,8 @@ mod tests {
     #[test]
     fn camel_case_json() {
         let json = serde_json::to_value(PlayerData::default()).unwrap();
-        assert_eq!(json["settings"]["cacheMib"], 100);
-        assert_eq!(json["settings"]["backCacheMib"], 32);
+        assert_eq!(json["settings"]["cacheMib"], 50);
+        assert_eq!(json["settings"]["backCacheMib"], 0);
         assert_eq!(json["settings"]["diskCache"], false);
         assert_eq!(json["settings"]["autoNext"], true);
     }
