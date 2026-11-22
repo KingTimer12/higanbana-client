@@ -62,8 +62,12 @@ impl Higanbana {
                 self.login = Login::default();
             }
             Event::DownloadProgress(p) => self.state.on_download_progress(p),
-            // Player de músicas e volta do login pelo navegador: Plano 4.
-            Event::MusicState(_) | Event::LoginReturned => return,
+            Event::MusicState(m) => {
+                if !self.state.music_state(m.clone()) {
+                    return;
+                }
+            }
+            Event::LoginReturned => return,
         }
         cx.notify();
     }
@@ -201,7 +205,11 @@ impl View for Higanbana {
                 cx.notify();
             })
             .render(cx);
-        root.child(bar).child(div().flex_1().min_h(0.0).child(work)).child(palette).child(settings).child(notifier)
+        let music = self.state.music.has_album().then(|| {
+            let t = cx.animate_from("barra-musica", 0.0, 1.0, motion::transition(motion::BASE));
+            div().w_full().opacity(t).child(crate::music::bar::bar(self, cx))
+        });
+        root.child(bar).child(div().flex_1().min_h(0.0).child(work)).children(music).child(palette).child(settings).child(notifier)
     }
 }
 

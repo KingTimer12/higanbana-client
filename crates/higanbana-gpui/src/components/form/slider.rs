@@ -20,6 +20,7 @@ pub struct Slider<V> {
     width: Length,
     disabled: bool,
     on_change: Option<ChangeFn<V, f32>>,
+    on_release: Option<ChangeFn<V, f32>>,
 }
 
 impl<V: 'static> Slider<V> {
@@ -33,6 +34,7 @@ impl<V: 'static> Slider<V> {
             width: pct(100.0),
             disabled: false,
             on_change: None,
+            on_release: None,
         }
     }
 
@@ -66,6 +68,12 @@ impl<V: 'static> Slider<V> {
 
     pub fn on_change(mut self, f: impl Fn(&mut V, f32, &mut EventCx) + 'static) -> Self {
         self.on_change = Some(Rc::new(f));
+        self
+    }
+
+    /// Valor final ao soltar o botão (ex.: pular na faixa só no fim do arraste).
+    pub fn on_release(mut self, f: impl Fn(&mut V, f32, &mut EventCx) + 'static) -> Self {
+        self.on_release = Some(Rc::new(f));
         self
     }
 }
@@ -113,6 +121,12 @@ impl<V: 'static> Component<V> for Slider<V> {
                 if ev.pressed {
                     e2(v, r.at_fraction(ev.fraction_x()), cx);
                 }
+            })
+            .when_some(self.on_release, move |e, f| {
+                e.on_mouse_up(move |v, ev, cx| {
+                    f(v, r.at_fraction(ev.fraction_x()), cx);
+                    cx.notify();
+                })
             })
             .on_key_down(move |v, ev, cx| {
                 if let Some(n) = r.key(ev.key, value) {

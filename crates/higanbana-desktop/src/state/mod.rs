@@ -115,6 +115,8 @@ pub struct AppState {
     images: images::Images,
     /// Leitor aberto (solto ao fechar).
     pub reader: Option<crate::reader::ReaderUi>,
+    /// Player de músicas (estado do motor, álbum, tags).
+    pub music: crate::music::MusicUi,
     covers: covers::Covers,
     details: details::Details,
     /// Pasta da tela cujos detalhes estão guardados (troca = solta).
@@ -147,6 +149,7 @@ impl AppState {
             sections_load: SectionsLoad::default(),
             images: images::Images::default(),
             reader: None,
+            music: Default::default(),
             covers: covers::Covers::default(),
             details: details::Details::default(),
             details_root: None,

@@ -10,6 +10,7 @@ mod login;
 mod logging;
 mod mem;
 mod motion;
+mod music;
 mod pages;
 mod series;
 mod views;
