@@ -26,6 +26,16 @@ pub struct Context {
     _not_send: PhantomData<*mut ()>,
 }
 
+thread_local! {
+    /// Último contexto criado nesta thread (a da UI): o player cria o alvo de vídeo nele.
+    static CURRENT: std::cell::Cell<*mut sys::hg_context> = const { std::cell::Cell::new(std::ptr::null_mut()) };
+}
+
+/// Contexto vivo desta thread, se houver (ver `CURRENT`).
+pub(crate) fn current_raw() -> Option<NonNull<sys::hg_context>> {
+    NonNull::new(CURRENT.with(|c| c.get()))
+}
+
 impl Context {
     /// Cria o contexto preferindo `kind`; o core cai para outro backend se faltar.
     pub fn new(kind: BackendKind) -> Result<Self> {
@@ -33,6 +43,7 @@ impl Context {
         let mut raw = std::ptr::null_mut();
         check(unsafe { sys::hg_context_create(kind.to_raw(), &mut raw) })?;
         let raw = NonNull::new(raw).ok_or_else(|| crate::Error::invalid("hg_context_create devolveu nulo"))?;
+        CURRENT.with(|c| c.set(raw.as_ptr()));
         Ok(Self { raw, fonts: RefCell::new(FontCache::default()), _not_send: PhantomData })
     }
 
@@ -97,6 +108,11 @@ impl Context {
 
 impl Drop for Context {
     fn drop(&mut self) {
+        CURRENT.with(|c| {
+            if c.get() == self.raw() {
+                c.set(std::ptr::null_mut());
+            }
+        });
         unsafe { sys::hg_context_destroy(self.raw()) };
     }
 }

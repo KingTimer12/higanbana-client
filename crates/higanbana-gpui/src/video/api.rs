@@ -26,11 +26,30 @@ pub(crate) const END_REASON_ERROR: c_int = 4;
 
 pub(crate) const RENDER_PARAM_INVALID: c_int = 0;
 pub(crate) const RENDER_PARAM_API_TYPE: c_int = 1;
+pub(crate) const RENDER_PARAM_OPENGL_INIT_PARAMS: c_int = 2;
+pub(crate) const RENDER_PARAM_OPENGL_FBO: c_int = 3;
+pub(crate) const RENDER_PARAM_FLIP_Y: c_int = 4;
 pub(crate) const RENDER_PARAM_SW_SIZE: c_int = 17;
 pub(crate) const RENDER_PARAM_SW_FORMAT: c_int = 18;
 pub(crate) const RENDER_PARAM_SW_STRIDE: c_int = 19;
 pub(crate) const RENDER_PARAM_SW_POINTER: c_int = 20;
 pub(crate) const RENDER_UPDATE_FRAME: u64 = 1;
+
+/// `mpv_opengl_init_params` (API 2.x).
+#[repr(C)]
+pub(crate) struct OpenGlInitParams {
+    pub get_proc_address: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void,
+    pub get_proc_address_ctx: *mut c_void,
+}
+
+/// `mpv_opengl_fbo`.
+#[repr(C)]
+pub(crate) struct OpenGlFbo {
+    pub fbo: c_int,
+    pub w: c_int,
+    pub h: c_int,
+    pub internal_format: c_int,
+}
 
 #[repr(C)]
 pub(crate) struct RawEvent {

@@ -1,10 +1,11 @@
 //! `Player`: uma instância do mpv, thread de eventos (estado) e thread de render (quadros).
 use super::api::*;
+use super::gpu::{GpuLink, GpuSource, RenderPath};
 use super::render::{RenderThread, SharedHandle, Slot, give_back, Pool};
 use super::state::{PlayerState, Status, OBSERVED};
 use super::options::PlayerOptions;
 use crate::element::{ImageData, ImageSource};
-use crate::gfx::Waker;
+use crate::gfx::{VideoTarget, Waker};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -26,6 +27,8 @@ pub struct Player {
     /// Buffers de quadro devolvidos pela UI à thread de render.
     pool: Pool,
     image: Option<ImageSource>,
+    /// Vídeo na GPU: ligação com a thread de render e a imagem externa que a UI desenha.
+    gpu: Option<(Arc<GpuLink>, ImageSource)>,
     /// Comandos de um player sem mpv (`detached`), para testes de UI.
     log: RefCell<Vec<String>>,
 }
@@ -75,8 +78,13 @@ impl Player {
         let state = Arc::new(Mutex::new(PlayerState::default()));
         let slot: Slot = Arc::default();
         let pool: Pool = Arc::default();
+        // Vídeo na GPU: o alvo nasce no contexto desta thread (a da UI), antes do render.
+        let link = match (render && options.uses_gpu()).then(VideoTarget::create_current).flatten() {
+            Some(Ok(t)) => Some(Arc::new(GpuLink::with_target(t))),
+            _ => None,
+        };
         let render = if render {
-            match RenderThread::start(handle, state.clone(), slot.clone(), pool.clone(), waker.clone()) {
+            match RenderThread::start(handle, state.clone(), slot.clone(), pool.clone(), link.clone(), waker.clone()) {
                 Ok(r) => Some(r),
                 Err(e) => {
                     unsafe { (api.terminate_destroy)(handle.0) };
@@ -103,6 +111,10 @@ impl Player {
             state,
             slot,
             pool,
+            gpu: link.map(|l| {
+                let src = ImageData::external(1, 1, std::rc::Rc::new(GpuSource(l.clone())));
+                (l, src)
+            }),
             image: None,
             log: RefCell::new(Vec::new()),
         })
@@ -110,7 +122,7 @@ impl Player {
 
     /// Player sem mpv: comandos só são registrados (`commands`). Para testes de UI.
     pub fn detached() -> Player {
-        Player { core: None, state: Arc::default(), slot: Arc::default(), pool: Arc::default(), image: None, log: RefCell::new(Vec::new()) }
+        Player { core: None, state: Arc::default(), slot: Arc::default(), pool: Arc::default(), image: None, gpu: None, log: RefCell::new(Vec::new()) }
     }
 
     /// Estado atual (cópia).
@@ -128,8 +140,32 @@ impl Player {
         self.log.borrow().clone()
     }
 
+    /// Por onde os quadros estão chegando agora.
+    pub fn render_path(&self) -> RenderPath {
+        match &self.gpu {
+            Some((l, _)) if l.active() => RenderPath::Gpu,
+            _ => RenderPath::Cpu,
+        }
+    }
+
+    /// Vídeo na GPU ainda possível: a imagem externa (o cache cria o alvo ao vê-la).
+    fn gpu_source(&self) -> Option<&ImageSource> {
+        let (_, src) = self.gpu.as_ref().filter(|(l, _)| !l.failed())?;
+        if let Some((w, h)) = lock(&self.state).video_size {
+            src.set_size(w.max(1), h.max(1));
+        }
+        // Quadro sw de antes de a GPU assumir: o buffer volta ao pool.
+        if let Some(f) = lock(&self.slot).take() {
+            give_back(&self.pool, f.pixels);
+        }
+        Some(src)
+    }
+
     /// Se chegou quadro novo, atualiza a imagem e a devolve.
     pub fn frame(&mut self) -> Option<ImageSource> {
+        if let Some(src) = self.gpu_source() {
+            return Some(src.clone());
+        }
         let f = lock(&self.slot).take()?;
         let pool = self.pool.clone();
         let img = self
@@ -146,6 +182,9 @@ impl Player {
 
     /// Imagem do vídeo (último quadro), se já houve algum.
     pub fn frame_source(&self) -> Option<ImageSource> {
+        if self.render_path() == RenderPath::Gpu {
+            return self.gpu.as_ref().map(|(_, s)| s.clone());
+        }
         self.image.clone()
     }
 
@@ -274,6 +313,10 @@ impl Drop for Player {
     fn drop(&mut self) {
         let Some(mut core) = self.core.take() else { return };
         drop(core.render.take());
+        // A thread de render já soltou o GL: o alvo sai aqui, na thread da UI.
+        if let Some(t) = self.gpu.as_ref().and_then(|(l, _)| l.take_target()) {
+            unsafe { t.destroy() };
+        }
         command_raw(core.handle, &["quit"]);
         if let Some(j) = core.events.take() {
             let _ = j.join();

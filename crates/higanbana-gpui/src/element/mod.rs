@@ -12,6 +12,8 @@ pub use handlers::{
 };
 pub use id::ElementId;
 pub use image_data::{ImageData, ImageSource};
+#[cfg(feature = "video")]
+pub(crate) use image_data::ExternalImage;
 pub use overlay::{overlay, Anchor, AnchorAlign, Overlay, Side};
 pub use text_field::{text_field, CARET_BLINK_MS};
 

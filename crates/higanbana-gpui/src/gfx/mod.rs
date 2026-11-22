@@ -9,6 +9,7 @@ pub mod event;
 pub mod font;
 pub mod image;
 mod text_hit;
+pub mod video_target;
 pub mod waker;
 pub mod window;
 
@@ -20,5 +21,6 @@ pub use draw::{ClipGuard, DrawList, Quad};
 pub use event::{Event, Modifiers, MouseButton, NavDirection};
 pub use font::{font_files_in, Font, FontSpec, TextMetrics};
 pub use image::Image;
+pub use video_target::VideoTarget;
 pub use waker::Waker;
 pub use window::{Window, WindowOptions};

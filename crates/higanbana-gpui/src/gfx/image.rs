@@ -12,6 +12,8 @@ pub struct Image<'c> {
     raw: NonNull<sys::hg_image>,
     width: u32,
     height: u32,
+    /// `false` = imagem de outro dono (alvo de vídeo): não é destruída aqui.
+    owned: bool,
     _ctx: PhantomData<&'c Context>,
 }
 
@@ -31,7 +33,14 @@ impl<'c> Image<'c> {
         let mut raw = std::ptr::null_mut();
         check(unsafe { sys::hg_image_create(ctx.raw(), width, height, pixels.as_ptr(), width * 4, &mut raw) })?;
         let raw = NonNull::new(raw).ok_or_else(|| Error::invalid("hg_image_create devolveu nulo"))?;
-        Ok(Self { raw, width, height, _ctx: PhantomData })
+        Ok(Self { raw, width, height, owned: true, _ctx: PhantomData })
+    }
+
+    /// Imagem do core que pertence a outro (alvo de vídeo); só desenhada daqui.
+    pub(crate) fn borrowed(raw: NonNull<sys::hg_image>) -> Self {
+        let (mut width, mut height) = (0, 0);
+        unsafe { sys::hg_image_size(raw.as_ptr(), &mut width, &mut height) };
+        Self { raw, width, height, owned: false, _ctx: PhantomData }
     }
 
     pub fn size(&self) -> (u32, u32) {
@@ -58,6 +67,8 @@ impl<'c> Image<'c> {
 
 impl Drop for Image<'_> {
     fn drop(&mut self) {
-        unsafe { sys::hg_image_destroy(self.raw.as_ptr()) };
+        if self.owned {
+            unsafe { sys::hg_image_destroy(self.raw.as_ptr()) };
+        }
     }
 }

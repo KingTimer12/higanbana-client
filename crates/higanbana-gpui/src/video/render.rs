@@ -1,6 +1,8 @@
 //! Thread de render: a render API "sw" do mpv escreve cada quadro (RGB0) num buffer na RAM;
 //! o quadro pronto vai para um slot compartilhado e a UI é acordada.
 use super::api::*;
+use super::gpu::GpuLink;
+use super::render_gl::GlRender;
 use super::state::PlayerState;
 use crate::gfx::Waker;
 use std::ffi::c_void;
@@ -79,13 +81,13 @@ pub(crate) struct RenderThread {
 
 impl RenderThread {
     /// Cria o contexto de render na thread nova. Falha se a render API recusar.
-    pub fn start(handle: SharedHandle, state: Arc<Mutex<PlayerState>>, slot: Slot, pool: Pool, waker: Waker) -> Result<Self, String> {
+    pub fn start(handle: SharedHandle, state: Arc<Mutex<PlayerState>>, slot: Slot, pool: Pool, link: Option<Arc<GpuLink>>, waker: Waker) -> Result<Self, String> {
         let signal = Arc::new(Signal::default());
         let (tx, rx) = std::sync::mpsc::channel();
         let sig = signal.clone();
         let join = std::thread::Builder::new()
             .name("mpv-render".into())
-            .spawn(move || run(handle, sig, state, slot, pool, waker, tx))
+            .spawn(move || run(handle, sig, state, slot, pool, link, waker, tx))
             .map_err(|e| e.to_string())?;
         rx.recv().map_err(|_| "thread de render do mpv morreu".to_string())??;
         Ok(RenderThread { signal, join: Some(join) })
@@ -146,13 +148,70 @@ fn render_frame(api: &Api, ctx: *mut c_void, (w, h): (u32, u32), pool: &Pool) ->
     Some(Frame { width: w, height: h, pixels })
 }
 
-fn run(handle: SharedHandle, signal: Arc<Signal>, state: Arc<Mutex<PlayerState>>, slot: Slot, pool: Pool, waker: Waker, ready: std::sync::mpsc::Sender<Result<(), String>>) {
+/// Contexto de render atual: CPU ("sw") ou GPU (OpenGL no alvo D3D11).
+enum Mode {
+    Sw(*mut c_void),
+    Gl(GlRender),
+}
+
+impl Mode {
+    fn ctx(&self) -> *mut c_void {
+        match self {
+            Mode::Sw(c) => *c,
+            Mode::Gl(g) => g.ctx(),
+        }
+    }
+
+    fn free(self, api: &Api) {
+        match self {
+            // SAFETY: único dono; nenhuma chamada de render em andamento.
+            Mode::Sw(c) => unsafe { (api.render_free)(c) },
+            Mode::Gl(g) => g.free(api),
+        }
+    }
+}
+
+/// Primeiro contexto: OpenGL no alvo se o player tem um (antes de qualquer `load`,
+/// para a saída de vídeo do mpv já nascer nele), senão "sw".
+fn first_mode(api: &Api, handle: Handle, signal: &Arc<Signal>, link: Option<&GpuLink>) -> Result<Mode, String> {
+    if let Some(link) = link
+        && let Some(target) = link.pending_target()
+    {
+        let update = (on_update as UpdateFn, Arc::as_ptr(signal) as *mut c_void);
+        match GlRender::start(api, handle, target, update) {
+            Ok(g) => {
+                link.set_active(true);
+                return Ok(Mode::Gl(g));
+            }
+            Err(e) => {
+                eprintln!("higanbana-gpui: vídeo na GPU indisponível, segue na CPU: {e}");
+                link.fail();
+            }
+        }
+    }
+    create_context(api, handle, signal).map(Mode::Sw)
+}
+
+/// GPU que falhou (quadro ou backend trocado): volta ao contexto "sw".
+fn switch_mode(api: &Api, handle: Handle, signal: &Arc<Signal>, link: &GpuLink, mode: Mode) -> Result<Mode, String> {
+    match mode {
+        Mode::Gl(g) if link.failed() => {
+            g.free(api);
+            link.set_active(false);
+            create_context(api, handle, signal).map(Mode::Sw)
+        }
+        m => Ok(m),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run(handle: SharedHandle, signal: Arc<Signal>, state: Arc<Mutex<PlayerState>>, slot: Slot, pool: Pool, link: Option<Arc<GpuLink>>, waker: Waker, ready: std::sync::mpsc::Sender<Result<(), String>>) {
     let Ok(api) = api() else {
         let _ = ready.send(Err("libmpv não carregada".into()));
         return;
     };
-    let ctx = match create_context(api, handle.0, &signal) {
-        Ok(c) => c,
+    let mut mode = match first_mode(api, handle.0, &signal, link.as_deref()) {
+        Ok(m) => m,
         Err(e) => {
             let _ = ready.send(Err(e));
             return;
@@ -171,6 +230,15 @@ fn run(handle: SharedHandle, signal: Arc<Signal>, state: Arc<Mutex<PlayerState>>
             }
             f.pending = false;
         }
+        if let Some(link) = &link {
+            mode = match switch_mode(api, handle.0, &signal, link, mode) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("higanbana-gpui: render do mpv parou: {e}");
+                    return;
+                }
+            };
+        }
         let (video, view) = {
             let s = state.lock().unwrap_or_else(|e| e.into_inner());
             (s.video_size, s.view_size)
@@ -183,27 +251,46 @@ fn run(handle: SharedHandle, signal: Arc<Signal>, state: Arc<Mutex<PlayerState>>
                 std::thread::sleep(std::time::Duration::from_millis(15));
                 signal.raise(|f| f.pending = true);
             } else {
-                unsafe { (api.render_update)(ctx) };
+                unsafe { (api.render_update)(mode.ctx()) };
             }
             continue;
         };
         retries = 0;
-        if unsafe { (api.render_update)(ctx) } & RENDER_UPDATE_FRAME == 0 {
+        if unsafe { (api.render_update)(mode.ctx()) } & RENDER_UPDATE_FRAME == 0 {
             continue;
         }
-        if let Some(frame) = render_frame(api, ctx, target_size(video, view), &pool) {
-            // Quadro que a UI não chegou a pegar: o buffer volta ao pool.
-            if let Some(old) = slot.lock().unwrap_or_else(|e| e.into_inner()).replace(frame) {
-                give_back(&pool, old.pixels);
-            }
+        let size = target_size(video, view);
+        let delivered = match &mode {
+            Mode::Sw(ctx) => match render_frame(api, *ctx, size, &pool) {
+                Some(frame) => {
+                    // Quadro que a UI não chegou a pegar: o buffer volta ao pool.
+                    if let Some(old) = slot.lock().unwrap_or_else(|e| e.into_inner()).replace(frame) {
+                        give_back(&pool, old.pixels);
+                    }
+                    true
+                }
+                None => false,
+            },
+            Mode::Gl(g) => match g.render(api, size) {
+                Ok(()) => true,
+                Err(e) => {
+                    eprintln!("higanbana-gpui: quadro na GPU falhou, volta à CPU: {e}");
+                    if let Some(l) = &link {
+                        l.fail();
+                    }
+                    signal.raise(|f| f.pending = true);
+                    false
+                }
+            },
+        };
+        if delivered {
             // Primeiro quadro desde o último load: vem daqui (o `vo-configured` não muda
             // na troca de arquivo e deixava o próximo episódio preto).
             state.lock().unwrap_or_else(|e| e.into_inner()).first_frame = true;
             waker.wake();
         }
     }
-    // SAFETY: único dono; nenhuma chamada de render em andamento.
-    unsafe { (api.render_free)(ctx) };
+    mode.free(api);
 }
 
 #[cfg(test)]

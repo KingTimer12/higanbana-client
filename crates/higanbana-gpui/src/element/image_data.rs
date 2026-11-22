@@ -1,6 +1,16 @@
 //! Pixels de imagem pertencentes à view, enviados à GPU sob demanda.
 use std::cell::{Cell, RefCell};
+use std::ptr::NonNull;
 use std::rc::Rc;
+
+use crate::gfx::Context;
+use higanbana_gpui_sys as sys;
+
+/// Imagem cuja textura vem de fora (alvo de vídeo na GPU): o cache pergunta a cada frame.
+pub(crate) trait ExternalImage {
+    /// Thread da UI, no `prepare`. `None` = nada para mostrar ainda.
+    fn image(&self, ctx: &Context) -> Option<NonNull<sys::hg_image>>;
+}
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Imagem da view. Os pixels saem da RAM do Rust assim que vão para o core
@@ -13,6 +23,8 @@ pub struct ImageData {
     dynamic: bool,
     /// Recebe o buffer de volta depois do envio (vídeo reaproveita sem alocar).
     recycler: RefCell<Option<Box<dyn Fn(Vec<u8>)>>>,
+    /// Textura de fora (vídeo na GPU); sem pixels.
+    external: Option<Rc<dyn ExternalImage>>,
 }
 
 /// Referência compartilhada e barata de clonar para usar em `img()`.
@@ -30,6 +42,7 @@ impl ImageData {
             pixels: RefCell::new(Some(pixels)),
             dynamic: false,
             recycler: RefCell::new(None),
+            external: None,
         })
     }
 
@@ -42,7 +55,31 @@ impl ImageData {
             pixels: RefCell::new(None),
             dynamic: true,
             recycler: RefCell::new(None),
+            external: None,
         })
+    }
+
+    #[cfg(feature = "video")]
+    /// Imagem desenhada direto da textura de `source` (o tamanho é só para o layout).
+    pub(crate) fn external(width: u32, height: u32, source: Rc<dyn ExternalImage>) -> ImageSource {
+        Rc::new(ImageData {
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            size: Cell::new((width, height)),
+            pixels: RefCell::new(None),
+            dynamic: true,
+            recycler: RefCell::new(None),
+            external: Some(source),
+        })
+    }
+
+    pub(crate) fn external_source(&self) -> Option<&Rc<dyn ExternalImage>> {
+        self.external.as_ref()
+    }
+
+    #[cfg(feature = "video")]
+    /// Tamanho para o layout (imagem externa acompanha o vídeo).
+    pub(crate) fn set_size(&self, width: u32, height: u32) {
+        self.size.set((width, height));
     }
 
     /// Troca o quadro (RGBA8 pré-multiplicado; opaco serve como está). O cache atualiza

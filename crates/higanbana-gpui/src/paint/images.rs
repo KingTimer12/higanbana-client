@@ -35,6 +35,17 @@ impl<'c> ImageCache<'c> {
 
     /// Envia `src` se tem pixels pendentes (nova, ou quadro novo de imagem dinâmica).
     fn upload(&mut self, src: &ImageSource) {
+        if let Some(ext) = src.external_source() {
+            match ext.image(self.ctx) {
+                Some(raw) => {
+                    self.map.insert(src.id(), (src.clone(), Image::borrowed(raw)));
+                }
+                None => {
+                    self.map.remove(&src.id());
+                }
+            }
+            return;
+        }
         let Some(pixels) = src.take_pixels() else { return };
         let (w, h) = src.size();
         if let Some((_, img)) = self.map.get_mut(&src.id()) {

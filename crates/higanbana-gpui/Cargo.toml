@@ -27,6 +27,10 @@ name = "video"
 required-features = ["video"]
 
 [[test]]
+name = "video_gpu"
+required-features = ["video"]
+
+[[test]]
 name = "video_missing"
 required-features = ["video"]
 
