@@ -108,6 +108,22 @@ pub fn page(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, path: &str, raw
     if is_index(&files) {
         return scroll(("pasta-rolagem", path)).size_full().items_center().child(div().w(width).flex_col().py(24.0).gap(24.0).child(breadcrumbs(cx, path, raw)).child(text(title).text_size(t.typography.xxl).font_weight(600)).child(index_grid(cx, path, raw, &files, width)));
     }
+    let looks = higanbana_core::music::album::looks_like_album(&files);
+    let load = if looks { Some(v.state.album(path, &files)) } else { None };
+    let ready = match load {
+        Some(crate::state::album::AlbumLoad::Ready(a)) => Some(a.clone()),
+        _ => None,
+    };
+    match crate::views::album::body_for(looks, load) {
+        crate::views::album::Body::Album => {
+            let a = ready.expect("pronto");
+            let work = segs.len().checked_sub(2).map(|i| segs[i].to_string());
+            let body = crate::views::album::page(v, cx, &a, work);
+            return scroll(("pasta-rolagem", path)).size_full().items_center().child(div().w(width).flex_col().py(24.0).gap(24.0).child(breadcrumbs(cx, path, raw)).child(body));
+        }
+        crate::views::album::Body::Loading => return wrap(page.child(Skeleton::new("album-esqueleto").w(pct(100.0)).h(384.0).render(cx).rounded(t.radius_lg))),
+        crate::views::album::Body::Files => {}
+    }
     let entries = sorted_cached(v, &files);
     let (dir, all, name) = (path.to_owned(), files.clone(), anime_title(path));
     let on_play: FileAction = std::rc::Rc::new(move |v: &mut Higanbana, f: &FileEntry, cx: &mut EventCx| {

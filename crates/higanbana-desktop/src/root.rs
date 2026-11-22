@@ -29,6 +29,8 @@ pub struct Higanbana {
     pending_play: Option<crate::video::PlayTarget>,
     /// Dev: `HIGANBANA_READ=<pasta>|<arquivo>` abre o leitor direto (lista só essa pasta).
     pending_read: Option<(String, String)>,
+    /// Dev: `HIGANBANA_GO=<caminho>` abre essa tela ao entrar.
+    pending_go: Option<String>,
     /// Espelho do estado da janela para os atalhos (o `EventCx` não lê a janela).
     pub window_fullscreen: bool,
     /// Estado da tela aberta do acervo (solto ao trocar de rota).
@@ -48,6 +50,7 @@ impl Higanbana {
             player: None,
             player_spare: Default::default(),
             pending_play: dev_play_target(),
+            pending_go: std::env::var("HIGANBANA_GO").ok(),
             pending_read: std::env::var("HIGANBANA_READ").ok().and_then(|r| r.split_once('|').map(|(d, f)| (d.to_owned(), f.to_owned()))),
             window_fullscreen: false,
             pages: crate::views::Pages::default(),
@@ -89,6 +92,9 @@ impl Higanbana {
         // Sem sessão a nuvem não serve o arquivo: espera estar logado.
         if !self.state.session_ready || self.state.user.is_none() {
             return;
+        }
+        if let Some(path) = self.pending_go.take() {
+            self.state.go(path);
         }
         if let Some((dir, name)) = self.pending_read.take() {
             dev_read(&mut self.state, dir, name);

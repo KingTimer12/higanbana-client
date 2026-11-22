@@ -2,6 +2,7 @@
 //! existe enquanto a tela está aberta: trocar de rota solta o da anterior (RAM).
 //! O que precisa sobreviver (filtros e posição do catálogo) fica no `AppState`.
 
+pub mod album;
 pub mod catalog;
 pub mod episodes;
 pub mod folder;

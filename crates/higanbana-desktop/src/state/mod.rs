@@ -5,6 +5,7 @@
 //! volta para a thread da UI pela `Mailbox` da janela (`Post`): nada prende as
 //! threads da lib, nem um download de minutos.
 
+pub mod album;
 mod catalog;
 mod covers;
 pub mod details;
@@ -117,6 +118,8 @@ pub struct AppState {
     pub reader: Option<crate::reader::ReaderUi>,
     /// Player de músicas (estado do motor, álbum, tags).
     pub music: crate::music::MusicUi,
+    /// Álbum da pasta aberta.
+    pub album: Option<album::AlbumSlot>,
     covers: covers::Covers,
     details: details::Details,
     /// Pasta da tela cujos detalhes estão guardados (troca = solta).
@@ -150,6 +153,7 @@ impl AppState {
             images: images::Images::default(),
             reader: None,
             music: Default::default(),
+            album: None,
             covers: covers::Covers::default(),
             details: details::Details::default(),
             details_root: None,
@@ -233,6 +237,8 @@ impl AppState {
         if !self.path().is_empty() {
             self.home = home::HomeData::default();
         }
+        let here = self.path().to_owned();
+        album::keep_album(&mut self.album, &here);
         let root = listings::screen_root(self.path());
         self.keep_listings(root.as_deref());
         if root != self.details_root {

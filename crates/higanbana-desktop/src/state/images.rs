@@ -41,21 +41,28 @@ impl AppState {
     /// Imagem de uma URL pública ou de um arquivo local (`file:<caminho>`);
     /// começa a carregar na primeira vez (pode ser chamada no render).
     pub fn image(&mut self, url: &str) -> Img {
-        if let Some(i) = self.images.cache.get(url) {
-            return i;
-        }
-        self.images.cache.insert(url.to_owned(), Img::Loading, 0);
         let core = self.core.clone();
         let (owned, local) = (url.to_owned(), file_key_path(url));
-        let fut = async move {
-            let bytes = match local {
-                Some(path) => tokio::fs::read(path).await.map_err(|e| e.to_string()),
-                None => core.fetch_public(&owned).await,
+        self.image_from(url, async move {
+            match local {
+                Some(path) => tokio::fs::read(path).await.ok(),
+                None => core.fetch_public(&owned).await.ok(),
             }
-            .ok()?;
+        })
+    }
+
+    /// Imagem guardada sob `key`, com os bytes vindos de `fetch` (capa de álbum, etc.);
+    /// começa a carregar na primeira vez.
+    pub fn image_from(&mut self, key: &str, fetch: impl std::future::Future<Output = Option<Vec<u8>>> + Send + 'static) -> Img {
+        if let Some(i) = self.images.cache.get(key) {
+            return i;
+        }
+        self.images.cache.insert(key.to_owned(), Img::Loading, 0);
+        let fut = async move {
+            let bytes = fetch.await?;
             tokio::task::spawn_blocking(move || decode(&bytes, PORTRAIT_MAX, LANDSCAPE_MAX)).await.ok().flatten()
         };
-        let key = url.to_owned();
+        let key = key.to_owned();
         self.run(fut, move |s, result, _| {
             let (img, weight) = match result {
                 Some((d, weight)) => (Img::Ready(to_source(d)), weight),
