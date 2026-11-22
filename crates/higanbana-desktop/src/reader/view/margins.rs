@@ -2,7 +2,7 @@
 //! à direita, número da página, opções e direção.
 
 use higanbana_core::reader::logic::{chapter_label, Direction, ProgressStyle, ReadMode};
-use higanbana_gpui::components::{Button, Component, Variant};
+use higanbana_gpui::components::{Button, Component, ComponentSize, Variant};
 use higanbana_gpui::prelude::*;
 
 use super::{close, panel_toggle, toggle_direction};
@@ -15,7 +15,7 @@ pub const MARGIN: f32 = 88.0;
 
 fn icon_button(v: &Higanbana, cx: &mut RenderCx<'_, Higanbana>, id: &'static str, name: &'static str, hint: &'static str, on: bool, f: impl Fn(&mut Higanbana, &mut EventCx) + 'static) -> Element<Higanbana> {
     let accent = cx.theme().accent;
-    let b = Button::new(id, "").variant(Variant::Outline).icon(icon(name).size(16.0)).on_click(move |v: &mut Higanbana, _, cx| {
+    let b = Button::new(id, "").variant(Variant::Outline).size(ComponentSize::Regular).icon(icon(name).size(16.0)).on_click(move |v: &mut Higanbana, _, cx| {
         cx.stop_propagation();
         f(v, cx);
         cx.notify();
@@ -40,8 +40,10 @@ pub fn spine(v: &Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higanba
     let kind = if label.kind.is_empty() { "ARQ." } else { label.kind };
     let index_open = r.panel == Some(Panel::Index);
     let mut title = div().flex_1().min_h(0.0).overflow_hidden().flex_col().items_center().text_size(t.typography.lg).font_weight(700);
+    // Uma letra por linha, com a altura de linha 1,15 da master.
+    let line = t.typography.lg * 1.15;
     for c in r.target.title.chars().take(28) {
-        title = title.child(text(c.to_string()));
+        title = title.child(div().h(line).items_center().child(text(c.to_string())));
     }
     let back = icon_button(v, cx, "leitor-voltar", "chevron-left", "Voltar (Esc)", false, close);
     let ink = if index_open { t.primary } else { crate::theme::primary_ink(&t) };

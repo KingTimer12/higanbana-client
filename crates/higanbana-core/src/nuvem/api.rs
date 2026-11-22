@@ -22,6 +22,7 @@ impl Cloud {
 
     async fn list_with(&self, prio: Priority, path: &str) -> HttpResult<Listing> {
         let query = [("path", path)];
+        tracing::debug!(pasta = path, fundo = matches!(prio, Priority::Background), "listando");
         let mut listing: Listing = self.gate.run(prio, || self.apis.nuvem.get_json(&self.auth, "files", &query)).await?;
         listing.files.retain(|f| !is_hidden(&f.name));
         Ok(listing)
