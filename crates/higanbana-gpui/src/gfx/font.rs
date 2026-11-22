@@ -2,7 +2,20 @@
 use crate::error::{check, Error, Result};
 use higanbana_gpui_sys as sys;
 use std::ffi::CString;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
+
+/// Arquivos de fonte (.ttf/.otf) da pasta, em ordem de nome. Pasta ausente = vazio.
+pub fn font_files_in(dir: &Path) -> Vec<PathBuf> {
+    let Ok(read) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut v: Vec<PathBuf> = read
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("ttf") || e.eq_ignore_ascii_case("otf")))
+        .collect();
+    v.sort();
+    v
+}
 
 /// Fonte carregada no contexto. Barata de copiar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

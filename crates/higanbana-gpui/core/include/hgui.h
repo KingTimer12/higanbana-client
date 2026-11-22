@@ -239,6 +239,11 @@ typedef struct hg_text_metrics {
 
 /* weight: 100..900 (400 normal, 700 negrito). Fontes do sistema, com fallback (CJK etc.). */
 hg_result hg_font_load(hg_context* ctx, const char* family_utf8, float weight, int italic, hg_font_id* out);
+/* Soma um .ttf/.otf às famílias deste contexto (nada é instalado no sistema).
+ * Depois disso hg_font_load acha a família pelo nome. Precisa do Windows 10 1703+. */
+hg_result hg_font_add_file(hg_context* ctx, const char* path_utf8);
+/* *out = 1 se a família existe (sistema ou arquivo somado). */
+hg_result hg_font_family_exists(hg_context* ctx, const char* family_utf8, int* out);
 /* max_width <= 0: sem quebra de linha. */
 hg_result hg_text_measure(hg_context* ctx, hg_font_id font, float size_px, const char* utf8, size_t len,
                           float max_width, hg_text_metrics* out);

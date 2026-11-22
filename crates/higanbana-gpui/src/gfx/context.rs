@@ -1,7 +1,8 @@
 //! Contexto do core: dono do device/backend, fontes e estatísticas.
 use super::backend::{install_rust_backends, BackendInfo, BackendKind};
 use super::font::{Font, FontCache, FontSpec, TextMetrics};
-use crate::error::{check, Result};
+use crate::error::{check, Error, Result};
+use std::ffi::CString;
 use higanbana_gpui_sys as sys;
 use std::cell::RefCell;
 use std::marker::PhantomData;
@@ -69,6 +70,19 @@ impl Context {
     /// Carrega (ou devolve do cache) a fonte do sistema descrita por `spec`.
     pub fn font(&self, spec: &FontSpec) -> Result<Font> {
         self.fonts.borrow_mut().get_or_load(self.raw(), spec)
+    }
+
+    /// Soma um .ttf/.otf às famílias deste contexto (nada é instalado no Windows).
+    pub fn add_font_file(&self, path: &std::path::Path) -> Result<()> {
+        let p = CString::new(path.to_string_lossy().as_bytes()).map_err(|_| Error::invalid("caminho com NUL"))?;
+        check(unsafe { sys::hg_font_add_file(self.raw(), p.as_ptr()) })
+    }
+
+    /// A família existe (no sistema ou num arquivo somado)?
+    pub fn has_font_family(&self, family: &str) -> bool {
+        let Ok(c) = CString::new(family) else { return false };
+        let mut out = 0;
+        check(unsafe { sys::hg_font_family_exists(self.raw(), c.as_ptr(), &mut out) }).is_ok() && out != 0
     }
 
     /// Mede texto em pixels físicos. `max_width <= 0` desliga a quebra de linha.

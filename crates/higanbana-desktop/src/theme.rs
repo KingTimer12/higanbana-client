@@ -11,11 +11,26 @@ use higanbana_gpui::{Color, Theme};
 const THEME: &str = include_str!("../themes/higanbana.json");
 
 /// Tema escuro do higanbana; cai no tema escuro da lib se o arquivo não ler.
+/// Fonte do app: vem em `fonts/` ao lado do exe (não precisa estar instalada).
+pub const FONT: &str = "Noto Sans Georgian";
+
 pub fn load() -> Theme {
-    Theme::from_json(THEME).unwrap_or_else(|e| {
+    let mut t = Theme::from_json(THEME).unwrap_or_else(|e| {
         tracing::error!(erro = %e, "tema do higanbana inválido; usando o padrão");
         Theme::dark()
-    })
+    });
+    t.typography.family = FONT;
+    t
+}
+
+/// Pastas de fonte: `fonts/` ao lado do exe (instalado) e a do crate (desenvolvimento).
+pub fn font_dirs() -> Vec<std::path::PathBuf> {
+    let mut v: Vec<std::path::PathBuf> = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("fonts"))).into_iter().collect();
+    let dev = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fonts");
+    if !v.iter().any(|d| d.is_dir()) {
+        v.push(dev);
+    }
+    v
 }
 
 /// Texto na cor da marca (rótulos ativos, número da faixa tocando): `base.red.light`.

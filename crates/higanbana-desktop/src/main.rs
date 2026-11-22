@@ -37,6 +37,9 @@ fn main() {
     tracing::info!(version = higanbana_core::version::current(), data = %paths.data.display(), cache = %paths.cache.display(), processo_mb = mem::private_mb(), "higanbana abrindo");
 
     let mut app = App::new().theme(theme::load());
+    for dir in theme::font_dirs() {
+        app = app.fonts_dir(dir);
+    }
     // Eventos do núcleo chegam em outras threads: viram mensagens para a view.
     let mailbox = app.mailbox::<root::Higanbana>();
     let mb = mailbox.clone();

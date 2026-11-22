@@ -54,8 +54,9 @@ pub(super) struct Runner<'c, V> {
     pub regions: Vec<HitRegion>,
 }
 
-pub(super) fn run<V: View>(app: App, options: WindowOptions, view: V) -> Result<()> {
+pub(super) fn run<V: View>(mut app: App, options: WindowOptions, view: V) -> Result<()> {
     let ctx = Context::new(app.backend)?;
+    super::fonts::install(&ctx, &app.font_dirs, &mut app.theme);
     let win = Window::new(&ctx, &options)?;
     if let Some(f) = app.on_window {
         f(win.native_handle());

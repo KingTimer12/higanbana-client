@@ -85,6 +85,9 @@ jobs:
         run: |
           $v = '${{ steps.version.outputs.version }}'
           Copy-Item target\release\higanbana.exe dist\windows\higanbana.exe
+          # Fonte do app (Noto Sans Georgian, OFL): `fonts\` ao lado do exe.
+          New-Item -ItemType Directory -Force dist\windows\fonts | Out-Null
+          Copy-Item crates\higanbana-desktop\fonts\* dist\windows\fonts\
           Compress-Archive -Path dist\windows\* -DestinationPath "dist\Higanbana-$v-windows-x64.zip" -Force
 
       - name: Instalador (Inno Setup)

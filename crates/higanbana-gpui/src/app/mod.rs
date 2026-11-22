@@ -1,5 +1,6 @@
 //! App: janela + view + laço de eventos "retido leve".
 mod events;
+mod fonts;
 mod measurer;
 mod overlay;
 mod requests;
@@ -28,11 +29,13 @@ pub struct App {
     pub(crate) inbox: Option<Box<dyn std::any::Any>>,
     /// Chamado uma vez com o handle nativo logo depois de a janela abrir.
     pub(crate) on_window: Option<Box<dyn FnOnce(usize)>>,
+    /// Pastas com .ttf/.otf somadas ao abrir (`fonts_dir`).
+    pub(crate) font_dirs: Vec<std::path::PathBuf>,
 }
 
 impl App {
     pub fn new() -> Self {
-        Self { backend: BackendKind::Auto, theme: Theme::dark(), show_stats: false, vsync: true, inbox: None, on_window: None }
+        Self { backend: BackendKind::Auto, theme: Theme::dark(), show_stats: false, vsync: true, inbox: None, on_window: None, font_dirs: Vec::new() }
     }
 
     /// Backend preferido (cai para outro se indisponível).
@@ -49,6 +52,13 @@ impl App {
     /// Soma ícones SVG do app aos Lucide embutidos (`icon("nome")`).
     pub fn icons(self, set: crate::icon::IconSet) -> Self {
         crate::icon::register(set);
+        self
+    }
+
+    /// Pasta com fontes (.ttf/.otf) que o app usa sem instalar no Windows.
+    /// Pasta ausente é ignorada; se a família do tema faltar, cai no Segoe UI.
+    pub fn fonts_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
+        self.font_dirs.push(dir.into());
         self
     }
 

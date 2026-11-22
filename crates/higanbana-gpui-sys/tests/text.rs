@@ -112,3 +112,35 @@ fn full_glyph_atlas_skips_glyphs_instead_of_failing_frame() {
     }
     assert_eq!(f.frame(), [OK; 3]);
 }
+
+fn has_family(ctx: *mut hg_context, name: &str) -> bool {
+    let c = CString::new(name).unwrap();
+    let mut out = 0;
+    assert_eq!(unsafe { hg_font_family_exists(ctx, c.as_ptr(), &mut out) }, OK);
+    out != 0
+}
+
+#[test]
+fn font_file_adds_family() {
+    let f = Fixture::new();
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../higanbana-desktop/fonts/NotoSansGeorgian-Regular.ttf");
+    assert!(has_family(f.ctx, "Segoe UI"), "fonte do sistema existe");
+    assert!(!has_family(f.ctx, "Noto Sans Georgian"), "antes do arquivo não existe");
+    let p = CString::new(path).unwrap();
+    assert_eq!(unsafe { hg_font_add_file(f.ctx, p.as_ptr()) }, OK);
+    assert!(has_family(f.ctx, "Noto Sans Georgian"));
+    let fam = CString::new("Noto Sans Georgian").unwrap();
+    let mut id = 0;
+    assert_eq!(unsafe { hg_font_load(f.ctx, fam.as_ptr(), 400.0, 0, &mut id) }, OK);
+    let (r, m) = measure(f.ctx, id, b"Ola mundo", 0.0);
+    assert_eq!(r, OK);
+    let (_, segoe) = measure(f.ctx, load_font(f.ctx), b"Ola mundo", 0.0);
+    assert!(m.width > 0.0 && (m.width - segoe.width).abs() > 0.5, "noto {} segoe {}", m.width, segoe.width);
+}
+
+#[test]
+fn font_file_missing_fails() {
+    let f = Fixture::new();
+    let p = CString::new("C:/nao/existe.ttf").unwrap();
+    assert_ne!(unsafe { hg_font_add_file(f.ctx, p.as_ptr()) }, OK);
+}

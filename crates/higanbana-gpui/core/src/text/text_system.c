@@ -42,6 +42,7 @@ void hg__text_system_destroy(hg_text_system* ts) {
     for (uint32_t i = 0; i < ts->face_count; i++) ts->faces[i]->lpVtbl->Release(ts->faces[i]);
     free(ts->faces);
     free(ts->scratch);
+    hg__font_files_destroy(ts);
     hg__atlas_destroy(ts->atlas);
     DW_RELEASE(ts->factory);
     if (ts->lib) FreeLibrary(ts->lib);
@@ -93,7 +94,7 @@ hg_result hg__text_format(hg_text_system* ts, hg_font_id font, float size, IDWri
     for (int k = 0; k < HG_FORMAT_CACHE; k++)
         if (f->formats[k] && f->format_sizes[k] == size) { *out = f->formats[k]; return HG_OK; }
     IDWriteTextFormat* fmt = NULL;
-    if (FAILED(ts->factory->lpVtbl->CreateTextFormat(ts->factory, f->family, NULL, f->weight, f->style,
+    if (FAILED(ts->factory->lpVtbl->CreateTextFormat(ts->factory, f->family, hg__font_collection_for(ts, f->family), f->weight, f->style,
                                                      DWRITE_FONT_STRETCH_NORMAL, size, L"", &fmt)))
         return hg__fail(HG_ERR_DEVICE, "texto: CreateTextFormat falhou");
     uint32_t slot = f->next_format++ % HG_FORMAT_CACHE;

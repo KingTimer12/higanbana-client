@@ -35,6 +35,7 @@ Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortugue
 [Files]
 Source: "..\dist\windows\higanbana.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\dist\windows\lib\*"; DestDir: "{app}\lib"; Flags: ignoreversion recursesubdirs
+Source: "..\dist\windowsonts\*"; DestDir: "{app}onts"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Higanbana"; Filename: "{app}\higanbana.exe"

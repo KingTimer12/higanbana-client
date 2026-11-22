@@ -51,6 +51,8 @@ typedef struct hg_text_system {
     IUnknown**      faces;   /* font faces vistas, com AddRef: id estável p/ chave do atlas */
     uint32_t        face_count, face_capacity;
     uint64_t        skipped_glyphs; /* glyphs pulados por atlas cheio no frame */
+    IUnknown*       file_builder;    /* IDWriteFontSetBuilder1 das fontes de arquivo (font_files.c) */
+    IUnknown*       file_collection; /* IDWriteFontCollection1 montada do builder; NULL = só sistema */
 } hg_text_system;
 
 /* text_system.c */
@@ -60,6 +62,11 @@ hg_result hg__text_format(hg_text_system* ts, hg_font_id font, float size, IDWri
 uint8_t*  hg__text_scratch(hg_text_system* ts, size_t bytes);
 /* Índice estável da face (segura uma referência). UINT32_MAX = sem memória. */
 uint32_t  hg__text_face_id(hg_text_system* ts, IDWriteFontFace* face);
+
+/* font_files.c — coleção das fontes somadas por arquivo (Windows 10 1703+).
+ * Coleção para a família: a de arquivos se ela estiver lá, senão NULL (sistema). */
+IUnknown* hg__font_collection_for(hg_text_system* ts, const WCHAR* family);
+void      hg__font_files_destroy(hg_text_system* ts);
 
 /* text_utf.c — NULL + HG_ERR_INVALID quando o UTF-8 é inválido. */
 hg_result hg__utf8_to_utf16(const char* utf8, size_t len, WCHAR* out, int out_cap, int* out_len);
