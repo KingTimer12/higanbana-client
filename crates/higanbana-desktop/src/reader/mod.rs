@@ -31,3 +31,5 @@ mod tests_load;
 mod tests_keys;
 #[cfg(test)]
 mod tests_strip;
+#[cfg(test)]
+mod tests_panels;

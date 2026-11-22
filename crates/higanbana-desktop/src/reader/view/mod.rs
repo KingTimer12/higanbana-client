@@ -4,7 +4,9 @@
 mod end;
 mod margins;
 mod page;
+pub mod panels;
 mod strip;
+pub mod thread;
 
 use higanbana_core::reader::logic::{Direction, ReadMode, Turn};
 use higanbana_gpui::components::{Component, Skeleton, TitleBar};
@@ -213,10 +215,22 @@ pub fn view(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higa
         .on_click(move |v: &mut Higanbana, ev, cx| on_area_click(v, ev, window_w, cx))
         .on_double_click(|_: &mut Higanbana, _, cx| cx.window_command(WindowCommand::ToggleFullscreen))
         .child(body);
+    let r = v.state.reader.as_ref().expect("checado acima");
+    let show_thread = match r.settings.progress {
+        higanbana_core::reader::logic::ProgressStyle::Thread => true,
+        higanbana_core::reader::logic::ProgressStyle::Hidden => r.stirred,
+        _ => false,
+    };
     if end && !strip {
         let fade = cx.animate_from(("leitor-fim", chapter), 0.0, 1.0, motion::transition(motion::BASE));
         let card = end::chapter_end(v, cx, chapter);
         page_area = page_area.child(div().absolute().inset(0.0).bg(t.background.fade(0.85)).items_center().justify_center().opacity(fade).child(card));
+    }
+    if show_thread {
+        page_area = page_area.child(thread::thread(v, cx, area.0));
+    }
+    if let Some(p) = panels::panel(v, cx) {
+        page_area = page_area.child(p);
     }
     let row = div().flex_1().min_h(0.0).w_full().child(margins::spine(v, cx)).child(page_area).child(margins::right(v, cx));
     let mut root = div()
@@ -226,7 +240,16 @@ pub fn view(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>) -> Element<Higa
         .bg(t.background)
         .text_color(t.foreground)
         .on_key_down(on_key)
-        .on_char(on_char);
+        .on_char(on_char)
+        .on_mouse_move_passive(|v: &mut Higanbana, _, cx| {
+            // Só o progresso escondido reage ao mouse (nada a redesenhar nos outros estilos).
+            if let Some(r) = v.state.reader.as_mut()
+                && r.settings.progress == higanbana_core::reader::logic::ProgressStyle::Hidden
+                && r.stir(cx)
+            {
+                cx.notify();
+            }
+        });
     if !fullscreen {
         let name = div().pl(12.0).text_size(t.typography.sm).text_color(t.muted_foreground).child(text(title));
         root = root.child(TitleBar::new("").kit().leading(name).render(cx));
