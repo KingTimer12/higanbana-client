@@ -127,6 +127,7 @@ impl<V: View> Runner<'_, V> {
         cx.now = now;
         cx.window = self.window_state;
         cx.viewport = self.viewport;
+        cx.scale = self.scale;
         cx.waker = self.win.waker();
         cx.scroll = self.tree.scroll_states();
         cx.scroll_view = self.tree.scroll_views();

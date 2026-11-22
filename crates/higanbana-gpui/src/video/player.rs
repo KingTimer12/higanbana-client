@@ -1,6 +1,6 @@
 //! `Player`: uma instância do mpv, thread de eventos (estado) e thread de render (quadros).
 use super::api::*;
-use super::render::{RenderThread, SharedHandle, Slot};
+use super::render::{RenderThread, SharedHandle, Slot, give_back, Pool};
 use super::state::{PlayerState, Status, OBSERVED};
 use super::options::PlayerOptions;
 use crate::element::{ImageData, ImageSource};
@@ -23,6 +23,8 @@ pub struct Player {
     core: Option<Core>,
     state: Arc<Mutex<PlayerState>>,
     slot: Slot,
+    /// Buffers de quadro devolvidos pela UI à thread de render.
+    pool: Pool,
     image: Option<ImageSource>,
     /// Comandos de um player sem mpv (`detached`), para testes de UI.
     log: RefCell<Vec<String>>,
@@ -72,8 +74,9 @@ impl Player {
         let handle = SharedHandle(handle);
         let state = Arc::new(Mutex::new(PlayerState::default()));
         let slot: Slot = Arc::default();
+        let pool: Pool = Arc::default();
         let render = if render {
-            match RenderThread::start(handle, state.clone(), slot.clone(), waker.clone()) {
+            match RenderThread::start(handle, state.clone(), slot.clone(), pool.clone(), waker.clone()) {
                 Ok(r) => Some(r),
                 Err(e) => {
                     unsafe { (api.terminate_destroy)(handle.0) };
@@ -99,6 +102,7 @@ impl Player {
             core: Some(Core { handle, render, events: Some(events) }),
             state,
             slot,
+            pool,
             image: None,
             log: RefCell::new(Vec::new()),
         })
@@ -106,7 +110,7 @@ impl Player {
 
     /// Player sem mpv: comandos só são registrados (`commands`). Para testes de UI.
     pub fn detached() -> Player {
-        Player { core: None, state: Arc::default(), slot: Arc::default(), image: None, log: RefCell::new(Vec::new()) }
+        Player { core: None, state: Arc::default(), slot: Arc::default(), pool: Arc::default(), image: None, log: RefCell::new(Vec::new()) }
     }
 
     /// Estado atual (cópia).
@@ -127,7 +131,15 @@ impl Player {
     /// Se chegou quadro novo, atualiza a imagem e a devolve.
     pub fn frame(&mut self) -> Option<ImageSource> {
         let f = lock(&self.slot).take()?;
-        let img = self.image.get_or_insert_with(|| ImageData::dynamic(f.width, f.height)).clone();
+        let pool = self.pool.clone();
+        let img = self
+            .image
+            .get_or_insert_with(|| {
+                let img = ImageData::dynamic(f.width, f.height);
+                img.set_recycler(move |v| give_back(&pool, v));
+                img
+            })
+            .clone();
         img.set_frame(f.width, f.height, f.pixels);
         Some(img)
     }
@@ -200,6 +212,11 @@ impl Player {
             Some(s) => self.command(&["loadfile", path, "replace", "-1", &format!("start={s:.1}")]),
             None => self.command(&["loadfile", path, "replace", "-1"]),
         }
+    }
+
+    /// Área em que o vídeo aparece (pixels físicos): o mpv desenha só até esse tamanho.
+    pub fn set_view_size(&self, w: u32, h: u32) {
+        lock(&self.state).view_size = Some((w, h));
     }
 
     pub fn play(&self) {

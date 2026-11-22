@@ -20,6 +20,27 @@ pub(crate) struct Frame {
 
 pub(crate) type Slot = Arc<Mutex<Option<Frame>>>;
 
+/// Buffers já enviados à GPU, devolvidos pela UI para o próximo quadro.
+pub(crate) type Pool = Arc<Mutex<Vec<Vec<u8>>>>;
+
+/// Quantos buffers o pool guarda (um em uso na UI, um sendo desenhado).
+pub(crate) const POOL_MAX: usize = 2;
+
+/// Devolve um buffer ao pool (descarta se já estiver cheio).
+pub(crate) fn give_back(pool: &Pool, v: Vec<u8>) {
+    let mut p = pool.lock().unwrap_or_else(|e| e.into_inner());
+    if p.len() < POOL_MAX {
+        p.push(v);
+    }
+}
+
+/// Buffer de `len` bytes: do pool se houver, senão alocado.
+pub(crate) fn take_buffer(pool: &Pool, len: usize) -> Vec<u8> {
+    let mut v = pool.lock().unwrap_or_else(|e| e.into_inner()).pop().unwrap_or_default();
+    v.resize(len, 0);
+    v
+}
+
 #[derive(Default)]
 struct Flags {
     pending: bool,
@@ -58,13 +79,13 @@ pub(crate) struct RenderThread {
 
 impl RenderThread {
     /// Cria o contexto de render na thread nova. Falha se a render API recusar.
-    pub fn start(handle: SharedHandle, state: Arc<Mutex<PlayerState>>, slot: Slot, waker: Waker) -> Result<Self, String> {
+    pub fn start(handle: SharedHandle, state: Arc<Mutex<PlayerState>>, slot: Slot, pool: Pool, waker: Waker) -> Result<Self, String> {
         let signal = Arc::new(Signal::default());
         let (tx, rx) = std::sync::mpsc::channel();
         let sig = signal.clone();
         let join = std::thread::Builder::new()
             .name("mpv-render".into())
-            .spawn(move || run(handle, sig, state, slot, waker, tx))
+            .spawn(move || run(handle, sig, state, slot, pool, waker, tx))
             .map_err(|e| e.to_string())?;
         rx.recv().map_err(|_| "thread de render do mpv morreu".to_string())??;
         Ok(RenderThread { signal, join: Some(join) })
@@ -95,21 +116,25 @@ fn create_context(api: &Api, handle: Handle, signal: &Arc<Signal>) -> Result<*mu
     Ok(ctx)
 }
 
-/// Tamanho do quadro: o do vídeo, reduzido para caber em MAX_W×MAX_H.
-fn target_size(video: (u32, u32)) -> (u32, u32) {
+/// Tamanho do quadro: o do vídeo, reduzido para caber em MAX_W×MAX_H e na área
+/// em que aparece na tela (`view`, pixels físicos). Nunca amplia.
+pub(crate) fn target_size(video: (u32, u32), view: Option<(u32, u32)>) -> (u32, u32) {
     let (w, h) = video;
-    let k = (MAX_W as f64 / w as f64).min(MAX_H as f64 / h as f64).min(1.0);
+    let mut k = (MAX_W as f64 / w as f64).min(MAX_H as f64 / h as f64).min(1.0);
+    if let Some((vw, vh)) = view.filter(|(vw, vh)| *vw > 0 && *vh > 0) {
+        k = k.min(vw as f64 / w as f64).min(vh as f64 / h as f64);
+    }
     (((w as f64 * k).round() as u32).max(1), ((h as f64 * k).round() as u32).max(1))
 }
 
-fn render_frame(api: &Api, ctx: *mut c_void, (w, h): (u32, u32)) -> Option<Frame> {
+fn render_frame(api: &Api, ctx: *mut c_void, (w, h): (u32, u32), pool: &Pool) -> Option<Frame> {
     let stride = w as usize * 4;
-    let mut pixels = vec![0u8; stride * h as usize];
+    let mut pixels = take_buffer(pool, stride * h as usize);
     let mut size = [w as i32, h as i32];
     let mut stride_v = stride;
     let mut params = [
         RenderParam { kind: RENDER_PARAM_SW_SIZE, data: size.as_mut_ptr() as *mut c_void },
-        RenderParam { kind: RENDER_PARAM_SW_FORMAT, data: c"rgb0".as_ptr() as *mut c_void },
+        RenderParam { kind: RENDER_PARAM_SW_FORMAT, data: c"rgba".as_ptr() as *mut c_void },
         RenderParam { kind: RENDER_PARAM_SW_STRIDE, data: &mut stride_v as *mut usize as *mut c_void },
         RenderParam { kind: RENDER_PARAM_SW_POINTER, data: pixels.as_mut_ptr() as *mut c_void },
         RenderParam { kind: RENDER_PARAM_INVALID, data: std::ptr::null_mut() },
@@ -118,13 +143,10 @@ fn render_frame(api: &Api, ctx: *mut c_void, (w, h): (u32, u32)) -> Option<Frame
     if unsafe { (api.render_render)(ctx, params.as_mut_ptr()) } < 0 {
         return None;
     }
-    for px in pixels.as_chunks_mut::<4>().0 {
-        px[3] = 255;
-    }
     Some(Frame { width: w, height: h, pixels })
 }
 
-fn run(handle: SharedHandle, signal: Arc<Signal>, state: Arc<Mutex<PlayerState>>, slot: Slot, waker: Waker, ready: std::sync::mpsc::Sender<Result<(), String>>) {
+fn run(handle: SharedHandle, signal: Arc<Signal>, state: Arc<Mutex<PlayerState>>, slot: Slot, pool: Pool, waker: Waker, ready: std::sync::mpsc::Sender<Result<(), String>>) {
     let Ok(api) = api() else {
         let _ = ready.send(Err("libmpv não carregada".into()));
         return;
@@ -149,7 +171,10 @@ fn run(handle: SharedHandle, signal: Arc<Signal>, state: Arc<Mutex<PlayerState>>
             }
             f.pending = false;
         }
-        let video = state.lock().unwrap_or_else(|e| e.into_inner()).video_size;
+        let (video, view) = {
+            let s = state.lock().unwrap_or_else(|e| e.into_inner());
+            (s.video_size, s.view_size)
+        };
         let Some(video) = video.filter(|(w, h)| *w > 0 && *h > 0) else {
             // Quadro antes de `dwidth/dheight` chegarem: tenta de novo por até ~1 s
             // (sem vídeo, ex. só áudio, desiste e volta a dormir).
@@ -166,8 +191,11 @@ fn run(handle: SharedHandle, signal: Arc<Signal>, state: Arc<Mutex<PlayerState>>
         if unsafe { (api.render_update)(ctx) } & RENDER_UPDATE_FRAME == 0 {
             continue;
         }
-        if let Some(frame) = render_frame(api, ctx, target_size(video)) {
-            *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(frame);
+        if let Some(frame) = render_frame(api, ctx, target_size(video, view), &pool) {
+            // Quadro que a UI não chegou a pegar: o buffer volta ao pool.
+            if let Some(old) = slot.lock().unwrap_or_else(|e| e.into_inner()).replace(frame) {
+                give_back(&pool, old.pixels);
+            }
             // Primeiro quadro desde o último load: vem daqui (o `vo-configured` não muda
             // na troca de arquivo e deixava o próximo episódio preto).
             state.lock().unwrap_or_else(|e| e.into_inner()).first_frame = true;
@@ -184,8 +212,31 @@ mod tests {
 
     #[test]
     fn target_size_caps_and_keeps_ratio() {
-        assert_eq!(target_size((1280, 720)), (1280, 720));
-        assert_eq!(target_size((3840, 2160)), (2560, 1440));
-        assert_eq!(target_size((4000, 1000)), (2560, 640));
+        assert_eq!(target_size((1280, 720), None), (1280, 720));
+        assert_eq!(target_size((3840, 2160), None), (2560, 1440));
+        assert_eq!(target_size((4000, 1000), None), (2560, 640));
+    }
+
+    #[test]
+    fn buffer_do_pool_e_reaproveitado() {
+        let pool = super::Pool::default();
+        let v: Vec<u8> = Vec::with_capacity(256);
+        let ptr = v.as_ptr();
+        pool.lock().unwrap().push(v);
+        let got = super::take_buffer(&pool, 64);
+        assert_eq!((got.len(), got.as_ptr()), (64, ptr));
+        // Pool vazio: aloca.
+        assert_eq!(super::take_buffer(&pool, 16).len(), 16);
+    }
+
+    #[test]
+    fn target_size_usa_a_vista() {
+        assert_eq!(target_size((1920, 1080), Some((1280, 720))), (1280, 720));
+        // Vista maior que o vídeo: tamanho do vídeo.
+        assert_eq!(target_size((1280, 720), Some((2560, 1440))), (1280, 720));
+        // Proporção do vídeo dentro da vista (4:3 numa vista 16:9).
+        assert_eq!(target_size((1440, 1080), Some((1296, 839))), (1119, 839));
+        // Vista vazia (janela minimizada) não zera o quadro.
+        assert_eq!(target_size((1920, 1080), Some((0, 0))), (1920, 1080));
     }
 }

@@ -42,12 +42,15 @@ impl<'c> ImageCache<'c> {
                 if let Err(e) = img.update_premultiplied(&pixels) {
                     eprintln!("higanbana-gpui: atualizar imagem falhou: {e}");
                 }
+                src.recycle(pixels);
                 return;
             }
             self.map.remove(&src.id());
         }
         let made = if src.is_dynamic() {
-            Image::from_premultiplied(self.ctx, w, h, &pixels)
+            let made = Image::from_premultiplied(self.ctx, w, h, &pixels);
+            src.recycle(pixels);
+            made
         } else {
             Image::from_rgba8(self.ctx, w, h, pixels)
         };

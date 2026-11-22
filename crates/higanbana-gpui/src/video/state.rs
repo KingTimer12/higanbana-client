@@ -65,6 +65,8 @@ pub struct PlayerState {
     pub buffering: bool,
     /// Um quadro já foi entregue desde o último `load`/`load_at` (marcado pela thread de render).
     pub first_frame: bool,
+    /// Área do vídeo na tela em pixels físicos (`Player::set_view_size`); o quadro não passa dela.
+    pub view_size: Option<(u32, u32)>,
     /// Quantos fins de arquivo por erro já houve (o app decide re-tentar).
     pub end_error: u32,
     /// Quantas vezes a reprodução recomeçou (fim de seek/carga: quadro novo pronto).
@@ -91,6 +93,7 @@ impl Default for PlayerState {
             cache_ahead: 0.0,
             buffering: false,
             first_frame: false,
+            view_size: None,
             end_error: 0,
             restarts: 0,
             paused: false,

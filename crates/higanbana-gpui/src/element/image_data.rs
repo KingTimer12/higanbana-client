@@ -11,6 +11,8 @@ pub struct ImageData {
     pixels: RefCell<Option<Vec<u8>>>,
     /// Quadros trocados com `set_frame` (vídeo): pixels já pré-multiplicados.
     dynamic: bool,
+    /// Recebe o buffer de volta depois do envio (vídeo reaproveita sem alocar).
+    recycler: RefCell<Option<Box<dyn Fn(Vec<u8>)>>>,
 }
 
 /// Referência compartilhada e barata de clonar para usar em `img()`.
@@ -27,6 +29,7 @@ impl ImageData {
             size: Cell::new((width, height)),
             pixels: RefCell::new(Some(pixels)),
             dynamic: false,
+            recycler: RefCell::new(None),
         })
     }
 
@@ -38,6 +41,7 @@ impl ImageData {
             size: Cell::new((width, height)),
             pixels: RefCell::new(None),
             dynamic: true,
+            recycler: RefCell::new(None),
         })
     }
 
@@ -47,6 +51,18 @@ impl ImageData {
         assert_eq!(pixels.len(), width as usize * height as usize * 4, "tamanho do quadro RGBA8");
         self.size.set((width, height));
         *self.pixels.borrow_mut() = Some(pixels);
+    }
+
+    /// Quem recebe o buffer depois que o quadro foi para a GPU (`recycle`).
+    pub fn set_recycler(&self, f: impl Fn(Vec<u8>) + 'static) {
+        *self.recycler.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Devolve o buffer já enviado ao reciclador (ou o libera).
+    pub(crate) fn recycle(&self, pixels: Vec<u8>) {
+        if let Some(f) = self.recycler.borrow().as_ref() {
+            f(pixels);
+        }
     }
 
     /// Pixel RGBA de um quadro ainda não enviado à GPU (testes/diagnóstico).
@@ -75,5 +91,32 @@ impl ImageData {
     /// Entrega os pixels para envio; depois disso a cópia Rust não existe mais.
     pub(crate) fn take_pixels(&self) -> Option<Vec<u8>> {
         self.pixels.borrow_mut().take()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reciclador_recebe_o_buffer_depois_do_envio() {
+        let img = ImageData::dynamic(2, 2);
+        let pool: Rc<RefCell<Vec<Vec<u8>>>> = Rc::default();
+        let p = pool.clone();
+        img.set_recycler(move |v| p.borrow_mut().push(v));
+        img.set_frame(2, 2, Vec::with_capacity(64).into_iter().chain([0u8; 16]).collect());
+        let px = img.take_pixels().unwrap();
+        let ptr = px.as_ptr();
+        img.recycle(px);
+        assert_eq!(pool.borrow().len(), 1);
+        assert_eq!(pool.borrow()[0].as_ptr(), ptr, "mesmo buffer, sem cópia");
+    }
+
+    #[test]
+    fn sem_reciclador_o_buffer_e_liberado() {
+        let img = ImageData::dynamic(1, 1);
+        img.set_frame(1, 1, vec![0; 4]);
+        let px = img.take_pixels().unwrap();
+        img.recycle(px);
     }
 }

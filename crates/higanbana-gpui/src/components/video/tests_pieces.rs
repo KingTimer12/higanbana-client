@@ -97,3 +97,10 @@ fn cursor_none_quando_oculto() {
     let n = t.find(ElementId::from("sup")).unwrap();
     assert_ne!(t.nodes[n].style.cursor, Some(CursorStyle::None));
 }
+
+#[test]
+fn superficie_informa_a_area_ao_player() {
+    let (mut h, mut t, mut v) = (Harness::new(), Tree::new(), s());
+    frame(&mut h, &mut t, &mut v, false);
+    assert_eq!(v.player.state().view_size, Some((800, 600)), "viewport 800x600, escala 1");
+}

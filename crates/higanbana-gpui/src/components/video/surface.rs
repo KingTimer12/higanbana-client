@@ -80,7 +80,10 @@ fn clicked<V: 'static>(gate: &Rc<dyn Fn(&mut V) -> &mut ClickGate>, single: &Opt
 }
 
 impl<V: 'static> Component<V> for VideoSurface<'_, V> {
-    fn render(self, _cx: &mut RenderCx<'_, V>) -> Element<V> {
+    fn render(self, cx: &mut RenderCx<'_, V>) -> Element<V> {
+        // A superfície cobre a janela: o mpv desenha só até esse tamanho.
+        let (vp, k) = (cx.viewport(), cx.scale());
+        self.player.set_view_size((vp.width * k).round() as u32, (vp.height * k).round() as u32);
         let frame = self.player.frame().or_else(|| self.player.frame_source());
         let picture = frame.map(|f| img(f).absolute().inset(0.0).object_fit(self.fit));
         let (g, s, d) = (self.gate, self.on_click, self.on_double);

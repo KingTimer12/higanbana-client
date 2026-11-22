@@ -28,6 +28,8 @@ pub struct RenderCx<'a, V: ?Sized> {
     pub(crate) window: WindowState,
     /// Área cliente em pixels lógicos.
     pub(crate) viewport: crate::geometry::Size,
+    /// Pixels físicos por pixel lógico (DPI da janela).
+    pub(crate) scale: f32,
     pub(crate) waker: Waker,
     /// Tarefas pedidas durante o render (enviadas ao pool depois dele).
     pub(crate) tasks: Vec<super::task::TaskReq>,
@@ -46,7 +48,7 @@ pub struct RenderCx<'a, V: ?Sized> {
 
 impl<'a, V: ?Sized> RenderCx<'a, V> {
     pub fn new(theme: &'a Theme, backend: BackendKind, backends: &'a [BackendInfo], stats: Stats, animator: &'a mut Animator) -> Self {
-        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), viewport: crate::geometry::Size::default(), waker: Waker::noop(), tasks: Vec::new(), scroll_view: Vec::new(), bounds: Vec::new(), hovered: Vec::new(), scroll_requests: Vec::new(), scroll: Vec::new(), _view: PhantomData }
+        Self { theme, backend, backends, stats, focus: FocusInfo::default(), now: Instant::now(), animator, wake: None, window: WindowState::default(), viewport: crate::geometry::Size::default(), scale: 1.0, waker: Waker::noop(), tasks: Vec::new(), scroll_view: Vec::new(), bounds: Vec::new(), hovered: Vec::new(), scroll_requests: Vec::new(), scroll: Vec::new(), _view: PhantomData }
     }
 
     pub(crate) fn with_focus(mut self, focus: FocusInfo) -> Self {
@@ -114,6 +116,11 @@ impl<'a, V: ?Sized> RenderCx<'a, V> {
     /// Tamanho da área cliente em pixels lógicos (layout que depende da janela).
     pub fn viewport(&self) -> crate::geometry::Size {
         self.viewport
+    }
+
+    /// Pixels físicos por pixel lógico (125% de DPI = 1.25).
+    pub fn scale(&self) -> f32 {
+        self.scale
     }
 
     pub fn window_state(&self) -> WindowState {
