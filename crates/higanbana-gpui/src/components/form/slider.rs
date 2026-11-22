@@ -13,24 +13,28 @@ const THUMB: f32 = 16.0;
 
 /// Valor em `[min, max]` com passo. `on_change` só é chamado quando o valor muda.
 pub struct Slider<V> {
+    kit: bool,
     id: ElementId,
     value: f32,
     range: Range,
     width: Length,
     disabled: bool,
     on_change: Option<ChangeFn<V, f32>>,
+    on_release: Option<ChangeFn<V, f32>>,
 }
 
 impl<V: 'static> Slider<V> {
     /// Faixa padrão 0..100, passo 1.
     pub fn new(id: impl Into<ElementId>, value: f32) -> Self {
         Self {
+            kit: false,
             id: id.into(),
             value,
             range: Range { min: 0.0, max: 100.0, step: 1.0 },
             width: pct(100.0),
             disabled: false,
             on_change: None,
+            on_release: None,
         }
     }
 
@@ -51,6 +55,12 @@ impl<V: 'static> Slider<V> {
         self
     }
 
+    /// Visual do kit: polegar branco sem borda (ex.: volume do player).
+    pub fn kit(mut self) -> Self {
+        self.kit = true;
+        self
+    }
+
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
@@ -60,6 +70,12 @@ impl<V: 'static> Slider<V> {
         self.on_change = Some(Rc::new(f));
         self
     }
+
+    /// Valor final ao soltar o botão (ex.: pular na faixa só no fim do arraste).
+    pub fn on_release(mut self, f: impl Fn(&mut V, f32, &mut EventCx) + 'static) -> Self {
+        self.on_release = Some(Rc::new(f));
+        self
+    }
 }
 
 impl<V: 'static> Component<V> for Slider<V> {
@@ -67,11 +83,10 @@ impl<V: 'static> Component<V> for Slider<V> {
         let (t, r, value, id) = (cx.theme(), self.range, self.value, self.id);
         let cb = self.on_change;
         let emit: Rc<dyn Fn(&mut V, f32, &mut EventCx)> = Rc::new(move |v, n, cx| {
-            if n != value {
-                if let Some(f) = &cb {
+            if n != value
+                && let Some(f) = &cb {
                     f(v, n, cx);
                 }
-            }
             cx.notify();
         });
         let (e1, e2, e3) = (emit.clone(), emit.clone(), emit);
@@ -86,8 +101,8 @@ impl<V: 'static> Component<V> for Slider<V> {
             .ml(px(-THUMB / 2.0))
             .size(THUMB)
             .rounded_full()
-            .bg(t.background)
-            .border(1.0, t.primary)
+            .bg(if self.kit { Color::WHITE } else { t.background })
+            .border(if self.kit { 0.0 } else { 1.0 }, t.primary)
             .shadow(Color::BLACK.alpha(0.1), 2.0)
             .when(cx.focus().visible, |e| e.focus(ring(t.ring)));
         let root = div()
@@ -105,6 +120,12 @@ impl<V: 'static> Component<V> for Slider<V> {
                 if ev.pressed {
                     e2(v, r.at_fraction(ev.fraction_x()), cx);
                 }
+            })
+            .when_some(self.on_release, move |e, f| {
+                e.on_mouse_up(move |v, ev, cx| {
+                    f(v, r.at_fraction(ev.fraction_x()), cx);
+                    cx.notify();
+                })
             })
             .on_key_down(move |v, ev, cx| {
                 if let Some(n) = r.key(ev.key, value) {

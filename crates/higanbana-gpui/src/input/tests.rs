@@ -91,3 +91,85 @@ fn scroll_hidden_items_not_hit() {
     // Rolado 48 px: o item 1 (nó 3) ocupa -18..12.
     assert_eq!(t.hit_test(point(10.0, 5.0)), Some(3));
 }
+
+#[derive(Default)]
+struct Nav {
+    log: Vec<crate::NavDirection>,
+}
+
+fn nav_tree() -> Tree<Nav> {
+    let root = div()
+        .w(200.0)
+        .h(200.0)
+        .on_navigate(|v: &mut Nav, d, _| v.log.push(d))
+        .child(div().w(50.0).h(50.0).on_click(|_: &mut Nav, _, _| {}));
+    let mut t = Tree::new();
+    t.rebuild(root, &TextStyle::default(), size(200.0, 200.0), &mut FakeMeasurer);
+    t
+}
+
+fn side(t: &mut Tree<Nav>, v: &mut Nav, b: MouseButton) {
+    let mut cx = EventCx::default();
+    t.mouse_down(point(10.0, 10.0), b, Modifiers::default(), v, &mut cx);
+    t.mouse_up(point(10.0, 10.0), b, Modifiers::default(), v, &mut cx);
+}
+
+#[test]
+fn xbutton1_chama_on_navigate_back() {
+    let (mut t, mut v) = (nav_tree(), Nav::default());
+    side(&mut t, &mut v, MouseButton::Back);
+    assert_eq!(v.log, vec![crate::NavDirection::Back]);
+}
+
+#[test]
+fn xbutton2_forward() {
+    let (mut t, mut v) = (nav_tree(), Nav::default());
+    side(&mut t, &mut v, MouseButton::Forward);
+    assert_eq!(v.log, vec![crate::NavDirection::Forward]);
+}
+
+#[test]
+fn sem_handler_nao_quebra() {
+    let mut t = build(div().w(100.0).h(100.0));
+    let mut cx = EventCx::default();
+    t.mouse_up(point(10.0, 10.0), MouseButton::Back, Modifiers::default(), &mut Counter::default(), &mut cx);
+}
+
+#[test]
+fn botao_esquerdo_nao_navega() {
+    let (mut t, mut v) = (nav_tree(), Nav::default());
+    side(&mut t, &mut v, MouseButton::Left);
+    assert!(v.log.is_empty());
+}
+
+#[test]
+fn navegar_nao_atravessa_modal() {
+    let modal = overlay(Anchor::center(), div().id("modal").w(50.0).h(50.0)).modal();
+    let root = div().w(200.0).h(200.0).on_navigate(|v: &mut Nav, d, _| v.log.push(d)).child(modal);
+    let mut t = Tree::new();
+    t.rebuild(root, &TextStyle::default(), size(200.0, 200.0), &mut FakeMeasurer);
+    let mut v = Nav::default();
+    let mut cx = EventCx::default();
+    t.mouse_up(point(100.0, 100.0), MouseButton::Back, Modifiers::default(), &mut v, &mut cx);
+    assert!(v.log.is_empty(), "página atrás do modal não muda");
+}
+
+#[derive(Default)]
+struct Moves {
+    child: u32,
+    passive: u32,
+}
+
+#[test]
+fn movimento_passivo_sobe_mesmo_com_handler_no_filho() {
+    let root = div().w(200.0).h(200.0).on_mouse_move_passive(|v: &mut Moves, _, _| v.passive += 1).child(
+        div().w(50.0).h(50.0).on_mouse_move(|v: &mut Moves, _, _| v.child += 1),
+    );
+    let mut t = Tree::new();
+    t.rebuild(root, &TextStyle::default(), size(200.0, 200.0), &mut FakeMeasurer);
+    let mut v = Moves::default();
+    let mut cx = EventCx::default();
+    t.pointer_move(point(10.0, 10.0), Modifiers::default(), &mut v, &mut cx);
+    t.pointer_move(point(150.0, 150.0), Modifiers::default(), &mut v, &mut cx);
+    assert_eq!((v.child, v.passive), (1, 2));
+}

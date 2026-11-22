@@ -17,7 +17,7 @@ pub use context::{Context, Stats};
 pub use cursor::CursorStyle;
 pub use decor::{Decorations, HitKind, HitRegion, WindowCommand, WindowState};
 pub use draw::{ClipGuard, DrawList, Quad};
-pub use event::{Event, Modifiers, MouseButton};
+pub use event::{Event, Modifiers, MouseButton, NavDirection};
 pub use font::{Font, FontSpec, TextMetrics};
 pub use image::Image;
 pub use waker::Waker;

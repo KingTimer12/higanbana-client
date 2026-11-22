@@ -12,6 +12,7 @@ pub mod cx;
 pub mod element;
 pub mod error;
 pub mod geometry;
+pub mod icon;
 pub mod gfx;
 pub mod input;
 pub mod layout;
@@ -28,9 +29,10 @@ pub use color::{premultiply_rgba8, rgb, rgba, Color};
 pub use anim::{Easing, Transition};
 pub use cx::{EventCx, FocusInfo, RenderCx, TimerId};
 pub use element::{
-    div, img, overlay, scroll, text, text_field, Anchor, AnchorAlign, Element, ElementId, ImageData, ImageSource,
+    div, img, on_visible, overlay, polygon, scroll, scroll_x, text, text_field, Anchor, AnchorAlign, Element, ElementId, ImageData, ImageSource,
     MouseEvent, Overlay, PointerEvent, Side,
 };
+pub use icon::{icon, IconSet};
 pub use input::{Key, KeyEvent};
 pub use text_input::{InputOutcome, TextInputState};
 pub use error::{Error, ErrorKind, Result};
@@ -43,9 +45,9 @@ pub use tree::Tree;
 /// Tudo que uma view costuma precisar.
 pub mod prelude {
     pub use crate::{
-        auto, div, img, overlay, pct, px, rgb, rgba, scroll, text, text_field, Anchor, AnchorAlign, App, BackendKind,
+        auto, div, icon, img, on_visible, overlay, polygon, pct, px, rgb, rgba, scroll, scroll_x, text, text_field, Anchor, AnchorAlign, App, BackendKind,
         Color, CursorStyle, Easing, Element, EventCx, ImageData, ImageSource, Key, KeyEvent, MouseEvent, PointerEvent,
         RenderCx, Side, Styled, TextInputState, Theme, Transition, View, WindowOptions, Decorations, HitKind,
-        WindowCommand, WindowState,
+        WindowCommand, WindowState, IconSet, NavDirection,
     };
 }

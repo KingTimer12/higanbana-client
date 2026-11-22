@@ -26,6 +26,7 @@ struct hg_window {
     int            active;        /* último WM_ACTIVATE */
     WINDOWPLACEMENT saved_place;  /* antes do fullscreen */
     LONG_PTR       saved_style;
+    float          min_w, min_h;  /* tamanho mínimo lógico da área cliente (0 = sem) */
 };
 
 /* Aplica novo tamanho: atualiza estado, avisa backend e enfileira evento. */

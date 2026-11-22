@@ -23,7 +23,7 @@ fn window(ctx: &Context) -> Window<'_> {
 fn render(ctx: &Context, win: &Window<'_>, root: Element<V>, points: &[(f32, f32)]) -> Vec<u32> {
     let scale = win.scale();
     let mut tree = Tree::new();
-    let base = TextStyle { font: FontSpec::default(), size: 14.0, color: Color::WHITE, wrap: true };
+    let base = TextStyle { font: FontSpec::default(), size: 14.0, color: Color::WHITE, wrap: true, max_lines: None };
     tree.rebuild(root, &base, win.logical_size(), &mut GpuMeasurer { ctx, scale });
     let mut images = ImageCache::new(ctx);
     images.prepare(&tree);
@@ -86,4 +86,12 @@ fn switch_backend_at_runtime_keeps_drawing() {
         assert_eq!(px, vec![RED, GREEN], "{:?}", info.kind);
     }
     ctx.switch_backend(BackendKind::D3D11).unwrap();
+}
+
+#[test]
+fn janela_tem_handle_nativo_e_aceita_minimo() {
+    let ctx = higanbana_gpui::Context::new(higanbana_gpui::BackendKind::Auto).expect("contexto");
+    let opts = WindowOptions { title: "mínimo".into(), size: higanbana_gpui::size(1000.0, 700.0), min_size: Some(higanbana_gpui::size(960.0, 600.0)), ..Default::default() };
+    let win = higanbana_gpui::Window::new(&ctx, &opts).expect("janela");
+    assert_ne!(win.native_handle(), 0, "HWND no Windows");
 }

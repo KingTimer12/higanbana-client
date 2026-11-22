@@ -79,12 +79,12 @@ impl Picture {
                 return Err("av1: sem memória".into());
             }
             std::ptr::copy_nonoverlapping(obu.as_ptr(), buf, obu.len());
-            let sent = dav1d_send_data(out.ctx.clone(), Some(NonNull::from(&mut data)));
+            let sent = dav1d_send_data(out.ctx, Some(NonNull::from(&mut data)));
             dav1d_data_unref(Some(NonNull::from(&mut data)));
             if sent.0 != 0 {
                 return Err(format!("av1: dados recusados ({})", sent.0));
             }
-            let got = dav1d_get_picture(out.ctx.clone(), Some(NonNull::from(&mut out.pic)));
+            let got = dav1d_get_picture(out.ctx, Some(NonNull::from(&mut out.pic)));
             if got.0 != 0 {
                 return Err(format!("av1: sem quadro ({})", got.0));
             }

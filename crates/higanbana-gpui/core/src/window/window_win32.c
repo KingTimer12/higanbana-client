@@ -13,6 +13,19 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     LRESULT handled;
     if (hg__decor_wndproc(win, msg, wp, lp, &handled)) return handled;
     switch (msg) {
+    case WM_GETMINMAXINFO:
+        if (win->min_w > 0 || win->min_h > 0) {
+            MINMAXINFO* mmi = (MINMAXINFO*)lp;
+            RECT r = { 0, 0, (LONG)(win->min_w * win->dpi_scale + 0.5f), (LONG)(win->min_h * win->dpi_scale + 0.5f) };
+            /* Barra nativa: soma a moldura; barra própria: janela = área cliente. */
+            if (!win->custom)
+                AdjustWindowRectExForDpi(&r, (DWORD)GetWindowLongPtrW(hwnd, GWL_STYLE), FALSE,
+                                         (DWORD)GetWindowLongPtrW(hwnd, GWL_EXSTYLE), GetDpiForWindow(hwnd));
+            mmi->ptMinTrackSize.x = r.right - r.left;
+            mmi->ptMinTrackSize.y = r.bottom - r.top;
+            return 0;
+        }
+        break;
     case WM_CLOSE: {
         hg_event ev = { .kind = HG_EVENT_CLOSE };
         hg_queue_push(&win->events, &ev);
@@ -45,6 +58,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_ERASEBKGND:
         return 1; /* evita flicker: backend pinta tudo */
+    case WM_XBUTTONDOWN: case WM_XBUTTONUP:
+        hg__window_translate(win, msg, wp, lp);
+        return TRUE; /* a documentação pede TRUE para os botões X */
     default:
         if (hg__window_translate(win, msg, wp, lp)) return 0;
         return DefWindowProcW(hwnd, msg, wp, lp);
@@ -208,4 +224,11 @@ hg_result hg__window_read_pixel(hg_window* win, uint32_t x, uint32_t y, uint32_t
     if (!win || !out_bgra || x >= win->width || y >= win->height)
         return hg__fail(HG_ERR_INVALID, "read_pixel: fora da janela");
     return win->ctx->backend->read_pixel(win, x, y, out_bgra);
+}
+
+hg_result hg_window_set_min_size(hg_window* win, float width, float height) {
+    if (!win || !(width >= 0) || !(height >= 0)) return hg__fail(HG_ERR_INVALID, "hg_window_set_min_size: argumento inválido");
+    win->min_w = width;
+    win->min_h = height;
+    return HG_OK;
 }

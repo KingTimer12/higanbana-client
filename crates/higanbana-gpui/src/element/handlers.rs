@@ -42,7 +42,10 @@ pub type ClickHandler<V> = Box<dyn Fn(&mut V, &MouseEvent, &mut EventCx)>;
 pub type KeyHandler<V> = Box<dyn Fn(&mut V, &KeyEvent, &mut EventCx)>;
 pub type CharHandler<V> = Box<dyn Fn(&mut V, char, &mut EventCx)>;
 pub type PointerHandler<V> = Box<dyn Fn(&mut V, &PointerEvent, &mut EventCx)>;
+/// Chamado uma vez quando o elemento entra na área visível (com margem).
+pub type VisibleHandler<V> = Box<dyn FnOnce(&mut V, &mut EventCx)>;
 pub type HoverHandler<V> = Box<dyn Fn(&mut V, bool, &mut EventCx)>;
+pub type NavHandler<V> = Box<dyn Fn(&mut V, crate::gfx::NavDirection, &mut EventCx)>;
 pub type DismissHandler<V> = Box<dyn Fn(&mut V, &mut EventCx)>;
 /// Transforma o estilo base num estilo de estado (hover, foco, desabilitado).
 pub type StyleFn = Box<dyn Fn(Style) -> Style>;
@@ -60,7 +63,12 @@ pub(crate) struct Interactivity<V> {
     pub on_mouse_down: Option<PointerHandler<V>>,
     pub on_mouse_up: Option<PointerHandler<V>>,
     pub on_mouse_move: Option<PointerHandler<V>>,
+    /// Qualquer movimento dentro do elemento (sobe pelos pais; não consome).
+    pub on_move_passive: Option<PointerHandler<V>>,
     pub on_hover: Option<HoverHandler<V>>,
+    pub on_navigate: Option<NavHandler<V>>,
+    pub on_double_click: Option<ClickHandler<V>>,
+    pub on_visible: Option<(f32, VisibleHandler<V>)>,
 }
 
 impl<V> Default for Interactivity<V> {
@@ -75,7 +83,11 @@ impl<V> Default for Interactivity<V> {
             on_mouse_down: None,
             on_mouse_up: None,
             on_mouse_move: None,
+            on_move_passive: None,
             on_hover: None,
+            on_navigate: None,
+            on_double_click: None,
+            on_visible: None,
         }
     }
 }

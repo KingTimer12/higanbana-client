@@ -10,6 +10,10 @@ use crate::tree::Tree;
 /// Pixels lógicos por entalhe da roda.
 pub const SCROLL_STEP: f32 = 48.0;
 
+/// Janela e folga do duplo clique.
+const DOUBLE_TIME: std::time::Duration = std::time::Duration::from_millis(500);
+const DOUBLE_SLOP: f32 = 4.0;
+
 impl<V> Tree<V> {
     /// Atualiza o hover. Devolve `true` se algum estilo de hover mudou (repintar).
     pub fn mouse_move(&mut self, p: Point) -> bool {
@@ -40,6 +44,16 @@ impl<V> Tree<V> {
             if let Some(h) = self.nodes[t].interact.as_ref().and_then(|x| x.on_mouse_move.as_ref()) {
                 h(view, &ev, cx);
             }
+        }
+        // Ouvintes passivos: o nó sob o mouse e todos os pais.
+        let mut at = self.hit_test(p);
+        while let Some(i) = at {
+            if let Some(h) = self.nodes[i].interact.as_ref().and_then(|x| x.on_move_passive.as_ref()) {
+                let ev = self.pointer_event(i, p, MouseButton::Left, mods);
+                h(view, &ev, cx);
+            }
+            let up = self.nodes[i].parent;
+            at = (up != crate::tree::node::NO_PARENT).then_some(up as usize);
         }
         self.update_hover_owners(view, cx);
         repaint
@@ -72,6 +86,11 @@ impl<V> Tree<V> {
     /// Solta o botão: `on_mouse_up` (do capturado, se houver) e o clique se o elemento
     /// é o mesmo do `mouse_down`. Devolve `true` se o handler de clique rodou.
     pub fn mouse_up(&mut self, p: Point, button: MouseButton, mods: Modifiers, view: &mut V, cx: &mut EventCx) -> bool {
+        self.mouse_up_at(p, button, mods, view, cx, std::time::Instant::now())
+    }
+
+    /// `mouse_up` com a hora do evento (o duplo clique compara horas).
+    pub(crate) fn mouse_up_at(&mut self, p: Point, button: MouseButton, mods: Modifiers, view: &mut V, cx: &mut EventCx, now: std::time::Instant) -> bool {
         self.mouse = Some(p);
         let captured = if button == MouseButton::Left { self.captured.take().and_then(|k| self.resolve(k)) } else { None };
         if button == MouseButton::Left {
@@ -85,6 +104,17 @@ impl<V> Tree<V> {
             }
         }
         let pressed = self.pressed.take();
+        if let Some(d) = match button {
+            MouseButton::Back => Some(crate::gfx::NavDirection::Back),
+            MouseButton::Forward => Some(crate::gfx::NavDirection::Forward),
+            _ => None,
+        } {
+            let nav = |n: &crate::tree::node::Node<V>| !n.disabled && n.interact.as_ref().is_some_and(|x| x.on_navigate.is_some());
+            if let Some(t) = self.hit_test(p).and_then(|i| self.nearest(i, nav))
+                && let Some(h) = self.nodes[t].interact.as_ref().and_then(|x| x.on_navigate.as_ref()) {
+                    h(view, d, cx);
+                }
+        }
         if button != MouseButton::Left {
             return false;
         }
@@ -93,6 +123,18 @@ impl<V> Tree<V> {
                 let ev = MouseEvent { position: p, button, mods };
                 if let Some(h) = &self.nodes[b].on_click {
                     h(view, &ev, cx);
+                }
+                let key = self.key_of(b);
+                let double = self.last_click.as_ref().is_some_and(|(k, at, t)| {
+                    *k == key && now.duration_since(*t) <= DOUBLE_TIME && (at.x - p.x).abs() <= DOUBLE_SLOP && (at.y - p.y).abs() <= DOUBLE_SLOP
+                });
+                if double {
+                    self.last_click = None;
+                    if let Some(h) = self.nodes[b].interact.as_ref().and_then(|x| x.on_double_click.as_ref()) {
+                        h(view, &ev, cx);
+                    }
+                } else {
+                    self.last_click = Some((key, p, now));
                 }
                 true
             }
@@ -103,19 +145,35 @@ impl<V> Tree<V> {
     /// Rola o contêiner de rolagem mais próximo sob o mouse.
     /// `delta_y` em entalhes (positivo = roda para cima). Devolve `true` se mudou.
     pub fn scroll(&mut self, delta_y: f32) -> bool {
+        self.scroll_by(0.0, delta_y, false)
+    }
+
+    /// Roda em x e y (entalhes). Com `shift`, a roda vertical rola contêineres horizontais.
+    /// Vai para o contêiner mais próximo que rola no eixo com movimento.
+    pub fn scroll_by(&mut self, dx: f32, dy: f32, shift: bool) -> bool {
         let Some(p) = self.mouse else { return false };
         let Some(hit) = self.hit_test(p) else { return false };
-        let target = self.nearest(hit, |n| n.style.overflow == Overflow::Scroll && n.id.is_some() && n.scroll_max > 0.0);
+        let (hx, vy) = if shift { (dx + dy, 0.0) } else { (dx, dy) };
+        let target = self.nearest(hit, |n| {
+            let delta = match n.style.overflow {
+                Overflow::Scroll => vy,
+                Overflow::ScrollX => hx,
+                _ => 0.0,
+            };
+            delta != 0.0 && n.id.is_some() && n.scroll_max > 0.0
+        });
         let Some(t) = target else { return false };
         let n = &self.nodes[t];
         let id = n.id.expect("filtrado acima");
         let max = n.scroll_max;
+        let delta = if n.style.overflow == Overflow::ScrollX { hx } else { vy };
         let off = self.offsets.entry(id).or_insert(0.0);
-        let new = (*off - delta_y * SCROLL_STEP).clamp(0.0, max);
+        let new = (*off - delta * SCROLL_STEP).clamp(0.0, max);
         if new == *off {
             return false;
         }
         *off = new;
+        self.scroll_rerender |= n.style.rerender_on_scroll;
         self.reposition();
         true
     }
@@ -126,7 +184,7 @@ impl<V> Tree<V> {
     }
 
     pub(crate) fn clickable_at(&self, p: Point) -> Option<usize> {
-        self.hit_test(p).and_then(|i| self.nearest(i, |n| n.on_click.is_some())).filter(|&i| !self.nodes[i].disabled)
+        self.hit_test(p).and_then(|i| self.nearest(i, |n| n.on_click.is_some() || n.interact.as_ref().is_some_and(|x| x.on_double_click.is_some()))).filter(|&i| !self.nodes[i].disabled)
     }
 
     fn pointer_event(&self, i: usize, p: Point, button: MouseButton, mods: Modifiers) -> PointerEvent {

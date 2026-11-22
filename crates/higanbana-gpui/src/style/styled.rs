@@ -90,8 +90,12 @@ pub trait Styled: Sized {
 
     // ---- visual ----
     fn bg(self, c: Color) -> Self { self.with(|s| s.background = Some(c)) }
+    /// Fundo em gradiente linear (ex.: scrim sobre vídeo).
+    fn bg_gradient(self, g: super::LinearGradient) -> Self { self.with(|s| s.gradient = Some(g)) }
     fn border(self, width: f32, c: Color) -> Self { self.with(|s| { s.border_width = width; s.border_color = c }) }
     fn border_color(self, c: Color) -> Self { self.with(|s| s.border_color = c) }
+    /// Borda tracejada (traços de 4 px, vão de 4 px); cantos retos.
+    fn border_dashed(self) -> Self { self.with(|s| s.border_dashed = true) }
     fn rounded(self, r: f32) -> Self { self.with(|s| s.radius = Corners::all(r)) }
     fn rounded_corners(self, r: Corners<f32>) -> Self { self.with(|s| s.radius = r) }
     fn rounded_full(self) -> Self { self.rounded(9999.0) }
@@ -103,6 +107,8 @@ pub trait Styled: Sized {
     fn translate_y(self, y: f32) -> Self { self.with(|s| s.translate.y = y) }
     /// Escala a subárvore em torno do centro (texto, raios e bordas acompanham).
     /// Só vale no estilo base: em `.hover(..)`/foco é ignorado (anime com `cx.animate`).
+    /// Gira um ícone em voltas (0..1, horário), em passos de 7,5°. Não afeta outros elementos.
+    fn rotate(self, turns: f32) -> Self { self.with(|s| s.rotate = turns) }
     fn scale(self, v: f32) -> Self { self.with(|s| s.scale = v.max(0.0)) }
     /// Área que arrasta a janela (barra customizada). Filhos clicáveis continuam clicáveis.
     fn window_drag(self) -> Self { self.window_control(crate::gfx::HitKind::Caption) }
@@ -122,6 +128,14 @@ pub trait Styled: Sized {
     fn italic(self) -> Self { self.with(|s| s.text.italic = Some(true)) }
     fn font_family(self, f: &str) -> Self { let f: std::rc::Rc<str> = f.into(); self.with(|s| s.text.family = Some(f)) }
     fn whitespace_nowrap(self) -> Self { self.with(|s| s.text.wrap = Some(false)) }
+    /// Guarda a caixa deste elemento (precisa de id) para o próximo render: `cx.bounds(id)`.
+    fn track_bounds(self) -> Self { self.with(|s| s.track_bounds = true) }
+    /// Rolar este contêiner reconstrói a view (os itens dependem do deslocamento).
+    fn rerender_on_scroll(self) -> Self { self.with(|s| s.rerender_on_scroll = true) }
+    /// Amplia a imagem (`cover`) `k` vezes a partir do centro, recortada na própria caixa.
+    fn zoom(self, k: f32) -> Self { self.with(|s| s.zoom = Some(k)) }
+    /// Corta o texto em `lines` linhas, terminando em "…".
+    fn line_clamp(self, lines: u32) -> Self { self.with(|s| s.text.max_lines = Some(lines.max(1))) }
 }
 
 impl Styled for Style {

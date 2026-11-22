@@ -97,3 +97,38 @@ fn focus_ring_only_with_keyboard_focus() {
     assert_eq!(ring.shadow.unwrap().color, th.ring.alpha(0.5));
     assert_eq!(ring.border_color, th.ring);
 }
+
+#[test]
+fn kbd_formata_atalho() {
+    use crate::components::Kbd;
+    assert_eq!(Kbd::label("ctrl-k"), "Ctrl+K");
+    assert_eq!(Kbd::label("alt-left"), "Alt+Left");
+    assert_eq!(Kbd::label("shift-enter"), "Shift+Enter");
+    assert_eq!(Kbd::label("ctrl-alt-a"), "Ctrl+Alt+A");
+    assert_eq!(Kbd::label("shift-pagedown"), "Shift+Page Down");
+    assert_eq!(Kbd::label("a"), "A");
+}
+
+#[test]
+fn esqueleto_pulsa_a_24_qps_sem_vsync() {
+    let mut anim = crate::anim::Animator::default();
+    let theme = crate::Theme::dark();
+    let mut cx: crate::RenderCx<'_, ()> = crate::RenderCx::new(&theme, crate::BackendKind::Auto, &[], crate::Stats::default(), &mut anim);
+    let now = cx.now();
+    let _ = super::Skeleton::new("s").render(&mut cx);
+    assert_eq!(cx.wake, Some(now + std::time::Duration::from_millis(41)));
+    drop(cx);
+    assert_ne!(anim.next_frame(), Some(std::time::Duration::ZERO), "nada de quadro imediato");
+}
+
+#[test]
+fn icone_final_vem_depois_do_rotulo() {
+    let mut anim = crate::anim::Animator::default();
+    let theme = crate::Theme::dark();
+    let mut cx: crate::RenderCx<'_, ()> = crate::RenderCx::new(&theme, crate::BackendKind::Auto, &[], crate::Stats::default(), &mut anim);
+    let b = super::Button::new("b", "Ordenar").trailing_icon(crate::icon::icon("chevron-down").size(14.0)).render(&mut cx);
+    let t = crate::components::form::test_util::build(crate::element::div().flex_col().child(b));
+    let xs: Vec<f32> = (1..t.len()).map(|i| t.rect(i).origin.x).collect();
+    let icon_x = (1..t.len()).find(|&i| t.rect(i).size.width == 14.0).map(|i| t.rect(i).origin.x).unwrap();
+    assert!(icon_x > xs[1], "ícone à direita do texto: {xs:?}");
+}

@@ -17,11 +17,10 @@ impl<V: View> Runner<'_, V> {
         if let Some(theme) = cx.theme.take() {
             self.theme = theme;
         }
-        if let Some(kind) = cx.switch_to {
-            if let Err(e) = self.ctx.switch_backend(kind) {
+        if let Some(kind) = cx.switch_to
+            && let Err(e) = self.ctx.switch_backend(kind) {
                 eprintln!("higanbana-gpui: troca para {} falhou: {e}", kind.label());
             }
-        }
         for c in cx.window_commands.drain(..) {
             self.win.command(c);
         }
@@ -29,6 +28,11 @@ impl<V: View> Runner<'_, V> {
             self.tree.apply_focus(req);
         }
         self.timers.absorb(&mut cx, now);
+        self.tasks.absorb(&mut cx, &self.win.waker());
+        if !cx.scroll_requests.is_empty() {
+            self.scrolls.append(&mut cx.scroll_requests);
+            self.mark(Dirty::Repaint);
+        }
         if cx.animation_frame {
             self.request_frame(now);
         }
@@ -51,11 +55,18 @@ impl<V: View> Runner<'_, V> {
 
     /// Roda o que venceu: timers, reconstrução pedida e piscar do cursor. `false` = encerrar.
     pub(super) fn tick(&mut self, now: Instant) -> bool {
-        if let Some(cx) = self.timers.fire_due(now, &mut self.view) {
-            if !self.apply(cx) {
+        if let Some(cx) = self.inbox.as_mut().and_then(|i| i.drain(&mut self.view))
+            && !self.apply(cx) {
                 return false;
             }
-        }
+        if let Some(cx) = self.tasks.drain(&mut self.view)
+            && !self.apply(cx) {
+                return false;
+            }
+        if let Some(cx) = self.timers.fire_due(now, &mut self.view)
+            && !self.apply(cx) {
+                return false;
+            }
         if self.wake.is_some_and(|w| w <= now) {
             self.wake = None;
             self.mark(Dirty::Rebuild);

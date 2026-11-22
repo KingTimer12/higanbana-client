@@ -7,6 +7,11 @@ mod tests_transform;
 #[cfg(test)]
 mod tests_hit_regions;
 mod hit_regions;
+#[cfg(test)]
+mod tests_scroll;
+mod icons;
+mod scroll;
+mod visible;
 mod transform;
 
 use crate::element::{Element, ElementId};
@@ -44,6 +49,10 @@ pub struct Tree<V> {
     pub(crate) captured: Option<NodeKey>,
     /// Botão esquerdo está segurado.
     pub(crate) button_down: bool,
+    /// Último clique (nó, posição, hora) para reconhecer o duplo clique.
+    pub(crate) last_click: Option<(NodeKey, Point, std::time::Instant)>,
+    /// Rolagem num contêiner `rerender_on_scroll` pede reconstrução.
+    pub(crate) scroll_rerender: bool,
     /// Elementos com `on_hover` atualmente sob o mouse.
     pub(crate) hover_owners: Vec<NodeKey>,
     pub(crate) focused: Option<ElementId>,
@@ -66,10 +75,12 @@ impl<V> Default for Tree<V> {
             pressed: None,
             captured: None,
             button_down: false,
+            last_click: None,
             hover_owners: Vec::new(),
             focused: None,
             focus_visible: false,
             barrier: 0,
+            scroll_rerender: false,
         }
     }
 }
@@ -106,6 +117,15 @@ impl<V> Tree<V> {
     }
 
     /// Índice do primeiro nó com o `id` dado.
+    /// Texto que será pintado no nó `i` (já cortado pelo `line_clamp`).
+    #[cfg(test)]
+    pub(crate) fn text_shown(&self, i: usize) -> &str {
+        match &self.nodes[i].kind {
+            node::NodeKind::Text(s) => self.nodes[i].shown.as_deref().unwrap_or(s),
+            _ => "",
+        }
+    }
+
     pub fn find(&self, id: impl Into<ElementId>) -> Option<usize> {
         let id = Some(id.into());
         self.nodes.iter().position(|n| n.id == id)

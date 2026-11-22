@@ -2,6 +2,9 @@
 #include "window.h"
 #include "error.h"
 
+/* NULL = sem cursor (HG_CURSOR_NONE). */
+static HCURSOR load(hg_cursor c);
+
 static LPCWSTR system_id(hg_cursor c) {
     switch (c) {
     case HG_CURSOR_HAND:        return (LPCWSTR)IDC_HAND;
@@ -16,15 +19,19 @@ static LPCWSTR system_id(hg_cursor c) {
     }
 }
 
+static HCURSOR load(hg_cursor c) {
+    return c == HG_CURSOR_NONE ? NULL : LoadCursorW(NULL, system_id(c));
+}
+
 hg_result hg_window_set_cursor(hg_window* win, hg_cursor cursor) {
-    if (!win || (unsigned)cursor > HG_CURSOR_WAIT) return hg__fail(HG_ERR_INVALID, "hg_window_set_cursor: argumento inválido");
+    if (!win || (unsigned)cursor > HG_CURSOR_NONE) return hg__fail(HG_ERR_INVALID, "hg_window_set_cursor: argumento inválido");
     if (win->cursor == cursor) return HG_OK;
     win->cursor = cursor;
     /* Aplica já se o mouse está sobre a área cliente (WM_SETCURSOR só vem ao mover). */
     POINT p;
     RECT r;
     if (GetCursorPos(&p) && ScreenToClient(win->hwnd, &p) && GetClientRect(win->hwnd, &r) && PtInRect(&r, p))
-        SetCursor(LoadCursorW(NULL, system_id(cursor)));
+        SetCursor(load(cursor));
     return HG_OK;
 }
 
@@ -32,6 +39,6 @@ hg_cursor hg_window_cursor(const hg_window* win) { return win ? win->cursor : HG
 
 int hg__window_on_setcursor(hg_window* win, LPARAM lp) {
     if (LOWORD(lp) != HTCLIENT) return 0;
-    SetCursor(LoadCursorW(NULL, system_id(win->cursor)));
+    SetCursor(load(win->cursor));
     return 1;
 }

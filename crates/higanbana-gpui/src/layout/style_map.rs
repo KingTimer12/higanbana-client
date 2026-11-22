@@ -48,7 +48,13 @@ pub(crate) fn to_taffy(s: &Style) -> ts::Style {
     let overflow = match s.overflow {
         Overflow::Visible => ts::Overflow::Visible,
         Overflow::Hidden => ts::Overflow::Hidden,
-        Overflow::Scroll => ts::Overflow::Scroll,
+        Overflow::Scroll | Overflow::ScrollX => ts::Overflow::Scroll,
+    };
+    // Só o eixo que rola fica "Scroll"; o outro recorta.
+    let (ox, oy) = match s.overflow {
+        Overflow::Scroll => (ts::Overflow::Hidden, overflow),
+        Overflow::ScrollX => (overflow, ts::Overflow::Hidden),
+        _ => (overflow, overflow),
     };
     ts::Style {
         display: match s.display {
@@ -95,7 +101,7 @@ pub(crate) fn to_taffy(s: &Style) -> ts::Style {
             top: lpa(s.inset.top),
             bottom: lpa(s.inset.bottom),
         },
-        overflow: taffy::Point { x: overflow, y: overflow },
+        overflow: taffy::Point { x: ox, y: oy },
         scrollbar_width: 0.0,
         ..Default::default()
     }

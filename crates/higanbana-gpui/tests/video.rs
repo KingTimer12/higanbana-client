@@ -60,3 +60,18 @@ fn drop_while_playing() {
     }
     assert!(t.elapsed() < Duration::from_secs(20));
 }
+
+#[test]
+fn headless_tira_screenshot() {
+    use higanbana_gpui::video::PlayerOptions;
+    let opts = PlayerOptions::empty().set("vo", "null").set("pause", "yes").set("keep-open", "yes").set("audio", "no");
+    let p = Player::headless(opts).expect("libmpv");
+    p.load("av://lavfi:color=c=red:size=64x36:rate=10:duration=2");
+    assert!(until(5, || matches!(p.state().status, Status::Paused | Status::Playing)), "não carregou");
+    let out = std::env::temp_dir().join(format!("hg-thumb-{}.jpg", std::process::id()));
+    p.command_blocking(&["seek", "1", "absolute+keyframes"]).expect("seek");
+    p.command_blocking(&["screenshot-to-file", out.to_str().unwrap(), "video"]).expect("screenshot");
+    let len = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+    let _ = std::fs::remove_file(&out);
+    assert!(len > 0, "arquivo vazio");
+}

@@ -36,6 +36,13 @@ impl Track {
     }
 }
 
+/// Capítulo do arquivo.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Chapter {
+    pub time: f64,
+    pub title: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlayerState {
     pub status: Status,
@@ -51,6 +58,17 @@ pub struct PlayerState {
     pub audio: Option<i64>,
     pub sub: Option<i64>,
     pub video_size: Option<(u32, u32)>,
+    pub chapters: Vec<Chapter>,
+    /// Segundos já baixados à frente da posição (`demuxer-cache-time`, absoluto).
+    pub cache_ahead: f64,
+    /// Parado esperando o cache (`paused-for-cache`).
+    pub buffering: bool,
+    /// Saída de vídeo configurada (`vo-configured`): primeiro quadro a caminho.
+    pub first_frame: bool,
+    /// Quantos fins de arquivo por erro já houve (o app decide re-tentar).
+    pub end_error: u32,
+    /// Quantas vezes a reprodução recomeçou (fim de seek/carga: quadro novo pronto).
+    pub restarts: u64,
     /// Interno: valor bruto de `pause` (o status depende também de carregamento/fim).
     pub(crate) paused: bool,
 }
@@ -69,6 +87,12 @@ impl Default for PlayerState {
             audio: None,
             sub: None,
             video_size: None,
+            chapters: Vec::new(),
+            cache_ahead: 0.0,
+            buffering: false,
+            first_frame: false,
+            end_error: 0,
+            restarts: 0,
             paused: false,
         }
     }
@@ -88,6 +112,10 @@ pub(crate) const OBSERVED: &[(&str, c_int)] = &[
     ("aid", FORMAT_STRING),
     ("sid", FORMAT_STRING),
     ("track-list", FORMAT_NODE),
+    ("chapter-list", FORMAT_NODE),
+    ("demuxer-cache-time", FORMAT_DOUBLE),
+    ("paused-for-cache", FORMAT_FLAG),
+    ("vo-configured", FORMAT_FLAG),
 ];
 
 unsafe fn text(p: *const c_char) -> String {
@@ -136,6 +164,23 @@ unsafe fn tracks(node: &Node) -> (Vec<Track>, Vec<Track>) {
     (audio, subs)
 }
 
+/// `chapter-list` → capítulos (tempo + título).
+unsafe fn chapters(node: &Node) -> Vec<Chapter> {
+    let mut out = Vec::new();
+    for (_, item) in unsafe { entries(node) } {
+        let mut c = Chapter { time: 0.0, title: String::new() };
+        for (k, v) in unsafe { entries(item) } {
+            match (k.as_deref(), v.format) {
+                (Some("time"), FORMAT_DOUBLE) => c.time = unsafe { v.u.double },
+                (Some("title"), FORMAT_STRING) => c.title = unsafe { text(v.u.string) },
+                _ => {}
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
 impl PlayerState {
     /// Aplica uma mudança de propriedade vinda de `MPV_EVENT_PROPERTY_CHANGE`.
     ///
@@ -161,8 +206,8 @@ impl PlayerState {
                 }
             }
             "eof-reached" => {
-                if matches!(self.status, Status::Error(_)) {
-                    // erro do arquivo prevalece sobre "fim"
+                if matches!(self.status, Status::Error(_) | Status::Loading | Status::Idle) {
+                    // erro prevalece sobre "fim"; durante a carga, é evento do arquivo anterior
                 } else if flag() {
                     self.status = Status::Ended;
                 } else if self.status == Status::Ended {
@@ -177,11 +222,28 @@ impl PlayerState {
             }
             "aid" => self.audio = string().parse().ok(),
             "sid" => self.sub = string().parse().ok(),
+            "demuxer-cache-time" => self.cache_ahead = double(),
+            "paused-for-cache" => self.buffering = flag(),
+            "vo-configured" => self.first_frame = flag(),
+            "chapter-list" if !none && p.format == FORMAT_NODE => self.chapters = unsafe { chapters(&*(p.data as *const Node)) },
             "track-list" if !none && p.format == FORMAT_NODE => {
                 (self.audio_tracks, self.sub_tracks) = unsafe { tracks(&*(p.data as *const Node)) };
             }
             _ => {}
         }
+    }
+
+    /// `MPV_EVENT_END_FILE`: erro vira `Status::Error` e conta em `end_error`.
+    pub(crate) fn end_file(&mut self, reason: c_int, error: c_int) {
+        if reason == END_REASON_ERROR {
+            self.status = Status::Error(error_text(error));
+            self.end_error += 1;
+        }
+    }
+
+    /// `MPV_EVENT_PLAYBACK_RESTART`.
+    pub(crate) fn playback_restart(&mut self) {
+        self.restarts += 1;
     }
 
     pub(crate) fn file_loaded(&mut self) {

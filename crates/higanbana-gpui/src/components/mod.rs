@@ -3,20 +3,30 @@
 //! - `basic`: Button, Badge, Card, Separator, Skeleton, Avatar.
 //! - `form`: Input, Checkbox, Switch, Slider.
 //! - `overlay`: Dialog, Tabs, Select, Tooltip, Toast.
+//! - `list`: VirtualList.
+//! - `nav`: Sidebar.
 //! - `window`: TitleBar (barra customizada).
 //! - `video` (feature `video`): VideoPlayer.
 pub mod basic;
+pub mod carousel;
 pub mod form;
+pub mod list;
+pub mod nav;
 pub mod overlay;
 #[cfg(feature = "video")]
 pub mod video;
 pub mod window;
 mod shared;
+#[cfg(test)]
+mod tests_kit_extras;
 
 pub use basic::*;
+pub use carousel::{Carousel, CarouselState};
 pub use form::*;
+pub use list::*;
+pub use nav::*;
 pub use overlay::*;
 #[cfg(feature = "video")]
-pub use video::{VideoPlayer, VideoState};
+pub use video::{Seekbar, SeekbarState, SEEKBAR_HOVER_BOTTOM, AutoHide, ClickGate, VideoSurface, DOUBLE_CLICK, HIDE_AFTER, VideoPlayer, VideoState};
 pub use window::*;
 pub use shared::{ComponentSize, Variant};

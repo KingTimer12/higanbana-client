@@ -122,7 +122,11 @@ fn measure_leaf<V>(
                 })
             };
             let m = cache.measure(measurer, s, &node.text, max_width);
-            taffy::Size { width: known.width.unwrap_or(m.width), height: known.height.unwrap_or(m.height) }
+            let mut h = m.height;
+            if let (Some(n), Some(_)) = (node.text.max_lines, max_width) {
+                h = h.min(super::measure::line_height(cache, measurer, &node.text) * n as f32);
+            }
+            taffy::Size { width: known.width.unwrap_or(m.width), height: known.height.unwrap_or(h) }
         }
         NodeKind::Image(src) => {
             let (w, h) = src.size();
@@ -139,6 +143,10 @@ fn measure_leaf<V>(
             let m = cache.measure(measurer, shown, &node.text, None);
             taffy::Size { width: known.width.unwrap_or(m.width + 2.0), height: known.height.unwrap_or(m.height) }
         }
-        NodeKind::Div => taffy::Size::ZERO,
+        NodeKind::Div | NodeKind::Polygon(..) => taffy::Size::ZERO,
+        NodeKind::Icon(..) => taffy::Size {
+            width: known.width.unwrap_or(crate::icon::DEFAULT_SIZE),
+            height: known.height.unwrap_or(crate::icon::DEFAULT_SIZE),
+        },
     }
 }

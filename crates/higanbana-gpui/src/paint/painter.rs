@@ -74,7 +74,17 @@ impl<V> Tree<V> {
         let visible = n.clip.intersects(&n.rect);
         let k = n.paint_scale;
         if visible && style.has_box() {
-            out.quad(&scaled(box_quad(style, n.rect, opacity), k));
+            let mut q = box_quad(style, n.rect, opacity);
+            if style.border_dashed && q.border_width > 0.0 {
+                for d in dash_quads(n.rect, q.border_width, q.border) {
+                    out.quad(&scaled(d, k));
+                }
+                q.border_width = 0.0;
+            }
+            out.quad(&scaled(q, k));
+        }
+        if let Some(g) = style.gradient.as_ref().filter(|_| visible) {
+            out.image(&super::gradient::ramp(g), n.rect, style.radius.map(|r| r * k), Color::WHITE.fade(opacity));
         }
         let scaled_text;
         let text_style = if k == 1.0 {
@@ -86,12 +96,18 @@ impl<V> Tree<V> {
         if visible {
             match &n.kind {
                 NodeKind::Image(src) => {
-                    let dest = fit_rect(n.content, src.size(), style.object_fit);
                     let cover = style.object_fit == ObjectFit::Cover;
+                    if cover && (style.zoom.is_some() || style.radius != Corners::default()) {
+                        // Recorte por uv: os cantos arredondados ficam na própria caixa.
+                        let uv = super::shape::cover_uv((n.content.size.width, n.content.size.height), src.size(), style.zoom.unwrap_or(1.0));
+                        out.image_uv(src, n.content, uv, style.radius.map(|r| r * k), Color::WHITE.fade(opacity));
+                        return;
+                    }
+                    let dest = fit_rect(n.content, src.size(), style.object_fit);
                     if cover {
                         out.push_clip(n.content.intersect(&n.clip));
                     }
-                    out.image(src, dest, style.radius.map(|r| r * k), opacity);
+                    out.image(src, dest, style.radius.map(|r| r * k), Color::WHITE.fade(opacity));
                     if cover {
                         out.pop_clip();
                     }
@@ -99,14 +115,19 @@ impl<V> Tree<V> {
                 NodeKind::Text(s) => {
                     let color = text_color.unwrap_or(n.text.color).fade(opacity);
                     let max_width = n.text.wrap.then_some(n.content.size.width + 0.5);
-                    out.text(s, text_style, n.content, max_width, color);
+                    out.text(n.shown.as_deref().unwrap_or(s), text_style, n.content, max_width, color);
                 }
                 NodeKind::TextField(f) => {
                     let color = text_color.unwrap_or(n.text.color).fade(opacity);
                     let focused = n.id.is_some() && n.id == self.focused;
                     super::field::paint_field(out, n, f, focused, now, color, opacity, text_style);
                 }
-                NodeKind::Div => {}
+                NodeKind::Icon(_, Some(src)) => {
+                    let color = text_color.unwrap_or(n.text.color).fade(opacity);
+                    out.image(src, n.content, Corners::default(), color);
+                }
+                NodeKind::Polygon(_, color, Some(src)) => out.image(src, n.content, Corners::default(), color.fade(opacity)),
+                NodeKind::Icon(_, None) | NodeKind::Polygon(_, _, None) | NodeKind::Div => {}
             }
         }
         if n.end as usize == i + 1 {
@@ -122,8 +143,9 @@ impl<V> Tree<V> {
         if clips {
             out.pop_clip();
         }
-        if n.style.overflow == Overflow::Scroll && n.scroll_max > 0.0 {
-            out.quad(&scrollbar(n.rect, n.scroll_max, self.scroll_offset_of(i), opacity));
+        if n.style.overflow.is_scroll() && n.scroll_max > 0.0 {
+            let horizontal = n.style.overflow == Overflow::ScrollX;
+            out.quad(&scrollbar(n.rect, n.scroll_max, self.scroll_offset_of(i), opacity, horizontal));
         }
     }
 
@@ -168,14 +190,48 @@ fn scaled(mut q: Quad, k: f32) -> Quad {
     q
 }
 
-fn scrollbar(rect: Rect, max: f32, offset: f32, opacity: f32) -> Quad {
-    let h = rect.size.height;
-    let thumb = (h * h / (h + max)).max(16.0).min(h);
-    let y = rect.origin.y + (h - thumb) * (offset / max);
+fn scrollbar(rect: Rect, max: f32, offset: f32, opacity: f32, horizontal: bool) -> Quad {
+    let len = if horizontal { rect.size.width } else { rect.size.height };
+    let thumb = (len * len / (len + max)).max(16.0).min(len);
+    let at = (len - thumb) * (offset / max);
+    let r = if horizontal {
+        Rect::new(rect.origin.x + at, rect.bottom() - SCROLLBAR_W - 2.0, thumb, SCROLLBAR_W)
+    } else {
+        Rect::new(rect.right() - SCROLLBAR_W - 2.0, rect.origin.y + at, SCROLLBAR_W, thumb)
+    };
     Quad {
-        rect: Rect::new(rect.right() - SCROLLBAR_W - 2.0, y, SCROLLBAR_W, thumb),
+        rect: r,
         fill: SCROLLBAR.fade(opacity),
         radius: Corners::all(SCROLLBAR_W / 2.0),
         ..Quad::default()
     }
+}
+
+const DASH: f32 = 4.0;
+
+/// Traços `(início, comprimento)` ao longo de `len`: 4 px cheios, 4 px vazios.
+pub(crate) fn dash_segments(len: f32) -> Vec<(f32, f32)> {
+    let mut out = Vec::new();
+    let mut at = 0.0;
+    while at < len {
+        out.push((at, DASH.min(len - at)));
+        at += DASH * 2.0;
+    }
+    out
+}
+
+/// Quads dos traços nos quatro lados de `rect` (borda de largura `w`).
+pub(crate) fn dash_quads(rect: Rect, w: f32, color: Color) -> Vec<Quad> {
+    let (x, y, rw, rh) = (rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+    let q = |r: Rect| Quad { rect: r, fill: color, ..Quad::default() };
+    let mut out = Vec::new();
+    for (a, l) in dash_segments(rw) {
+        out.push(q(Rect::new(x + a, y, l, w)));
+        out.push(q(Rect::new(x + a, y + rh - w, l, w)));
+    }
+    for (a, l) in dash_segments(rh) {
+        out.push(q(Rect::new(x, y + a, w, l)));
+        out.push(q(Rect::new(x + rw - w, y + a, w, l)));
+    }
+    out
 }

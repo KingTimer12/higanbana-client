@@ -52,6 +52,8 @@ pub struct Animator {
     tweens: HashMap<ElementId, Tween>,
     generation: u32,
     active: bool,
+    /// Menor intervalo pedido pelos tweens ativos com `fps`.
+    slow: Option<std::time::Duration>,
 }
 
 impl Animator {
@@ -59,6 +61,7 @@ impl Animator {
     pub fn begin(&mut self) {
         self.generation = self.generation.wrapping_add(1);
         self.active = false;
+        self.slow = None;
     }
 
     /// Termina o render: esquece tweens que ninguém consultou.
@@ -70,6 +73,15 @@ impl Animator {
     /// Algum tween consultado neste render ainda não terminou?
     pub fn is_active(&self) -> bool {
         self.active
+    }
+
+    /// Quando pedir o próximo quadro: já (`ZERO`), depois de um intervalo (só tweens
+    /// com `fps` ativos) ou nunca.
+    pub fn next_frame(&self) -> Option<std::time::Duration> {
+        if self.active {
+            return Some(std::time::Duration::ZERO);
+        }
+        self.slow
     }
 
     pub fn len(&self) -> usize {
@@ -110,7 +122,14 @@ impl Animator {
             t.transition = transition;
         }
         let (x, _, done) = t.sample(now);
-        self.active |= !done;
+        match (done, t.transition.fps) {
+            (true, _) => {}
+            (false, Some(n)) => {
+                let d = std::time::Duration::from_millis(1000 / u64::from(n.max(1)));
+                self.slow = Some(self.slow.map_or(d, |s| s.min(d)));
+            }
+            (false, None) => self.active = true,
+        }
         T::from_arr(x)
     }
 }
@@ -122,6 +141,21 @@ mod tests {
 
     fn key() -> ElementId {
         ElementId::from("fade")
+    }
+
+    #[test]
+    fn transicao_com_fps_pede_quadros_espacados() {
+        let t0 = Instant::now();
+        let mut a = Animator::default();
+        a.begin();
+        a.value(key(), 0.0, 1.0, Transition::ms(8000).fps(15), t0);
+        assert!(!a.is_active(), "lenta não pede quadro imediato");
+        assert_eq!(a.next_frame(), Some(Duration::from_millis(66)));
+        a.value(ElementId::from("rapida"), 0.0, 1.0, Transition::ms(100), t0);
+        assert_eq!(a.next_frame(), Some(Duration::ZERO), "uma normal ativa manda");
+        a.end();
+        a.begin();
+        assert_eq!(a.next_frame(), None);
     }
 
     #[test]

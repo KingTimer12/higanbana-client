@@ -2,7 +2,7 @@
 //! com as seções, cabeçalho com tema e backend, rodapé com estatísticas.
 //!
 //! Variáveis de ambiente para capturas: `HGUI_GALLERY_SECTION=<índice>`,
-//! `HGUI_GALLERY_STATE=dialog|select|toast|backend`, `HGUI_GALLERY_THEME=light`,
+//! `HGUI_GALLERY_STATE=dialog|select|toast|backend|popover`, `HGUI_GALLERY_THEME=light`,
 //! `HGUI_GALLERY_BACKEND=vulkan|opengl|d3d11|d3d12|wgpu`.
 mod sections;
 mod shell;
@@ -32,10 +32,23 @@ pub struct Gallery {
     pub tip: TooltipState,
     pub tip_side: TooltipState,
     pub toasts: Toasts,
+    pub notes: Toasts,
     pub cover: ImageSource,
     pub clicks: u32,
     pub anim_card: bool,
     pub anim_big: bool,
+    pub popover: PopoverState,
+    pub banner: CarouselState,
+    pub fileira: CarouselState,
+    pub menu: PopoverState,
+    pub ordem: usize,
+    pub aba: usize,
+    pub subtitle: Option<usize>,
+    pub quality: Option<usize>,
+    pub progress: f32,
+    pub side: SidebarState,
+    pub cmd: CommandState,
+    pub side_active: usize,
 }
 
 impl View for Gallery {
@@ -48,6 +61,7 @@ impl View for Gallery {
         let page = sections::page(self, cx);
         let dialog = sections::overlay::dialog(self, cx);
         let toaster = Toaster::new("toaster", &self.toasts, |v: &mut Gallery| &mut v.toasts).render(cx);
+        let notifier = Notifier::new("avisos", &self.notes, |v: &mut Gallery| &mut v.notes).render(cx);
         let line = |c| div().h(1.0).flex_shrink_0().bg(c);
         let border = cx.theme().border;
         div()
@@ -68,6 +82,7 @@ impl View for Gallery {
             .child(footer)
             .child(dialog)
             .child(toaster)
+            .child(notifier)
     }
 }
 
@@ -123,17 +138,30 @@ fn main() {
         tip: TooltipState::default(),
         tip_side: TooltipState::default(),
         toasts: Toasts::new(),
+        notes: Toasts::new(),
         cover: cover(),
         clicks: 0,
         anim_card: true,
         anim_big: false,
+        popover: PopoverState { open: state == "popover" },
+        banner: CarouselState::new(4).looping(true).auto_advance(std::time::Duration::from_secs(4)),
+        fileira: CarouselState::new(12),
+        menu: PopoverState::default(),
+        ordem: 0,
+        aba: 0,
+        subtitle: Some(1),
+        quality: Some(2),
+        progress: 40.0,
+        side: SidebarState::default(),
+        cmd: CommandState::new(),
+        side_active: 0,
     };
     view.tip.visible = state == "tooltip";
     if state == "toast" {
-        sections::overlay::push_demo_toasts(&mut view.toasts);
+        sections::overlay::push_demo_toasts(&mut view.toasts, &mut view.notes);
     }
     let theme = if env("HGUI_GALLERY_THEME") == "light" { Theme::light() } else { Theme::dark() };
-    let opts = WindowOptions { title: "higanbana-gpui · galeria".into(), size: size(1280.0, 800.0), resizable: true, decorations: Decorations::Custom };
+    let opts = WindowOptions { title: "higanbana-gpui · galeria".into(), size: size(1280.0, 800.0), resizable: true, decorations: Decorations::Custom, min_size: None };
     if let Err(e) = App::new().theme(theme).backend(backend_from_env()).run(opts, view) {
         eprintln!("erro: {e}");
     }

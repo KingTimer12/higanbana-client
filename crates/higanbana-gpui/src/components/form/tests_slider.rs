@@ -76,3 +76,29 @@ fn disabled_slider_ignores_input() {
     t.key_down(&key(Key::End), &mut v, &mut EventCx::default());
     assert_eq!(v.value, 4.0);
 }
+
+#[test]
+fn slider_do_kit_tem_polegar_branco_sem_borda() {
+    let mut a = Animator::default();
+    let e = with_cx(&mut a, |cx| div().child(Slider::new("sl", 5.0).range(0.0, 10.0).width(100.0).kit().on_change(|_: &mut V, _, _| {}).render(cx)));
+    let t = build(e);
+    let n = t.find("sl").unwrap();
+    assert_eq!(t.nodes[n].style.background, Some(Color::WHITE));
+    assert_eq!(t.nodes[n].style.border_width, 0.0);
+}
+
+#[test]
+fn soltar_avisa_o_valor_final() {
+    #[derive(Default)]
+    struct R {
+        released: Option<f32>,
+    }
+    let mut a = Animator::default();
+    let el = with_cx(&mut a, |cx| div().child(Slider::new("sl", 0.0).range(0.0, 10.0).step(2.0).width(100.0).on_release(|v: &mut R, n, _| v.released = Some(n)).render(cx)));
+    let mut t = build(el);
+    let (m, mut v, mut cx) = (Modifiers::default(), R::default(), EventCx::default());
+    t.mouse_down(point(41.0, 8.0), MouseButton::Left, m, &mut v, &mut cx);
+    assert_eq!(v.released, None, "arrastando: ainda não");
+    t.mouse_up(point(81.0, 8.0), MouseButton::Left, m, &mut v, &mut cx);
+    assert_eq!(v.released, Some(8.0));
+}

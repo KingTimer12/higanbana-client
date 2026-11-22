@@ -20,7 +20,11 @@ pub(crate) enum NodeKind {
     Div,
     Text(Cow<'static, str>),
     Image(ImageSource),
+    /// Ícone e a rasterização para a escala atual (`Tree::resolve_icons`).
+    Icon(&'static str, Option<ImageSource>),
     TextField(Box<FieldNode>),
+    /// Polígono, cor e a máscara rasterizada (`Tree::resolve_icons`).
+    Polygon(std::rc::Rc<[(f32, f32)]>, crate::color::Color, Option<ImageSource>),
 }
 
 pub(crate) struct Node<V> {
@@ -47,6 +51,8 @@ pub(crate) struct Node<V> {
     pub scroll_max: f32,
     /// Escala acumulada dos transforms deste nó e dos ancestrais (texto, raios, bordas).
     pub paint_scale: f32,
+    /// Texto cortado pelo `line_clamp` (pintado no lugar do original).
+    pub shown: Option<Box<str>>,
 }
 
 /// Raiz de overlay: índice do nó e a configuração.
@@ -85,6 +91,8 @@ fn push<V>(e: Element<V>, parent: u32, inherited: &TextStyle, disabled: bool, ou
         Kind::Div => NodeKind::Div,
         Kind::Text(s) => NodeKind::Text(s),
         Kind::Image(src) => NodeKind::Image(src),
+        Kind::Icon(name) => NodeKind::Icon(name, None),
+        Kind::Polygon(points, color) => NodeKind::Polygon(points, color, None),
         Kind::TextField(data) => NodeKind::TextField(Box::new(FieldNode { data: *data, carets: Vec::new(), scroll: 0.0, line_h: 0.0 })),
     };
     let index = out.len() as u32;
@@ -106,6 +114,7 @@ fn push<V>(e: Element<V>, parent: u32, inherited: &TextStyle, disabled: bool, ou
         clip: Rect::default(),
         scroll_max: 0.0,
         paint_scale: 1.0,
+        shown: None,
     });
     if !e.children.is_empty() {
         // Clona o estilo herdado só uma vez por pai com filhos.

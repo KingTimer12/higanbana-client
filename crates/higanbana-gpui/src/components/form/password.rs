@@ -24,7 +24,7 @@ pub(super) fn unmask(text: &str, masked: usize) -> usize {
 }
 
 /// Ajusta a cópia de pintura do campo: máscara (senha) e placeholder próprio.
-pub(super) fn patch_field<V>(e: &mut Element<V>, state: &TextInputState, password: bool, placeholder: Option<Cow<'static, str>>) {
+pub(crate) fn patch_field<V>(e: &mut Element<V>, state: &TextInputState, password: bool, placeholder: Option<Cow<'static, str>>) {
     let Kind::TextField(f) = &mut e.kind else { return };
     if let Some(p) = placeholder {
         f.placeholder = p;

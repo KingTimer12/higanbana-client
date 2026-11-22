@@ -15,7 +15,7 @@ struct Rec {
 
 impl Canvas for Rec {
     fn quad(&mut self, _: &Quad) {}
-    fn image(&mut self, _: &ImageSource, r: Rect, _: Corners<f32>, _: f32) {
+    fn image(&mut self, _: &ImageSource, r: Rect, _: Corners<f32>, _: Color) {
         self.images.push(r);
     }
     fn text(&mut self, _: &str, _: &TextStyle, _: Point, _: Option<f32>, _: Color) {}

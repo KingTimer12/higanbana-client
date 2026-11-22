@@ -17,7 +17,10 @@ higanbana-gpui-sys.workspace = true
 taffy = { version = "=0.15.1", default-features = false, features = ["std", "taffy_tree", "flexbox", "content_size"] }
 # Movimento do cursor por grafema (emoji com ZWJ, acentos combinantes).
 unicode-segmentation = "1.13.3"
+# Rasteriza os ícones SVG (sem texto nem imagens embutidas).
+resvg = { version = "0.45", default-features = false }
 libloading = { workspace = true, optional = true }
+serde_json.workspace = true
 
 [[test]]
 name = "video"

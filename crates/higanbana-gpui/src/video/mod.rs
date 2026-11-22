@@ -8,4 +8,9 @@ mod render;
 mod state;
 
 pub use player::Player;
-pub use state::{PlayerState, Status, Track};
+mod options;
+pub use options::{PlayerOptions, DEFAULT_OPTIONS};
+pub use state::{Chapter, PlayerState, Status, Track};
+
+#[cfg(test)]
+mod tests_options;

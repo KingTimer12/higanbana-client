@@ -6,9 +6,12 @@ mod style_map;
 
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod tests_clamp;
 
 pub use engine::LayoutEngine;
 pub use measure::{MeasureCache, TextMeasurer};
+pub(crate) use measure::clamp_text;
 pub(crate) use position::{padding_box, position, ScrollOffsets};
 
 #[cfg(test)]

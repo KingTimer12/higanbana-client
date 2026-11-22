@@ -23,29 +23,39 @@ impl<'c> ImageCache<'c> {
     pub fn prepare<V>(&mut self, tree: &Tree<V>) {
         self.map.retain(|_, (src, _)| Rc::strong_count(src) > 1);
         for n in &tree.nodes {
-            let NodeKind::Image(src) = &n.kind else { continue };
-            let Some(pixels) = src.take_pixels() else { continue };
-            let (w, h) = src.size();
-            if let Some((_, img)) = self.map.get_mut(&src.id()) {
-                if img.size() == (w, h) {
-                    if let Err(e) = img.update_premultiplied(&pixels) {
-                        eprintln!("higanbana-gpui: atualizar imagem falhou: {e}");
-                    }
-                    continue;
-                }
-                self.map.remove(&src.id());
+            if let Some(g) = &n.style.gradient {
+                self.upload(&super::gradient::ramp(g));
             }
-            let made = if src.is_dynamic() {
-                Image::from_premultiplied(self.ctx, w, h, &pixels)
-            } else {
-                Image::from_rgba8(self.ctx, w, h, pixels)
-            };
-            match made {
-                Ok(img) => {
-                    self.map.insert(src.id(), (src.clone(), img));
-                }
-                Err(e) => eprintln!("higanbana-gpui: imagem {}x{} falhou: {e}", w, h),
+            match &n.kind {
+                NodeKind::Image(src) | NodeKind::Icon(_, Some(src)) | NodeKind::Polygon(_, _, Some(src)) => self.upload(src),
+                _ => {}
             }
+        }
+    }
+
+    /// Envia `src` se tem pixels pendentes (nova, ou quadro novo de imagem dinâmica).
+    fn upload(&mut self, src: &ImageSource) {
+        let Some(pixels) = src.take_pixels() else { return };
+        let (w, h) = src.size();
+        if let Some((_, img)) = self.map.get_mut(&src.id()) {
+            if img.size() == (w, h) {
+                if let Err(e) = img.update_premultiplied(&pixels) {
+                    eprintln!("higanbana-gpui: atualizar imagem falhou: {e}");
+                }
+                return;
+            }
+            self.map.remove(&src.id());
+        }
+        let made = if src.is_dynamic() {
+            Image::from_premultiplied(self.ctx, w, h, &pixels)
+        } else {
+            Image::from_rgba8(self.ctx, w, h, pixels)
+        };
+        match made {
+            Ok(img) => {
+                self.map.insert(src.id(), (src.clone(), img));
+            }
+            Err(e) => eprintln!("higanbana-gpui: imagem {}x{} falhou: {e}", w, h),
         }
     }
 

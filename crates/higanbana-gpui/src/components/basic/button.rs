@@ -17,6 +17,7 @@ pub struct Button<V> {
     variant: Variant,
     size: ComponentSize,
     icon: Option<Element<V>>,
+    trailing: Option<Element<V>>,
     disabled: bool,
     full_width: bool,
     on_click: Option<ClickHandler<V>>,
@@ -29,7 +30,7 @@ impl<V> Button<V> {
             label: label.into(),
             variant: Variant::Default,
             size: ComponentSize::Md,
-            icon: None,
+            icon: None, trailing: None,
             disabled: false,
             full_width: false,
             on_click: None,
@@ -49,6 +50,12 @@ impl<V> Button<V> {
     /// Elemento à esquerda do rótulo (ícone).
     pub fn icon(mut self, icon: impl Into<Element<V>>) -> Self {
         self.icon = Some(icon.into());
+        self
+    }
+
+    /// Ícone depois do rótulo (ex.: a seta `chevron-down` de um menu suspenso).
+    pub fn trailing_icon(mut self, icon: impl Into<Element<V>>) -> Self {
+        self.trailing = Some(icon.into());
         self
     }
 
@@ -75,6 +82,9 @@ fn metrics(size: ComponentSize) -> (f32, f32) {
         ComponentSize::Sm => (12.0, 6.0),
         ComponentSize::Md => (16.0, 8.0),
         ComponentSize::Lg => (24.0, 8.0),
+        ComponentSize::Xs => (4.0, 4.0),
+        ComponentSize::Compact => (8.0, 4.0),
+        ComponentSize::Regular => (12.0, 6.0),
         ComponentSize::Icon => (0.0, 0.0),
     }
 }
@@ -85,6 +95,8 @@ impl<V: 'static> Component<V> for Button<V> {
         let c = variant_colors(theme, self.variant);
         let (pad, gap) = metrics(self.size);
         let h = self.size.height();
+        // Tamanhos do kit: raio cheio do tema e só-ícone quadrado.
+        let kit = matches!(self.size, ComponentSize::Xs | ComponentSize::Compact | ComponentSize::Regular);
         let ring = theme.ring;
         let shadowed = !matches!(self.variant, Variant::Ghost | Variant::Link);
         let mut e = div()
@@ -95,15 +107,15 @@ impl<V: 'static> Component<V> for Button<V> {
             .gap(gap)
             .h(h)
             .px(pad)
-            .rounded(theme.radius - 2.0)
+            .rounded(if kit { theme.radius } else { theme.radius - 2.0 })
             .bg(c.bg)
             .border(1.0, c.border)
             .text_color(c.fg)
-            .text_size(theme.typography.sm)
+            .text_size(if self.size == ComponentSize::Xs { theme.typography.xs } else { theme.typography.sm })
             .font_weight(500)
             .whitespace_nowrap()
             .when(shadowed, |e| e.shadow(Color::BLACK.alpha(0.05), 2.0))
-            .when(self.size == ComponentSize::Icon, |e| e.w(h))
+            .when(self.size == ComponentSize::Icon || (kit && self.label.is_empty()), |e| e.w(h).px(0.0))
             .when(self.full_width, |e| e.w_full());
         if self.disabled {
             e = e.opacity(0.5).cursor(CursorStyle::NotAllowed).disabled(true);
@@ -115,6 +127,6 @@ impl<V: 'static> Component<V> for Button<V> {
             }
         }
         e.on_click = self.on_click;
-        e.children(self.icon).when(!self.label.is_empty(), |e| e.child(text(self.label)))
+        e.children(self.icon).when(!self.label.is_empty(), |e| e.child(text(self.label))).children(self.trailing)
     }
 }

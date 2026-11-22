@@ -55,6 +55,15 @@ pub fn badge(_: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery
     vec![preview(cx, "Variantes", variants), preview(cx, "Gêneros", genres)]
 }
 
+pub fn kbd(_: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery>> {
+    let mut keys = row();
+    for k in ["ctrl-k", "alt-left", "shift-enter", "escape"] {
+        keys = keys.child(Kbd::new(k).render(cx));
+    }
+    let outline = row().child(Kbd::new("ctrl-k").outline().render(cx));
+    vec![preview(cx, "Atalhos", keys), preview(cx, "Contorno", outline)]
+}
+
 pub fn card(v: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery>> {
     let name = Input::new("card-nome", &v.name, |v: &mut Gallery| &mut v.name).render(cx);
     let email = Input::new("card-email", &v.email, |v: &mut Gallery| &mut v.email).render(cx);
@@ -123,4 +132,74 @@ pub fn avatar(v: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Galler
         fallback = fallback.child(Avatar::new(name).render(cx));
     }
     vec![preview(cx, "Com imagem (tamanhos)", imgs), preview(cx, "Iniciais como alternativa", fallback)]
+}
+
+pub fn line_clamp(_: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery>> {
+    const SINOPSE: &str = "Dois estudantes descobrem um portal escondido na biblioteca da escola e passam a viajar entre mundos, enfrentando criaturas antigas enquanto tentam voltar a tempo para as provas finais do semestre.";
+    let bloco = |n: u32| div().w(280.0).flex_col().line_clamp(n).child(text(SINOPSE));
+    vec![preview(cx, "1 linha", bloco(1)), preview(cx, "2 linhas", bloco(2)), preview(cx, "3 linhas", bloco(3))]
+}
+
+pub fn shapes(g: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery>> {
+    let primary = cx.theme().primary;
+    let tri = div().w(120.0).h(72.0).rounded(8.0).bg(cx.theme().muted).child(polygon(vec![(0.6, 0.0), (1.0, 0.0), (1.0, 1.0)], primary).absolute().top(0.0).left(0.0).size_full());
+    // Xadrez 8×8 gerado na hora: mostra o recorte do zoom.
+    let px: Vec<u8> = (0..64u32 * 64).flat_map(|i| if ((i % 64) / 8 + (i / 64) / 8) % 2 == 0 { [235, 70, 90, 255] } else { [40, 40, 48, 255] }).collect();
+    let src = ImageData::from_rgba8(64, 64, px);
+    let foto = |k: f32| img(src.clone()).w(96.0).h(96.0).rounded(12.0).object_fit(higanbana_gpui::ObjectFit::Cover).zoom(k);
+    let border = cx.theme().border;
+    let dashed = div().w(160.0).h(48.0).border(1.0, border).border_dashed();
+    let label = if g.wifi { "Duplo clique: ligado" } else { "Duplo clique: desligado" };
+    let double = div().p(12.0).rounded(8.0).bg(cx.theme().muted).child(text(label)).on_double_click(|g: &mut Gallery, _, cx| {
+        g.wifi = !g.wifi;
+        cx.notify();
+    });
+    vec![
+        preview(cx, "Polígono", tri),
+        preview(cx, "Imagem com zoom 1× e 1,5×", row().child(foto(1.0)).child(foto(1.5))),
+        preview(cx, "Borda tracejada", dashed),
+        preview(cx, "Duplo clique", double),
+    ]
+}
+
+pub fn virtual_list(_: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery>> {
+    thread_local! {
+        static ALTURAS: std::sync::Arc<[f32]> = (0..10_000).map(|i| if i % 7 == 0 { 56.0 } else { 36.0 }).collect::<Vec<_>>().into();
+    }
+    let muted = cx.theme().muted_foreground;
+    let heights = ALTURAS.with(|h| h.clone());
+    let lista = VirtualList::new("galeria-lista", heights.clone()).gap(2.0).render(cx, |i, _| {
+        div().h(heights[i]).px(12.0).items_center().rounded(6.0).bg(rgba(0x8080_8014)).child(text(format!("Item {i}"))).child(div().ml(8.0).text_color(muted).child(text(if i % 7 == 0 { "alto" } else { "" })))
+    });
+    vec![preview(cx, "10.000 itens, só os visíveis construídos", div().w(320.0).h(280.0).child(lista))]
+}
+
+pub fn carousel(v: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery>> {
+    let cores = [0xe04f5f, 0x4f8fe0, 0x4fe0a0, 0xe0c04f];
+    let slides = (0..4).map(|i| div().h(140.0).rounded(10.0).bg(rgb(cores[i])).items_center().justify_center().child(text(format!("Destaque {}", i + 1)))).collect();
+    let banner = Carousel::new("galeria-banner", &v.banner, |g: &mut Gallery| &mut g.banner).items(slides).render(cx);
+    let cards = (0..12).map(|i| div().h(96.0).rounded(8.0).bg(rgba(0x8080_8030)).items_center().justify_center().child(text(format!("{}", i + 1)))).collect();
+    let fileira = Carousel::new("galeria-fileira", &v.fileira, |g: &mut Gallery| &mut g.fileira).items(cards).item_width(72.0).gap(8.0).controls(true).render(cx);
+    vec![preview(cx, "Banner com auto-avanço (4 s)", div().w(420.0).child(banner)), preview(cx, "Fileira com setas", div().w(420.0).px(40.0).child(fileira))]
+}
+
+pub fn kit_extras(v: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Vec<Element<Gallery>> {
+    let tags = row().child(Tag::secondary("Ação").small().render(cx)).child(Tag::secondary("Fantasia").small().render(cx)).child(Tag::outline("2024").render(cx));
+    let link = Link::new("galeria-link", "Página no AniList").on_click(|g: &mut Gallery, _| g.clicks += 1).render(cx);
+    let trilha = Breadcrumb::new("galeria-trilha").link("Início", |_: &mut Gallery, _| {}).link("Animes", |_: &mut Gallery, _| {}).item("Frieren").render(cx);
+    const ORDENS: [&str; 3] = ["Nome", "Ano", "Nota"];
+    let gatilho = Button::new("galeria-ordenar", ORDENS[v.ordem]).variant(Variant::Outline).render(cx);
+    let mut menu = DropdownMenu::new("galeria-menu", &v.menu, |g: &mut Gallery| &mut g.menu, gatilho);
+    for (i, o) in ORDENS.iter().enumerate() {
+        menu = menu.item(*o, i == v.ordem, move |g: &mut Gallery, _| g.ordem = i);
+    }
+    let menu = menu.render(cx);
+    let sub = TabBar::new("galeria-abas", v.aba, |g: &mut Gallery, i, _| g.aba = i).underline().tab("Sobre").tab("Episódios 12").tab("Relacionados").render(cx);
+    let pill = TabBar::new("galeria-pilulas", v.aba, |g: &mut Gallery, i, _| g.aba = i).pill().tab("Popular").tab("Em alta").tab("Novos").render(cx);
+    vec![
+        preview(cx, "Tag", tags),
+        preview(cx, "Link e Breadcrumb", div().flex_col().gap(12.0).child(link).child(trilha)),
+        preview(cx, "DropdownMenu", menu),
+        preview(cx, "TabBar sublinhado e pílula", div().flex_col().gap(16.0).child(sub).child(pill)),
+    ]
 }

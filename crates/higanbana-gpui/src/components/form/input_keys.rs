@@ -8,10 +8,10 @@ use crate::text_input::{InputOutcome, SystemClipboard, TextInputState};
 use std::rc::Rc;
 
 /// Callback que recebe o texto atual.
-pub(super) type TextFn<V> = Rc<dyn Fn(&mut V, &str, &mut EventCx)>;
+pub(crate) type TextFn<V> = Rc<dyn Fn(&mut V, &str, &mut EventCx)>;
 
 /// Callbacks opcionais do Input.
-pub(super) struct Callbacks<V> {
+pub(crate) struct Callbacks<V> {
     pub change: Option<TextFn<V>>,
     pub submit: Option<TextFn<V>>,
 }
@@ -35,7 +35,7 @@ fn finish<V, L: Fn(&mut V) -> &mut TextInputState>(
 }
 
 /// Substitui os handlers padrão do `text_field` pelos do Input.
-pub(super) fn attach<V: 'static, L>(e: Element<V>, lens: L, password: bool, cbs: Callbacks<V>) -> Element<V>
+pub(crate) fn attach<V: 'static, L>(e: Element<V>, lens: L, password: bool, cbs: Callbacks<V>) -> Element<V>
 where
     L: Fn(&mut V) -> &mut TextInputState + Clone + 'static,
 {

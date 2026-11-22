@@ -20,7 +20,7 @@ fn solid(rgba: [u8; 4], w: u32, h: u32) -> Vec<u8> {
 fn frame(ctx: &Context, win: &Window<'_>, cache: &mut ImageCache<'_>, src: &ImageSource) -> u32 {
     let scale = win.scale();
     let mut tree = Tree::<V>::new();
-    let base = TextStyle { font: FontSpec::default(), size: 14.0, color: Color::WHITE, wrap: true };
+    let base = TextStyle { font: FontSpec::default(), size: 14.0, color: Color::WHITE, wrap: true, max_lines: None };
     tree.rebuild(img(src.clone()).w(40.0).h(40.0), &base, win.logical_size(), &mut GpuMeasurer { ctx, scale });
     cache.prepare(&tree);
     let mut list = DrawList::new();

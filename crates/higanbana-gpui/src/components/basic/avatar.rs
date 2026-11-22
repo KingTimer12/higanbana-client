@@ -34,7 +34,7 @@ impl Avatar {
 pub fn initials(name: &str) -> String {
     let mut words = name.split_whitespace().filter_map(|w| w.chars().next());
     let first = words.next();
-    let last = words.last();
+    let last = words.next_back();
     first.into_iter().chain(last).flat_map(char::to_uppercase).collect()
 }
 
@@ -43,8 +43,11 @@ impl<V> Component<V> for Avatar {
         let theme = cx.theme();
         let (d, font) = match self.size {
             ComponentSize::Sm => (24.0, theme.typography.xs),
-            ComponentSize::Md | ComponentSize::Icon => (32.0, theme.typography.sm),
+            ComponentSize::Md | ComponentSize::Icon | ComponentSize::Regular => (32.0, theme.typography.sm),
             ComponentSize::Lg => (40.0, theme.typography.base),
+            // Kit: xsmall 16 px, small 24 px.
+            ComponentSize::Xs => (16.0, theme.typography.xs),
+            ComponentSize::Compact => (24.0, theme.typography.xs),
         };
         let shell = div().size(d).flex_shrink_0().rounded_full().overflow_hidden();
         match self.image {

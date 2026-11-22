@@ -83,6 +83,32 @@ impl MeasureCache {
     }
 }
 
+/// Altura de uma linha no estilo.
+pub(crate) fn line_height(cache: &mut MeasureCache, m: &mut dyn TextMeasurer, style: &TextStyle) -> f32 {
+    cache.measure(m, " ", style, None).height
+}
+
+/// Texto cortado para caber em `lines` linhas de largura `w`, terminando em "…".
+/// `None` quando já cabe. Busca binária no número de caracteres (medidas em cache).
+pub(crate) fn clamp_text(cache: &mut MeasureCache, m: &mut dyn TextMeasurer, text: &str, style: &TextStyle, w: f32, lines: u32) -> Option<String> {
+    let limit = line_height(cache, m, style) * lines as f32 + 0.5;
+    if cache.measure(m, text, style, Some(w)).height <= limit {
+        return None;
+    }
+    let ends: Vec<usize> = text.char_indices().map(|(i, _)| i).chain(std::iter::once(text.len())).collect();
+    let cut = |k: usize| format!("{}…", text[..ends[k]].trim_end());
+    let (mut lo, mut hi) = (0usize, ends.len() - 1);
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if cache.measure(m, &cut(mid), style, Some(w)).height <= limit {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    Some(cut(lo))
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;

@@ -19,6 +19,7 @@ pub(crate) const EVENT_SHUTDOWN: c_int = 1;
 pub(crate) const EVENT_START_FILE: c_int = 6;
 pub(crate) const EVENT_END_FILE: c_int = 7;
 pub(crate) const EVENT_FILE_LOADED: c_int = 8;
+pub(crate) const EVENT_PLAYBACK_RESTART: c_int = 21;
 pub(crate) const EVENT_PROPERTY_CHANGE: c_int = 22;
 
 pub(crate) const END_REASON_ERROR: c_int = 4;

@@ -82,6 +82,8 @@ pub(crate) struct OverlaySpec<V> {
     pub modal: bool,
     pub backdrop: Option<Color>,
     pub match_width: bool,
+    /// Deslocamento extra depois de posicionar (ex.: abaixo da barra de título).
+    pub offset: (f32, f32),
     pub on_dismiss: Option<DismissHandler<V>>,
 }
 
@@ -94,7 +96,7 @@ pub struct Overlay<V> {
 /// Overlay com `content` posicionado por `anchor`. Pode ser filho de qualquer
 /// elemento: sai do fluxo e é pintado acima de tudo (overlays posteriores por cima).
 pub fn overlay<V>(anchor: Anchor, content: impl Into<Element<V>>) -> Overlay<V> {
-    let spec = OverlaySpec { anchor, gap: 4.0, modal: false, backdrop: None, match_width: false, on_dismiss: None };
+    let spec = OverlaySpec { anchor, gap: 4.0, modal: false, backdrop: None, match_width: false, offset: (0.0, 0.0), on_dismiss: None };
     Overlay { spec, content: content.into() }
 }
 
@@ -102,6 +104,12 @@ impl<V> Overlay<V> {
     /// Distância da âncora em pixels lógicos (padrão 4).
     pub fn gap(mut self, gap: f32) -> Self {
         self.spec.gap = gap;
+        self
+    }
+
+    /// Desloca o overlay depois de posicionado (continua preso à janela).
+    pub fn offset(mut self, dx: f32, dy: f32) -> Self {
+        self.spec.offset = (dx, dy);
         self
     }
 

@@ -68,15 +68,35 @@ impl<V> Element<V> {
         self
     }
 
+    /// Botões laterais do mouse soltos sobre o elemento (voltar/avançar).
+    /// Sobe até o primeiro ancestral com handler.
+    pub fn on_navigate(mut self, f: impl Fn(&mut V, crate::gfx::NavDirection, &mut EventCx) + 'static) -> Self {
+        self.interact().on_navigate = Some(Box::new(f));
+        self
+    }
+
     /// Mouse moveu sobre o elemento, ou em qualquer lugar durante a captura.
     pub fn on_mouse_move(mut self, f: impl Fn(&mut V, &PointerEvent, &mut EventCx) + 'static) -> Self {
         self.interact().on_mouse_move = Some(Box::new(f));
         self
     }
 
+    /// Qualquer movimento do mouse dentro do elemento, mesmo sobre filhos com
+    /// `on_mouse_move` próprio (ex.: mostrar controles de player).
+    pub fn on_mouse_move_passive(mut self, f: impl Fn(&mut V, &PointerEvent, &mut EventCx) + 'static) -> Self {
+        self.interact().on_move_passive = Some(Box::new(f));
+        self
+    }
+
     /// Mouse entrou (`true`) ou saiu (`false`) do elemento. Use com `.id(...)`.
     pub fn on_hover(mut self, f: impl Fn(&mut V, bool, &mut EventCx) + 'static) -> Self {
         self.interact().on_hover = Some(Box::new(f));
+        self
+    }
+
+    /// Segundo clique no mesmo elemento em até 500 ms e 4 px. O `on_click` dispara nos dois.
+    pub fn on_double_click(mut self, f: impl Fn(&mut V, &super::handlers::MouseEvent, &mut EventCx) + 'static) -> Self {
+        self.interact().on_double_click = Some(Box::new(f));
         self
     }
 }

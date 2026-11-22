@@ -8,7 +8,7 @@ mod text_field;
 
 pub use handlers::{
     CharHandler, ClickHandler, DismissHandler, HoverHandler, HoverStyle, KeyHandler, MouseEvent, PointerEvent,
-    PointerHandler, StyleFn,
+    PointerHandler, StyleFn, VisibleHandler,
 };
 pub use id::ElementId;
 pub use image_data::{ImageData, ImageSource};
@@ -27,6 +27,10 @@ pub(crate) enum Kind<V> {
     Div,
     Text(Cow<'static, str>),
     Image(ImageSource),
+    /// Ícone SVG registrado (ver `crate::icon`).
+    Icon(&'static str),
+    /// Polígono preenchido: pontos em frações (0–1) da própria caixa.
+    Polygon(std::rc::Rc<[(f32, f32)]>, crate::color::Color),
     TextField(Box<FieldData>),
     /// Conteúdo (único filho) vai para a camada de overlays.
     Overlay(Box<OverlaySpec<V>>),
@@ -62,10 +66,32 @@ pub fn img<V>(source: ImageSource) -> Element<V> {
     element(Kind::Image(source), Style::default())
 }
 
+/// Camada invisível que ocupa o pai e chama `f` uma vez (por construção da view)
+/// quando o pai fica a menos de `margin` px da área visível. Ex.: pedir uma imagem
+/// só quando ela vai aparecer.
+pub fn on_visible<V>(margin: f32, f: impl FnOnce(&mut V, &mut crate::cx::EventCx) + 'static) -> Element<V> {
+    let mut e = div().absolute().top(0.0).left(0.0).size_full();
+    e.interact().on_visible = Some((margin, Box::new(f)));
+    e
+}
+
+/// Polígono preenchido com `color`; `points` em frações (0–1) da própria caixa.
+/// Rasterizado na CPU (cache por tamanho e forma); dê tamanho com `w`/`h` ou `absolute`.
+pub fn polygon<V>(points: Vec<(f32, f32)>, color: crate::color::Color) -> Element<V> {
+    element(Kind::Polygon(points.into(), color), Style::default())
+}
+
 /// Coluna com rolagem vertical; o deslocamento persiste pelo `id` entre reconstruções.
 pub fn scroll<V>(id: impl Into<ElementId>) -> Element<V> {
     let mut e = div().flex_col().id(id);
     e.style.overflow = Overflow::Scroll;
+    e
+}
+
+/// Linha com rolagem horizontal (roda com Shift, ou roda horizontal do touchpad).
+pub fn scroll_x<V>(id: impl Into<ElementId>) -> Element<V> {
+    let mut e = div().flex_row().id(id);
+    e.style.overflow = Overflow::ScrollX;
     e
 }
 
@@ -102,6 +128,14 @@ impl<V> Element<V> {
     /// Aplica `f` só quando `cond` é verdadeiro (encadeamento condicional).
     pub fn when(self, cond: bool, f: impl FnOnce(Self) -> Self) -> Self {
         if cond { f(self) } else { self }
+    }
+
+    /// Aplica `f` com o valor quando `opt` é `Some`.
+    pub fn when_some<T>(self, opt: Option<T>, f: impl FnOnce(Self, T) -> Self) -> Self {
+        match opt {
+            Some(v) => f(self, v),
+            None => self,
+        }
     }
 
     pub fn style(&self) -> &Style {

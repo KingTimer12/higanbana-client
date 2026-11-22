@@ -1,7 +1,9 @@
 //! Estilo de elementos: layout (flexbox), visual e texto herdável.
+mod gradient;
 mod styled;
 mod text;
 
+pub use gradient::{GradientDir, LinearGradient};
 pub use styled::Styled;
 pub use text::{TextStyle, TextStyleRefinement};
 
@@ -99,6 +101,15 @@ pub enum Overflow {
     Hidden,
     /// Recorta e rola verticalmente (precisa de `id`).
     Scroll,
+    /// Recorta e rola horizontalmente (precisa de `id`).
+    ScrollX,
+}
+
+impl Overflow {
+    /// Contêiner de rolagem (qualquer eixo)?
+    pub fn is_scroll(self) -> bool {
+        matches!(self, Overflow::Scroll | Overflow::ScrollX)
+    }
 }
 
 /// Sombra difusa ao redor da caixa (sem deslocamento, como o core).
@@ -134,8 +145,12 @@ pub struct Style {
     pub inset: Edges<Length>,
     pub overflow: Overflow,
     pub background: Option<Color>,
+    /// Gradiente pintado por cima do `background`.
+    pub gradient: Option<LinearGradient>,
     pub border_color: Color,
     pub border_width: f32,
+    /// Borda em traços (4 px, vão de 4 px) em vez de contínua.
+    pub border_dashed: bool,
     pub radius: Corners<f32>,
     pub shadow: Option<Shadow>,
     /// 0..1, multiplica a opacidade do elemento e dos filhos.
@@ -144,10 +159,18 @@ pub struct Style {
     pub translate: Point,
     /// Escala visual da subárvore em torno do centro (1 = normal).
     pub scale: f32,
+    /// Rotação em voltas (0..1, horário). Só vale para ícones.
+    pub rotate: f32,
     /// Papel do elemento numa janela com barra customizada (arrastar, maximizar...).
     pub window_hit: Option<crate::gfx::HitKind>,
     /// Encaixe de imagens na caixa de conteúdo.
     pub object_fit: ObjectFit,
+    /// Rolar este contêiner reconstrói a view (listas virtuais).
+    pub rerender_on_scroll: bool,
+    /// A caixa deste elemento (com id) fica disponível no próximo render (`RenderCx::bounds`).
+    pub track_bounds: bool,
+    /// Ampliação de imagem `cover` a partir do centro (`None` = 1).
+    pub zoom: Option<f32>,
     /// Cursor do mouse sobre o elemento (o mais profundo com cursor vence).
     pub cursor: Option<CursorStyle>,
     /// Propriedades de texto herdadas pelos descendentes.
@@ -180,15 +203,21 @@ impl Default for Style {
             inset: Edges::all(Length::Auto),
             overflow: Overflow::Visible,
             background: None,
+            gradient: None,
             border_color: Color::TRANSPARENT,
             border_width: 0.0,
+            border_dashed: false,
             radius: Corners::all(0.0),
             shadow: None,
             opacity: 1.0,
             translate: Point { x: 0.0, y: 0.0 },
             scale: 1.0,
+            rotate: 0.0,
             window_hit: None,
             object_fit: ObjectFit::Fill,
+            rerender_on_scroll: false,
+            track_bounds: false,
+            zoom: None,
             cursor: None,
             text: TextStyleRefinement::default(),
         }

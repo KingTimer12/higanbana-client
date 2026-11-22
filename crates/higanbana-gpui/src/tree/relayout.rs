@@ -24,7 +24,19 @@ impl<V> Tree<V> {
             self.engine.compute_overlay(&self.nodes, root, min_width, measurer);
             self.place(k);
         }
+        self.clamp_texts(measurer);
         self.after_position();
+    }
+
+    /// Corta os textos com `line_clamp` na largura final.
+    fn clamp_texts(&mut self, measurer: &mut dyn TextMeasurer) {
+        for i in 0..self.nodes.len() {
+            let n = &self.nodes[i];
+            let (NodeKind::Text(s), Some(lines), true) = (&n.kind, n.text.max_lines, n.text.wrap) else { continue };
+            let w = self.engine.layout(i).size.width + 0.5;
+            let shown = crate::layout::clamp_text(&mut self.engine.cache, measurer, s, &n.text, w, lines).map(String::into_boxed_str);
+            self.nodes[i].shown = shown;
+        }
     }
 
     /// Só reposiciona (mudou a rolagem): não chama o taffy.
@@ -58,9 +70,27 @@ impl<V> Tree<V> {
         let l = self.engine.layout(root);
         let size = Size { width: l.size.width, height: l.size.height };
         let spec = &self.overlays[k].spec;
-        let origin = place_overlay(&spec.anchor, spec.gap, size, self.anchor_rect(k), self.viewport);
+        let base = place_overlay(&spec.anchor, spec.gap, size, self.anchor_rect(k), self.viewport);
+        let (dx, dy) = spec.offset;
+        let vp = self.viewport;
+        let origin = crate::geometry::point(
+            (base.x + dx).min(vp.width - size.width).max(0.0),
+            (base.y + dy).min(vp.height - size.height).max(0.0),
+        );
         position(&self.engine, &mut self.nodes, root..end, origin, self.viewport, &mut self.offsets);
         self.apply_transforms(root..end);
+        // Âncora rolada para fora do recorte: o overlay some (sem pintura nem clique).
+        if self.anchor_clipped(k) {
+            for n in &mut self.nodes[root..end] {
+                n.clip = crate::geometry::Rect::new(0.0, 0.0, 0.0, 0.0);
+            }
+        }
+    }
+
+    /// A âncora do overlay `k` existe mas está fora da área visível dos ancestrais.
+    fn anchor_clipped(&self, k: usize) -> bool {
+        let Anchor::Element { id, .. } = self.overlays[k].spec.anchor else { return false };
+        self.find(id).is_some_and(|i| !self.nodes[i].clip.intersects(&self.nodes[i].rect))
     }
 
     /// x das fronteiras de caractere de cada campo de texto.

@@ -24,11 +24,15 @@ pub struct App {
     pub(crate) theme: Theme,
     pub(crate) show_stats: bool,
     pub(crate) vsync: bool,
+    /// `Inbox<V>` criado por `mailbox` (tipo apagado até o `run`).
+    pub(crate) inbox: Option<Box<dyn std::any::Any>>,
+    /// Chamado uma vez com o handle nativo logo depois de a janela abrir.
+    pub(crate) on_window: Option<Box<dyn FnOnce(usize)>>,
 }
 
 impl App {
     pub fn new() -> Self {
-        Self { backend: BackendKind::Auto, theme: Theme::dark(), show_stats: false, vsync: true }
+        Self { backend: BackendKind::Auto, theme: Theme::dark(), show_stats: false, vsync: true, inbox: None, on_window: None }
     }
 
     /// Backend preferido (cai para outro se indisponível).
@@ -39,6 +43,26 @@ impl App {
 
     pub fn theme(mut self, theme: Theme) -> Self {
         self.theme = theme;
+        self
+    }
+
+    /// Soma ícones SVG do app aos Lucide embutidos (`icon("nome")`).
+    pub fn icons(self, set: crate::icon::IconSet) -> Self {
+        crate::icon::register(set);
+        self
+    }
+
+    /// Caixa de correio para mandar trabalho de outras threads à view `V`
+    /// (a mesma passada a `run`). Chamar antes de `run`.
+    pub fn mailbox<V: View>(&mut self) -> crate::cx::Mailbox<V> {
+        let (tx, rx) = crate::cx::inbox::<V>();
+        self.inbox = Some(Box::new(rx));
+        tx
+    }
+
+    /// `f(handle)` roda uma vez com o handle nativo (HWND) da janela aberta.
+    pub fn on_window(mut self, f: impl FnOnce(usize) + 'static) -> Self {
+        self.on_window = Some(Box::new(f));
         self
     }
 

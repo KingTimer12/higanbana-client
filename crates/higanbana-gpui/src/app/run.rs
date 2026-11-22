@@ -3,7 +3,7 @@
 use super::measurer::GpuMeasurer;
 use super::{overlay, App, View};
 use crate::anim::Animator;
-use crate::cx::{RenderCx, Timers};
+use crate::cx::{Inbox, RenderCx, Tasks, Timers};
 use crate::error::Result;
 use crate::geometry::Size;
 use crate::gfx::{enumerate, BackendInfo, Context, DrawList, FontSpec, Window, WindowOptions, WindowState, HitRegion};
@@ -38,6 +38,12 @@ pub(super) struct Runner<'c, V> {
     pub vsync: bool,
     animator: Animator,
     pub timers: Timers,
+    /// Tarefas em segundo plano aguardando resultado.
+    pub tasks: Tasks,
+    /// Mensagens de outras threads (`App::mailbox`).
+    pub inbox: Option<Inbox<V>>,
+    /// Rolagens pedidas por handlers, aplicadas depois do layout do frame.
+    pub scrolls: Vec<crate::cx::ScrollRequest>,
     /// Reconstrução pedida para um instante (animação, `request_redraw_in`).
     pub wake: Option<Instant>,
     /// Próxima troca do cursor piscando (só repinta).
@@ -51,6 +57,13 @@ pub(super) struct Runner<'c, V> {
 pub(super) fn run<V: View>(app: App, options: WindowOptions, view: V) -> Result<()> {
     let ctx = Context::new(app.backend)?;
     let win = Window::new(&ctx, &options)?;
+    if let Some(f) = app.on_window {
+        f(win.native_handle());
+    }
+    let mut inbox = app.inbox.and_then(|b| b.downcast::<Inbox<V>>().ok()).map(|b| *b);
+    if let Some(i) = inbox.as_mut() {
+        i.attach(win.waker());
+    }
     let mut r = Runner {
         ctx: &ctx,
         scale: win.scale(),
@@ -67,6 +80,9 @@ pub(super) fn run<V: View>(app: App, options: WindowOptions, view: V) -> Result<
         vsync: app.vsync,
         animator: Animator::default(),
         timers: Timers::default(),
+        tasks: Tasks::default(),
+        inbox,
+        scrolls: Vec::new(),
         wake: None,
         blink: None,
         window_state: WindowState::default(),
@@ -98,7 +114,7 @@ impl<V: View> Runner<'_, V> {
 
     fn base_text(&self) -> TextStyle {
         let t = &self.theme.typography;
-        TextStyle { font: FontSpec::new(t.family, 400, false), size: t.sm, color: self.theme.foreground, wrap: true }
+        TextStyle { font: FontSpec::new(t.family, 400, false), size: t.sm, color: self.theme.foreground, wrap: true, max_lines: None }
     }
 
     /// Chama `View::render` com foco e animações; agenda o próximo frame se algo anima.
@@ -109,16 +125,32 @@ impl<V: View> Runner<'_, V> {
             .with_focus(self.tree.focus_info());
         cx.now = now;
         cx.window = self.window_state;
+        cx.viewport = self.viewport;
         cx.waker = self.win.waker();
+        cx.scroll = self.tree.scroll_states();
+        cx.scroll_view = self.tree.scroll_views();
+        cx.bounds = self.tree.tracked_bounds();
+        cx.hovered = self.tree.hovered_ids();
         let root = self.view.render(&mut cx);
         let wake = cx.wake;
+        let waker = cx.waker.clone();
+        let scrolls = std::mem::take(&mut cx.scroll_requests);
+        for req in std::mem::take(&mut cx.tasks) {
+            self.tasks.submit(req, &waker);
+        }
         self.tree.rebuild(root, &base, self.viewport, measurer);
-        let active = self.animator.is_active();
+        self.scrolls.extend(scrolls);
+        let next = self.animator.next_frame();
         self.animator.end();
+        let wake = match next {
+            // Animações lentas (`fps`): o próximo quadro vem por timer, sem vsync contínuo.
+            Some(d) if !d.is_zero() => Some(wake.map_or(now + d, |w| w.min(now + d))),
+            _ => wake,
+        };
         if let Some(w) = wake {
             self.wake = Some(self.wake.map_or(w, |x| x.min(w)));
         }
-        if active {
+        if next == Some(std::time::Duration::ZERO) {
             self.request_frame(now);
         }
     }
@@ -145,11 +177,27 @@ impl<V: View> Runner<'_, V> {
             Dirty::Relayout => self.tree.relayout(self.viewport, &mut measurer),
             _ => {}
         }
+        for r in std::mem::take(&mut self.scrolls) {
+            self.tree.apply_scroll(r);
+        }
         if self.dirty != Dirty::Repaint {
             self.publish_regions();
         }
         self.dirty = Dirty::Clean;
+        // Listas virtuais roladas por código mudam os itens: reconstrói no próximo frame.
+        if self.tree.take_scroll_rerender() {
+            self.mark(Dirty::Rebuild);
+        }
+        let visible = self.tree.take_visible();
+        if !visible.is_empty() {
+            let mut cx = crate::cx::EventCx::default();
+            for f in visible {
+                f(&mut self.view, &mut cx);
+            }
+            self.apply(cx);
+        }
         self.blink = self.tree.next_blink(now);
+        self.tree.resolve_icons(self.scale);
         self.images.prepare(&self.tree);
         let mut list = self.pool.take().unwrap_or_default().recycle();
         {
@@ -166,5 +214,6 @@ impl<V: View> Runner<'_, V> {
             eprintln!("higanbana-gpui: present: {e}");
         }
         self.pool = Some(list.recycle());
+        crate::paint::cache::end_frame();
     }
 }

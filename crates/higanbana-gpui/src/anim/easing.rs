@@ -46,15 +46,18 @@ pub struct Transition {
     pub repeat: Repeat,
     /// Repetições alternam ida e volta.
     pub yoyo: bool,
+    /// Limite de quadros por segundo enquanto anima (`None` = todo quadro).
+    /// Para movimentos lentos e longos (deslize de fundo), poupa CPU.
+    pub fps: Option<u16>,
 }
 
 impl Transition {
     pub const fn new(duration: Duration, easing: Easing) -> Self {
-        Self { duration, easing, spring: None, delay: Duration::ZERO, repeat: Repeat::Once, yoyo: false }
+        Self { duration, easing, spring: None, delay: Duration::ZERO, repeat: Repeat::Once, yoyo: false, fps: None }
     }
 
     pub const fn ms(ms: u64) -> Self {
-        Self { duration: Duration::from_millis(ms), easing: Easing::EaseOut, spring: None, delay: Duration::ZERO, repeat: Repeat::Once, yoyo: false }
+        Self { duration: Duration::from_millis(ms), easing: Easing::EaseOut, spring: None, delay: Duration::ZERO, repeat: Repeat::Once, yoyo: false, fps: None }
     }
 
     /// Mola com rigidez e amortecimento (massa 1). Mudar o alvo preserva a velocidade.
@@ -63,11 +66,17 @@ impl Transition {
     }
 
     pub const fn with_spring(spring: Spring) -> Self {
-        Self { duration: Duration::ZERO, easing: Easing::Linear, spring: Some(spring), delay: Duration::ZERO, repeat: Repeat::Once, yoyo: false }
+        Self { duration: Duration::ZERO, easing: Easing::Linear, spring: Some(spring), delay: Duration::ZERO, repeat: Repeat::Once, yoyo: false, fps: None }
     }
 
     pub const fn easing(mut self, easing: Easing) -> Self {
         self.easing = easing;
+        self
+    }
+
+    /// No máximo `n` quadros por segundo enquanto esta transição anima.
+    pub const fn fps(mut self, n: u16) -> Self {
+        self.fps = Some(n);
         self
     }
 
