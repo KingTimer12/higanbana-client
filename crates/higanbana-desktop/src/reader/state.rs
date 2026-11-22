@@ -65,6 +65,8 @@ pub struct ReaderUi {
     pub stirred: bool,
     pub stir_timer: Option<TimerId>,
     pub filter: TextInputState,
+    /// O filtro do índice tem o foco (as teclas do leitor ficam quietas).
+    pub filter_focused: bool,
     /// Páginas baixadas (só a janela em volta da atual).
     pub pages: super::load::PageCache,
     /// Na faixa: chaves que podem ficar no cache e páginas pedidas pela tela (Task da faixa).
@@ -96,6 +98,7 @@ impl ReaderUi {
             stirred: false,
             stir_timer: None,
             filter: TextInputState::new().placeholder("Buscar capítulo ou volume"),
+            filter_focused: false,
             pages: Default::default(),
             strip_keep: HashSet::new(),
             strip_wants: Vec::new(),

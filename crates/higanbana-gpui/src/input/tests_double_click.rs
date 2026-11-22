@@ -49,3 +49,15 @@ fn cliques_longe_nao_sao_duplos() {
     click_at(&mut t, &mut v, 20.0, t0 + Duration::from_millis(100));
     assert_eq!(v.doubles, 0);
 }
+
+#[test]
+fn caractere_sem_foco_chega_a_raiz() {
+    #[derive(Default)]
+    struct Typed(Vec<char>);
+    let root = div().w(100.0).h(100.0).on_char(|v: &mut Typed, c, _| v.0.push(c));
+    let mut t = Tree::new();
+    t.rebuild(root, &TextStyle::default(), size(200.0, 200.0), &mut FakeMeasurer);
+    let mut v = Typed::default();
+    t.char_input('[', &mut v, &mut EventCx::default());
+    assert_eq!(v.0, vec!['['], "como as teclas: sem foco, a raiz recebe");
+}

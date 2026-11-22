@@ -3,13 +3,14 @@
 
 use std::sync::Arc;
 
-use higanbana_core::library::{natural_cmp, split_path};
+use higanbana_core::library::{base_name, natural_cmp, split_path};
 use higanbana_core::nuvem::FileEntry;
 use higanbana_gpui::components::{Component, Skeleton, VirtualList};
 use higanbana_gpui::prelude::*;
 use higanbana_gpui::{Corners, ElementId};
 
 use crate::chrome::section_label;
+use crate::reader::ReadTarget;
 use crate::root::Higanbana;
 use crate::state::Listing;
 use crate::ui::cover::{columns, content_width};
@@ -113,10 +114,9 @@ pub fn page(v: &mut Higanbana, cx: &mut RenderCx<'_, Higanbana>, path: &str, raw
         v.state.play(PlayTarget { dir: dir.clone(), file: f.clone(), files: all.to_vec(), mal_id: None, is_anime: false, anime_title: name.clone() });
         cx.notify();
     });
-    let raw_dir = higanbana_core::library::raw_path(path);
-    // Leitor no Plano 5: até lá, ler abre a pasta crua.
-    let on_read: FileAction = std::rc::Rc::new(move |v: &mut Higanbana, _: &FileEntry, cx: &mut EventCx| {
-        v.state.go(raw_dir.clone());
+    let (read_dir, read_files, read_title) = (path.to_owned(), files.clone(), base_name(path).to_owned());
+    let on_read: FileAction = std::rc::Rc::new(move |v: &mut Higanbana, f: &FileEntry, cx: &mut EventCx| {
+        v.state.read(ReadTarget { dir: read_dir.clone(), file: f.clone(), files: read_files.clone(), title_path: read_dir.clone(), title: read_title.clone() });
         cx.notify();
     });
     let rows = FileRows::new(path, entries, raw, Some(on_play), Some(on_read));

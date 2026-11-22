@@ -38,12 +38,12 @@ impl<V> Tree<V> {
         }
     }
 
-    /// Caractere digitado: `on_char` do focado para cima. Controles são ignorados.
+    /// Caractere digitado: `on_char` do focado (ou da raiz, sem foco) para cima. Controles são ignorados.
     pub fn char_input(&mut self, c: char, view: &mut V, cx: &mut EventCx) -> bool {
         if c.is_control() {
             return false;
         }
-        let mut cur = self.focused_index().filter(|&i| i >= self.barrier).map_or(NO_PARENT, |i| i as u32);
+        let mut cur = self.key_target().map_or(NO_PARENT, |i| i as u32);
         while cur != NO_PARENT {
             let n = &self.nodes[cur as usize];
             if let Some(h) = n.interact.as_ref().and_then(|x| x.on_char.as_ref()).filter(|_| !n.disabled) {

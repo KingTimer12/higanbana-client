@@ -1,8 +1,10 @@
 //! Leitor de mangá: estado e navegação puros (`state`, `nav`), carga (`load`) e tela.
 
+pub mod keys;
 pub mod load;
 pub mod nav;
 pub mod state;
+pub mod view;
 
 use std::sync::Arc;
 
@@ -24,3 +26,5 @@ pub struct ReadTarget {
 mod tests_nav;
 #[cfg(test)]
 mod tests_load;
+#[cfg(test)]
+mod tests_keys;

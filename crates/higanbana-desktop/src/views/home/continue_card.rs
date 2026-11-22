@@ -36,14 +36,13 @@ fn title(s: &AppState, item: &ContinueItem) -> String {
 /// Retoma: lista a pasta do arquivo (só neste clique) e abre o player. Visto até o fim abre a pasta.
 pub fn open(s: &mut AppState, item: &ContinueItem, is_reading: bool) {
     let dir = parent_path(&item.file_path);
-    if is_reading || item.done {
-        // O leitor volta no Plano 5; até lá, a pasta do capítulo.
+    if item.done && !is_reading {
         s.go(dir);
         return;
     }
     let media = s.lookup(base_name(&item.work_path), media_of(&item.work_path)).flatten();
     let anime_title = title(s, item);
-    let (file_path, core, list_dir) = (item.file_path.clone(), s.core.clone(), dir.clone());
+    let (file_path, core, list_dir, work_path) = (item.file_path.clone(), s.core.clone(), dir.clone(), item.work_path.clone());
     s.run(async move { core.cloud().list(&list_dir).await.map(|l| l.files).map_err(|e| e.to_string()) }, move |s, listed, cx| {
         let files = match listed {
             Ok(f) => f,
@@ -52,6 +51,12 @@ pub fn open(s: &mut AppState, item: &ContinueItem, is_reading: bool) {
         let Some(file) = files.iter().find(|f| join_path(&dir, &f.name) == file_path).cloned() else {
             return s.toast("O arquivo não está mais na nuvem.", Tone::Error);
         };
+        if is_reading {
+            let files: std::sync::Arc<[higanbana_core::nuvem::FileEntry]> = files.into_iter().filter(higanbana_core::reader::logic::is_comic).collect();
+            s.read(crate::reader::ReadTarget { dir, file, files, title_path: work_path, title: anime_title });
+            cx.notify();
+            return;
+        }
         let mal_id = media.and_then(|m| m.id_mal).and_then(|v| u32::try_from(v).ok());
         s.play(PlayTarget { files: video_files(&files), file, is_anime: dir.starts_with("Animes/"), mal_id, anime_title, dir });
         cx.notify();

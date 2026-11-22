@@ -27,6 +27,8 @@ pub struct Higanbana {
     pub player_spare: crate::video::Spare,
     /// Pedido de abrir o player (criado no render, que tem o `Waker` da janela).
     pending_play: Option<crate::video::PlayTarget>,
+    /// Dev: `HIGANBANA_READ=<pasta>|<arquivo>` abre o leitor direto (lista só essa pasta).
+    pending_read: Option<(String, String)>,
     /// Espelho do estado da janela para os atalhos (o `EventCx` não lê a janela).
     pub window_fullscreen: bool,
     /// Estado da tela aberta do acervo (solto ao trocar de rota).
@@ -46,6 +48,7 @@ impl Higanbana {
             player: None,
             player_spare: Default::default(),
             pending_play: dev_play_target(),
+            pending_read: std::env::var("HIGANBANA_READ").ok().and_then(|r| r.split_once('|').map(|(d, f)| (d.to_owned(), f.to_owned()))),
             window_fullscreen: false,
             pages: crate::views::Pages::default(),
         }
@@ -82,6 +85,9 @@ impl Higanbana {
         // Sem sessão a nuvem não serve o arquivo: espera estar logado.
         if !self.state.session_ready || self.state.user.is_none() {
             return;
+        }
+        if let Some((dir, name)) = self.pending_read.take() {
+            dev_read(&mut self.state, dir, name);
         }
         let Some(target) = self.pending_play.take() else { return };
         if let Some(mut old) = self.player.take() {
@@ -157,6 +163,9 @@ impl View for Higanbana {
         if self.player.is_some() {
             return crate::video::view(self, cx);
         }
+        if self.state.reader.is_some() {
+            return crate::reader::view::view(self, cx);
+        }
         let t = cx.theme();
         let root = div()
             .size_full()
@@ -207,4 +216,17 @@ fn dev_play_target() -> Option<crate::video::PlayTarget> {
     let file = higanbana_core::nuvem::FileEntry { name: name.to_owned(), is_directory: false, size, modified: String::new(), extension: ext };
     let title = dir.rsplit('/').next().unwrap_or(dir).to_owned();
     Some(crate::video::PlayTarget { dir: dir.to_owned(), files: vec![file.clone()], file, mal_id: None, is_anime: dir.starts_with("Animes"), anime_title: title })
+}
+
+/// Dev: lista a pasta pedida (uma vez) e abre o leitor no arquivo.
+fn dev_read(s: &mut AppState, dir: String, name: String) {
+    let (core, list_dir) = (s.core.clone(), dir.clone());
+    s.run(async move { core.cloud().list(&list_dir).await.map(|l| l.files).map_err(|e| e.to_string()) }, move |s, listed, cx| {
+        let Ok(files) = listed else { return };
+        let Some(file) = files.iter().find(|f| f.name == name).cloned() else { return };
+        let files: std::sync::Arc<[higanbana_core::nuvem::FileEntry]> = files.into_iter().filter(higanbana_core::reader::logic::is_comic).collect();
+        let title = dir.rsplit('/').next().unwrap_or(&dir).to_owned();
+        s.read(crate::reader::ReadTarget { title_path: dir.clone(), dir, file, files, title });
+        cx.notify();
+    });
 }

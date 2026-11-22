@@ -47,11 +47,13 @@ pub fn play_action(w: &Work) -> Option<FileAction> {
     }))
 }
 
-/// Ler: até o leitor voltar (Plano 5), abre a pasta crua do capítulo.
+/// Ler: abre o leitor no arquivo; preferências guardadas pelo caminho da obra.
 pub fn read_action(w: &Work) -> Option<FileAction> {
     let dir = w.files_path.clone()?;
-    Some(std::rc::Rc::new(move |v: &mut Higanbana, _: &FileEntry, cx: &mut EventCx| {
-        v.state.go(raw_path(&dir));
+    let files: std::sync::Arc<[FileEntry]> = w.files.as_ref()?.as_ref().ok()?.iter().filter(|f| higanbana_core::reader::logic::is_comic(f)).cloned().collect();
+    let (title_path, title) = (w.model.title_path.clone(), w.heading.clone());
+    Some(std::rc::Rc::new(move |v: &mut Higanbana, f: &FileEntry, cx: &mut EventCx| {
+        v.state.read(crate::reader::ReadTarget { dir: dir.clone(), file: f.clone(), files: files.clone(), title_path: title_path.clone(), title: title.clone() });
         cx.notify();
     }))
 }
