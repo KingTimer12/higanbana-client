@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use higanbana_core::anilist::MediaType;
-use higanbana_core::anime_index::{IndexEntry, LETTERS};
+use higanbana_core::anime_index::{letter_of, IndexEntry, LETTERS};
 use higanbana_core::catalog_filter::{Filters, Sort};
 use higanbana_gpui::components::{PopoverState, VirtualList};
 use higanbana_gpui::prelude::*;
@@ -138,6 +138,10 @@ pub fn restart(v: &mut Higanbana, cx: &mut EventCx) {
     v.state.save_catalog_query(media, &query);
     v.state.save_catalog_filters(media, &filters, sort);
     v.state.catalog_cloud_search(media, &query);
+    // A busca local só vê letras já listadas: pede a da inicial (uma listagem, não todas).
+    if let Some(l) = letter_of(&query) {
+        v.state.want_catalog_letter(media, l);
+    }
     cx.scroll_to(LIST, 0.0);
     cx.notify();
 }

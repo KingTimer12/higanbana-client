@@ -119,6 +119,15 @@ pub fn crawl_wanted(choice: &CatalogChoice) -> bool {
     choice.filters.needs_metadata() || choice.sort != Sort::Az
 }
 
+/// Próxima letra a indexar para o rastreio (uma por rodada, em ordem). Só quando a tela
+/// precisa de todas as obras (filtro/ordenação); no A–Z as letras vêm do scroll.
+pub fn next_letter_to_index(crawl: bool, loaded: impl Fn(&str) -> bool) -> Option<&'static str> {
+    if !crawl {
+        return None;
+    }
+    LETTERS.into_iter().find(|l| !loaded(l))
+}
+
 /// Tira até `max` nomes do começo, em ordem.
 pub fn next_crawl_batch(pending: &mut Vec<String>, max: usize) -> Vec<String> {
     let n = pending.len().min(max);
@@ -158,14 +167,13 @@ impl AppState {
         }
         self.cat_lane_mut(media).indexing = true;
         let core = self.core.clone();
+        // Só a raiz (coleções). As letras vêm do scroll (`want_catalog_letter`) ou, com
+        // filtro/ordenação que precisa de tudo, do rastreio, uma por rodada: listar as 27
+        // de uma vez ao abrir a tela era uma varredura da nuvem.
         self.run(
-            async move {
-                core.section_index(media).root(core.cloud()).await?;
-                core.section_index(media).fill_all(core.cloud()).await
-            },
+            async move { core.section_index(media).root(core.cloud()).await },
             move |s, r, cx| {
-                let (done, total) = s.core.section_index(media).progress();
-                let finished = r.is_ok() && done == total;
+                let finished = r.is_ok();
                 s.cat_lane_mut(media).indexing = false;
                 if !s.catalog.playing {
                     cx.notify();
@@ -272,6 +280,9 @@ impl AppState {
     fn crawl_step(&mut self, media: MediaType) -> bool {
         if !crawl_wanted(&self.cat_lane(media).view) || self.catalog.playing || self.lookups_busy() {
             return false;
+        }
+        if let Some(letter) = next_letter_to_index(true, |l| self.catalog_letter(media, l).is_some()) {
+            self.want_catalog_letter(media, letter);
         }
         for letter in LETTERS {
             if self.cat_lane(media).crawled.contains(letter) {
@@ -422,6 +433,16 @@ mod tests {
         settle_crawl(&mut pending, &mut sent, &names(&["b"]), false);
         assert_eq!(pending, names(&["a", "c"]));
         assert!(sent.is_empty());
+    }
+
+    #[test]
+    fn indexa_uma_letra_por_vez_so_quando_o_filtro_pede() {
+        let loaded = |set: &'static [&'static str]| move |l: &str| set.contains(&l);
+        // Catálogo em A–Z: as letras vêm do scroll, nada de varrer a nuvem.
+        assert_eq!(next_letter_to_index(false, loaded(&[])), None);
+        assert_eq!(next_letter_to_index(true, loaded(&[])), Some("0-9"));
+        assert_eq!(next_letter_to_index(true, loaded(&["0-9", "Letra A"])), Some("Letra B"));
+        assert_eq!(next_letter_to_index(true, |_| true), None);
     }
 
     #[test]

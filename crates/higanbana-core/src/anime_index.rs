@@ -36,6 +36,15 @@ pub const LETTERS: [&str; 27] = [
     "Letra X", "Letra Y", "Letra Z",
 ];
 
+/// Pasta de letra onde a obra `name` mora (inicial sem acento; número → `0-9`).
+pub fn letter_of(name: &str) -> Option<&'static str> {
+    let c = crate::library::norm(name).chars().next()?;
+    if c.is_ascii_digit() {
+        return Some(LETTERS[0]);
+    }
+    LETTERS.get(1 + (c as u8).checked_sub(b'a')? as usize).copied()
+}
+
 fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
@@ -221,6 +230,16 @@ impl AnimeIndex {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn letra_da_inicial() {
+        use super::letter_of;
+        assert_eq!(letter_of("Precure"), Some("Letra P"));
+        assert_eq!(letter_of("  ásia"), Some("Letra A"), "sem acento, sem espaço");
+        assert_eq!(letter_of("86 Eighty-Six"), Some("0-9"));
+        assert_eq!(letter_of("[Grupo] Zetman"), Some("Letra G"), "pula símbolos do começo");
+        assert_eq!(letter_of("  "), None);
+    }
+
     use std::time::Duration;
 
     use super::*;
