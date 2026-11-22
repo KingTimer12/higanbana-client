@@ -63,7 +63,7 @@ pub struct PlayerState {
     pub cache_ahead: f64,
     /// Parado esperando o cache (`paused-for-cache`).
     pub buffering: bool,
-    /// Saída de vídeo configurada (`vo-configured`): primeiro quadro a caminho.
+    /// Um quadro já foi entregue desde o último `load`/`load_at` (marcado pela thread de render).
     pub first_frame: bool,
     /// Quantos fins de arquivo por erro já houve (o app decide re-tentar).
     pub end_error: u32,
@@ -115,7 +115,6 @@ pub(crate) const OBSERVED: &[(&str, c_int)] = &[
     ("chapter-list", FORMAT_NODE),
     ("demuxer-cache-time", FORMAT_DOUBLE),
     ("paused-for-cache", FORMAT_FLAG),
-    ("vo-configured", FORMAT_FLAG),
 ];
 
 unsafe fn text(p: *const c_char) -> String {
@@ -224,7 +223,6 @@ impl PlayerState {
             "sid" => self.sub = string().parse().ok(),
             "demuxer-cache-time" => self.cache_ahead = double(),
             "paused-for-cache" => self.buffering = flag(),
-            "vo-configured" => self.first_frame = flag(),
             "chapter-list" if !none && p.format == FORMAT_NODE => self.chapters = unsafe { chapters(&*(p.data as *const Node)) },
             "track-list" if !none && p.format == FORMAT_NODE => {
                 (self.audio_tracks, self.sub_tracks) = unsafe { tracks(&*(p.data as *const Node)) };

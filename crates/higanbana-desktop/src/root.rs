@@ -27,6 +27,8 @@ pub struct Higanbana {
     pub player_spare: crate::video::Spare,
     /// Pedido de abrir o player (criado no render, que tem o `Waker` da janela).
     pending_play: Option<crate::video::PlayTarget>,
+    /// Dev (`HIGANBANA_PLAY_LIST`): lista a pasta do `HIGANBANA_PLAY` antes de abrir (próximo episódio).
+    pending_play_list: Option<crate::video::PlayTarget>,
     /// Dev: `HIGANBANA_READ=<pasta>|<arquivo>` abre o leitor direto (lista só essa pasta).
     pending_read: Option<(String, String)>,
     /// Dev: `HIGANBANA_GO=<caminho>` abre essa tela ao entrar.
@@ -49,7 +51,8 @@ impl Higanbana {
             settings_open: false,
             player: None,
             player_spare: Default::default(),
-            pending_play: dev_play_target(),
+            pending_play: dev_play_target().filter(|_| std::env::var_os("HIGANBANA_PLAY_LIST").is_none()),
+            pending_play_list: dev_play_target().filter(|_| std::env::var_os("HIGANBANA_PLAY_LIST").is_some()),
             pending_go: std::env::var("HIGANBANA_GO").ok(),
             pending_read: std::env::var("HIGANBANA_READ").ok().and_then(|r| r.split_once('|').map(|(d, f)| (d.to_owned(), f.to_owned()))),
             window_fullscreen: false,
@@ -98,6 +101,9 @@ impl Higanbana {
         }
         if let Some((dir, name)) = self.pending_read.take() {
             dev_read(&mut self.state, dir, name);
+        }
+        if let Some(target) = self.pending_play_list.take() {
+            dev_play_listed(&mut self.state, target);
         }
         let Some(target) = self.pending_play.take() else { return };
         if let Some(mut old) = self.player.take() {
@@ -223,6 +229,16 @@ fn dev_play_target() -> Option<crate::video::PlayTarget> {
     let file = higanbana_core::nuvem::FileEntry { name: name.to_owned(), is_directory: false, size, modified: String::new(), extension: ext };
     let title = dir.rsplit('/').next().unwrap_or(dir).to_owned();
     Some(crate::video::PlayTarget { dir: dir.to_owned(), files: vec![file.clone()], file, mal_id: None, is_anime: dir.starts_with("Animes"), anime_title: title })
+}
+
+/// Dev: lista só a pasta do alvo (uma vez) e abre o player com os episódios dela.
+fn dev_play_listed(s: &mut AppState, target: crate::video::PlayTarget) {
+    let (core, dir) = (s.core.clone(), target.dir.clone());
+    s.run(async move { core.cloud().list(&dir).await.map(|l| l.files).map_err(|e| e.to_string()) }, move |s, listed, _| {
+        let Ok(files) = listed else { return };
+        let Some(file) = files.iter().find(|f| f.name == target.file.name).cloned() else { return };
+        s.play(crate::video::PlayTarget { file, files, ..target });
+    });
 }
 
 /// Dev: lista a pasta pedida (uma vez) e abre o leitor no arquivo.

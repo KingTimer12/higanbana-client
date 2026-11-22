@@ -168,6 +168,9 @@ fn run(handle: SharedHandle, signal: Arc<Signal>, state: Arc<Mutex<PlayerState>>
         }
         if let Some(frame) = render_frame(api, ctx, target_size(video)) {
             *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(frame);
+            // Primeiro quadro desde o último load: vem daqui (o `vo-configured` não muda
+            // na troca de arquivo e deixava o próximo episódio preto).
+            state.lock().unwrap_or_else(|e| e.into_inner()).first_frame = true;
             waker.wake();
         }
     }

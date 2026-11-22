@@ -69,12 +69,9 @@ fn cache_e_buffering() {
     unsafe { st.apply(&RawProperty { name: name.as_ptr(), format: FORMAT_DOUBLE, data: &mut d as *mut f64 as *mut c_void }) };
     assert_eq!(st.cache_ahead, 12.5);
     let mut f: std::ffi::c_int = 1;
-    for (prop, check) in [("paused-for-cache", 0), ("vo-configured", 1)] {
-        let n = CString::new(prop).unwrap();
-        unsafe { st.apply(&RawProperty { name: n.as_ptr(), format: super::api::FORMAT_FLAG, data: &mut f as *mut _ as *mut c_void }) };
-        let _ = check;
-    }
-    assert!(st.buffering && st.first_frame);
+    let n = CString::new("paused-for-cache").unwrap();
+    unsafe { st.apply(&RawProperty { name: n.as_ptr(), format: super::api::FORMAT_FLAG, data: &mut f as *mut _ as *mut c_void }) };
+    assert!(st.buffering);
 }
 
 #[test]

@@ -182,6 +182,7 @@ impl Player {
             s.status = Status::Loading;
             s.position = 0.0;
             s.duration = 0.0;
+            s.first_frame = false;
         }
         self.command(&["loadfile", path, "replace"]);
     }

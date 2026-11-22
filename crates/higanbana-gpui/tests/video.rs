@@ -75,3 +75,30 @@ fn headless_tira_screenshot() {
     let _ = std::fs::remove_file(&out);
     assert!(len > 0, "arquivo vazio");
 }
+
+const BLUE: &str = "av://lavfi:color=c=blue:size=64x48:rate=10";
+
+fn blue_frame(p: &mut Player) -> bool {
+    p.frame();
+    p.state().first_frame && p.last_pixel(32, 24).is_some_and(|px| px[2] > 200 && px[0] < 40)
+}
+
+#[test]
+fn troca_de_arquivo_volta_a_ter_quadro() {
+    let mut p = Player::new(Waker::noop()).expect("libmpv");
+    p.load_at(RED, None);
+    assert!(until(5, || { p.frame(); p.state().first_frame }), "primeiro arquivo sem quadro");
+    p.load_at(BLUE, None);
+    assert!(!p.state().first_frame, "load zera o sinal");
+    assert!(until(5, || blue_frame(&mut p)), "segundo arquivo sem quadro: {:?}", p.state().first_frame);
+}
+
+#[test]
+fn dois_loads_seguidos_mostram_o_ultimo() {
+    let mut p = Player::new(Waker::noop()).expect("libmpv");
+    p.load_at(RED, None);
+    assert!(until(5, || { p.frame(); p.state().first_frame }));
+    p.load_at(RED, None);
+    p.load_at(BLUE, None);
+    assert!(until(5, || blue_frame(&mut p)), "último arquivo sem quadro");
+}
