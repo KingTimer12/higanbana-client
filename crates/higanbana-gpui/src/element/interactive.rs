@@ -93,4 +93,10 @@ impl<V> Element<V> {
         self.interact().on_hover = Some(Box::new(f));
         self
     }
+
+    /// Segundo clique no mesmo elemento em até 500 ms e 4 px. O `on_click` dispara nos dois.
+    pub fn on_double_click(mut self, f: impl Fn(&mut V, &super::handlers::MouseEvent, &mut EventCx) + 'static) -> Self {
+        self.interact().on_double_click = Some(Box::new(f));
+        self
+    }
 }

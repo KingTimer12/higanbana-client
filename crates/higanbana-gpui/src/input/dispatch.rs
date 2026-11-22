@@ -10,6 +10,10 @@ use crate::tree::Tree;
 /// Pixels lógicos por entalhe da roda.
 pub const SCROLL_STEP: f32 = 48.0;
 
+/// Janela e folga do duplo clique.
+const DOUBLE_TIME: std::time::Duration = std::time::Duration::from_millis(500);
+const DOUBLE_SLOP: f32 = 4.0;
+
 impl<V> Tree<V> {
     /// Atualiza o hover. Devolve `true` se algum estilo de hover mudou (repintar).
     pub fn mouse_move(&mut self, p: Point) -> bool {
@@ -82,6 +86,11 @@ impl<V> Tree<V> {
     /// Solta o botão: `on_mouse_up` (do capturado, se houver) e o clique se o elemento
     /// é o mesmo do `mouse_down`. Devolve `true` se o handler de clique rodou.
     pub fn mouse_up(&mut self, p: Point, button: MouseButton, mods: Modifiers, view: &mut V, cx: &mut EventCx) -> bool {
+        self.mouse_up_at(p, button, mods, view, cx, std::time::Instant::now())
+    }
+
+    /// `mouse_up` com a hora do evento (o duplo clique compara horas).
+    pub(crate) fn mouse_up_at(&mut self, p: Point, button: MouseButton, mods: Modifiers, view: &mut V, cx: &mut EventCx, now: std::time::Instant) -> bool {
         self.mouse = Some(p);
         let captured = if button == MouseButton::Left { self.captured.take().and_then(|k| self.resolve(k)) } else { None };
         if button == MouseButton::Left {
@@ -115,6 +124,18 @@ impl<V> Tree<V> {
                 let ev = MouseEvent { position: p, button, mods };
                 if let Some(h) = &self.nodes[b].on_click {
                     h(view, &ev, cx);
+                }
+                let key = self.key_of(b);
+                let double = self.last_click.as_ref().is_some_and(|(k, at, t)| {
+                    *k == key && now.duration_since(*t) <= DOUBLE_TIME && (at.x - p.x).abs() <= DOUBLE_SLOP && (at.y - p.y).abs() <= DOUBLE_SLOP
+                });
+                if double {
+                    self.last_click = None;
+                    if let Some(h) = self.nodes[b].interact.as_ref().and_then(|x| x.on_double_click.as_ref()) {
+                        h(view, &ev, cx);
+                    }
+                } else {
+                    self.last_click = Some((key, p, now));
                 }
                 true
             }
@@ -164,7 +185,7 @@ impl<V> Tree<V> {
     }
 
     pub(crate) fn clickable_at(&self, p: Point) -> Option<usize> {
-        self.hit_test(p).and_then(|i| self.nearest(i, |n| n.on_click.is_some())).filter(|&i| !self.nodes[i].disabled)
+        self.hit_test(p).and_then(|i| self.nearest(i, |n| n.on_click.is_some() || n.interact.as_ref().is_some_and(|x| x.on_double_click.is_some()))).filter(|&i| !self.nodes[i].disabled)
     }
 
     fn pointer_event(&self, i: usize, p: Point, button: MouseButton, mods: Modifiers) -> PointerEvent {

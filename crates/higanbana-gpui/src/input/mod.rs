@@ -14,6 +14,8 @@ mod tests;
 mod tests_focus;
 #[cfg(test)]
 mod tests_overlay;
+#[cfg(test)]
+mod tests_double_click;
 
 pub use dispatch::SCROLL_STEP;
 pub use key::{Key, KeyEvent};

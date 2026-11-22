@@ -74,7 +74,14 @@ impl<V> Tree<V> {
         let visible = n.clip.intersects(&n.rect);
         let k = n.paint_scale;
         if visible && style.has_box() {
-            out.quad(&scaled(box_quad(style, n.rect, opacity), k));
+            let mut q = box_quad(style, n.rect, opacity);
+            if style.border_dashed && q.border_width > 0.0 {
+                for d in dash_quads(n.rect, q.border_width, q.border) {
+                    out.quad(&scaled(d, k));
+                }
+                q.border_width = 0.0;
+            }
+            out.quad(&scaled(q, k));
         }
         if let Some(g) = style.gradient.as_ref().filter(|_| visible) {
             out.image(&super::gradient::ramp(g), n.rect, style.radius.map(|r| r * k), Color::WHITE.fade(opacity));
@@ -198,4 +205,33 @@ fn scrollbar(rect: Rect, max: f32, offset: f32, opacity: f32, horizontal: bool) 
         radius: Corners::all(SCROLLBAR_W / 2.0),
         ..Quad::default()
     }
+}
+
+const DASH: f32 = 4.0;
+
+/// Traços `(início, comprimento)` ao longo de `len`: 4 px cheios, 4 px vazios.
+pub(crate) fn dash_segments(len: f32) -> Vec<(f32, f32)> {
+    let mut out = Vec::new();
+    let mut at = 0.0;
+    while at < len {
+        out.push((at, DASH.min(len - at)));
+        at += DASH * 2.0;
+    }
+    out
+}
+
+/// Quads dos traços nos quatro lados de `rect` (borda de largura `w`).
+pub(crate) fn dash_quads(rect: Rect, w: f32, color: Color) -> Vec<Quad> {
+    let (x, y, rw, rh) = (rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+    let q = |r: Rect| Quad { rect: r, fill: color, ..Quad::default() };
+    let mut out = Vec::new();
+    for (a, l) in dash_segments(rw) {
+        out.push(q(Rect::new(x + a, y, l, w)));
+        out.push(q(Rect::new(x + a, y + rh - w, l, w)));
+    }
+    for (a, l) in dash_segments(rh) {
+        out.push(q(Rect::new(x, y + a, w, l)));
+        out.push(q(Rect::new(x + rw - w, y + a, w, l)));
+    }
+    out
 }

@@ -149,6 +149,8 @@ pub struct Style {
     pub gradient: Option<LinearGradient>,
     pub border_color: Color,
     pub border_width: f32,
+    /// Borda em traços (4 px, vão de 4 px) em vez de contínua.
+    pub border_dashed: bool,
     pub radius: Corners<f32>,
     pub shadow: Option<Shadow>,
     /// 0..1, multiplica a opacidade do elemento e dos filhos.
@@ -204,6 +206,7 @@ impl Default for Style {
             gradient: None,
             border_color: Color::TRANSPARENT,
             border_width: 0.0,
+            border_dashed: false,
             radius: Corners::all(0.0),
             shadow: None,
             opacity: 1.0,

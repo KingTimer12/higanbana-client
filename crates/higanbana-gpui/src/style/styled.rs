@@ -94,6 +94,8 @@ pub trait Styled: Sized {
     fn bg_gradient(self, g: super::LinearGradient) -> Self { self.with(|s| s.gradient = Some(g)) }
     fn border(self, width: f32, c: Color) -> Self { self.with(|s| { s.border_width = width; s.border_color = c }) }
     fn border_color(self, c: Color) -> Self { self.with(|s| s.border_color = c) }
+    /// Borda tracejada (traços de 4 px, vão de 4 px); cantos retos.
+    fn border_dashed(self) -> Self { self.with(|s| s.border_dashed = true) }
     fn rounded(self, r: f32) -> Self { self.with(|s| s.radius = Corners::all(r)) }
     fn rounded_corners(self, r: Corners<f32>) -> Self { self.with(|s| s.radius = r) }
     fn rounded_full(self) -> Self { self.rounded(9999.0) }

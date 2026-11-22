@@ -67,6 +67,7 @@ pub(crate) struct Interactivity<V> {
     pub on_move_passive: Option<PointerHandler<V>>,
     pub on_hover: Option<HoverHandler<V>>,
     pub on_navigate: Option<NavHandler<V>>,
+    pub on_double_click: Option<ClickHandler<V>>,
     pub on_visible: Option<(f32, VisibleHandler<V>)>,
 }
 
@@ -85,6 +86,7 @@ impl<V> Default for Interactivity<V> {
             on_move_passive: None,
             on_hover: None,
             on_navigate: None,
+            on_double_click: None,
             on_visible: None,
         }
     }

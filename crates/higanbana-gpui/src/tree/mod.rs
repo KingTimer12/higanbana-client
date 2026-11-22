@@ -49,6 +49,8 @@ pub struct Tree<V> {
     pub(crate) captured: Option<NodeKey>,
     /// Botão esquerdo está segurado.
     pub(crate) button_down: bool,
+    /// Último clique (nó, posição, hora) para reconhecer o duplo clique.
+    pub(crate) last_click: Option<(NodeKey, Point, std::time::Instant)>,
     /// Rolagem num contêiner `rerender_on_scroll` pede reconstrução.
     pub(crate) scroll_rerender: bool,
     /// Elementos com `on_hover` atualmente sob o mouse.
@@ -73,6 +75,7 @@ impl<V> Default for Tree<V> {
             pressed: None,
             captured: None,
             button_down: false,
+            last_click: None,
             hover_owners: Vec::new(),
             focused: None,
             focus_visible: false,

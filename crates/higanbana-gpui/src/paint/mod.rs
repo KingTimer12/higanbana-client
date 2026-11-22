@@ -18,6 +18,8 @@ mod tests_fit;
 mod tests_gradient;
 #[cfg(test)]
 mod tests_shape;
+#[cfg(test)]
+mod tests_dashed;
 
 pub use canvas::Canvas;
 pub use gpu::GpuCanvas;
