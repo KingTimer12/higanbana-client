@@ -142,10 +142,11 @@ impl PlayerView {
         self.hide.hidden(hold)
     }
 
-    /// Movimento do mouse/tecla: mostra tudo de novo; abre as miniaturas se preciso.
+    /// Movimento do mouse/tecla: mostra tudo de novo. As miniaturas só abrem no hover da
+    /// barra (`want_thumb`): abrir a cada mexida punha um mpv e um pedido à nuvem por
+    /// ciclo de mostrar/esconder os controles.
     pub fn poke(&mut self, now: Instant) {
         self.hide.poke(now);
-        self.ensure_thumbs();
     }
 
     /// Gerador de miniaturas do arquivo atual (só depois do primeiro quadro: não disputa a rede).

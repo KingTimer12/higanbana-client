@@ -1,7 +1,9 @@
 //! Thread das miniaturas: dona do mpv headless; atende o pedido mais recente.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use higanbana_gpui::video::{Player, PlayerOptions, Status};
@@ -65,12 +67,15 @@ pub struct MpvShooter {
 }
 
 impl MpvShooter {
-    /// Abre o vídeo e espera carregar (até 20 s).
-    pub fn open(url: &str, dir: PathBuf) -> Result<MpvShooter, String> {
+    /// Abre o vídeo e espera carregar (até 20 s, ou até `cancel` ligar).
+    pub fn open(url: &str, dir: PathBuf, cancel: &AtomicBool) -> Result<MpvShooter, String> {
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let player = Player::headless(options())?;
         player.load(url);
-        let ok = until(20, || matches!(player.state().status, Status::Paused | Status::Playing | Status::Ended | Status::Error(_)));
+        let ok = until(20, || cancel.load(Ordering::Relaxed) || matches!(player.state().status, Status::Paused | Status::Playing | Status::Ended | Status::Error(_)));
+        if cancel.load(Ordering::Relaxed) {
+            return Err("miniaturas: fechadas antes de abrir".into());
+        }
         if !ok || matches!(player.state().status, Status::Error(_)) {
             return Err("miniaturas: vídeo não abriu".into());
         }
@@ -107,9 +112,9 @@ impl Shooter for MpvShooter {
 }
 
 /// Roda até o `Sender` cair; pega sempre o pedido mais recente da fila.
-pub fn spawn(make: impl FnOnce() -> Result<Box<dyn Shooter>, String> + Send + 'static, jobs: Receiver<u32>, done: Done, dir: PathBuf) {
+pub fn spawn(make: impl FnOnce(&AtomicBool) -> Result<Box<dyn Shooter>, String> + Send + 'static, cancel: Arc<AtomicBool>, jobs: Receiver<u32>, done: Done, dir: PathBuf) {
     let _ = std::thread::Builder::new().name("miniaturas".into()).spawn(move || {
-        let mut shooter = match make() {
+        let mut shooter = match make(&cancel) {
             Ok(s) => {
                 tracing::debug!("miniaturas abertas");
                 Some(s)

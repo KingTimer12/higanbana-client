@@ -13,8 +13,9 @@ pub(crate) trait ExternalImage {
 }
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Imagem da view. Os pixels saem da RAM do Rust assim que vão para o core
-/// (o core guarda a própria cópia para a troca de backend).
+/// Imagem da view. Os pixels saem da RAM do Rust assim que vão para o core, e o core
+/// os solta depois de criar a textura (só imagem dinâmica guarda cópia). Numa troca de
+/// backend, imagem estática volta vazia: a view tem de criar outra `ImageData`.
 pub struct ImageData {
     id: u64,
     size: Cell<(u32, u32)>,

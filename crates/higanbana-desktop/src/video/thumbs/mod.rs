@@ -9,7 +9,9 @@ mod tests;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender};
+use std::sync::Arc;
 
 use higanbana_gpui::prelude::ImageSource;
 use higanbana_gpui::ImageData;
@@ -33,24 +35,33 @@ pub struct Thumbs {
     queue: Queue,
     jobs: Sender<u32>,
     done: HashMap<u32, ImageSource>,
+    /// Ligado ao soltar: a abertura em curso (até 20 s) desiste e o mpv morre logo.
+    cancel: Arc<AtomicBool>,
+}
+
+impl Drop for Thumbs {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
 }
 
 impl Thumbs {
     /// Abre `url` num mpv headless; fotos em `dir` (apagada ao fechar).
     pub fn open(url: String, dir: PathBuf, on_done: impl Fn(u32, Option<Decoded>) + Send + 'static) -> Thumbs {
         let d = dir.clone();
-        Thumbs::with_shooter(move || MpvShooter::open(&url, d).map(|s| Box::new(s) as Box<dyn Shooter>), on_done, dir)
+        Thumbs::with_shooter(move |cancel| MpvShooter::open(&url, d, cancel).map(|s| Box::new(s) as Box<dyn Shooter>), on_done, dir)
     }
 
     /// Com outro "fotógrafo" (testes).
     pub fn with_shooter(
-        make: impl FnOnce() -> Result<Box<dyn Shooter>, String> + Send + 'static,
+        make: impl FnOnce(&AtomicBool) -> Result<Box<dyn Shooter>, String> + Send + 'static,
         on_done: impl Fn(u32, Option<Decoded>) + Send + 'static,
         dir: PathBuf,
     ) -> Thumbs {
         let (tx, rx) = channel();
-        worker::spawn(make, rx, Box::new(on_done), dir);
-        Thumbs { queue: Queue::default(), jobs: tx, done: HashMap::new() }
+        let cancel = Arc::new(AtomicBool::new(false));
+        worker::spawn(make, cancel.clone(), rx, Box::new(on_done), dir);
+        Thumbs { queue: Queue::default(), jobs: tx, done: HashMap::new(), cancel }
     }
 
     pub fn set_len(&mut self, secs: f64) {
