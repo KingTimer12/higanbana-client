@@ -56,6 +56,11 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         hg_queue_push(&win->events, &ev);
         return 0;
     }
+    case WM_SYSCOMMAND:
+        /* Alt sozinho / F10 (lParam 0): o modo de menu é um loop modal que segura a thread
+         * da UI até um clique (nada redesenha). Alt+Espaço e Alt+F4 seguem normais. */
+        if ((wp & 0xFFF0) == SC_KEYMENU && lp == 0) return 0;
+        return DefWindowProcW(hwnd, msg, wp, lp);
     case WM_ERASEBKGND:
         return 1; /* evita flicker: backend pinta tudo */
     case WM_XBUTTONDOWN: case WM_XBUTTONUP:
