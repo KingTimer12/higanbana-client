@@ -79,24 +79,13 @@ static hg_result slot_ready(hg_video_target* t, video_slot* s, uint32_t w, uint3
 hg_result hg_video_target_begin(hg_video_target* t, uint32_t width, uint32_t height, uint32_t* fbo) {
     if (!t || !t->gl || !fbo || width == 0 || height == 0 || t->writing >= 0)
         return hg__fail(HG_ERR_INVALID, "hg_video_target_begin: argumento inválido");
-    /* Nunca o slot que a UI mostra (a interop descarta o conteúdo ao travar). Se a UI
-     * ainda não pegou o último publicado, ele é retomado: ela continua no que já tinha. */
-    void *drop_tex = NULL, *drop_srv = NULL;
+    /* Três slots: nunca o que a UI mostra (a interop descarta o conteúdo ao travar) nem
+     * o publicado ainda não visto. Retomar o publicado deixava a UI sem quadro: o mpv
+     * passa quase todo o tempo dentro do quadro e ela quase nunca o achava publicado. */
     EnterCriticalSection(&t->lock);
-    int slot;
-    if (t->pub_slot >= 0 && t->pub_seq != t->seen_seq) {
-        slot = t->pub_slot;
-        drop_tex = t->pub_tex;
-        drop_srv = t->pub_srv;
-        t->pub_tex = t->pub_srv = NULL;
-        t->pub_slot = -1;
-        t->pub_seq = t->seen_seq;
-    } else {
-        slot = t->ui_slot == 0 ? 1 : 0;
-    }
+    int slot = 0;
+    while (slot == t->ui_slot || slot == t->pub_slot) slot++;
     LeaveCriticalSection(&t->lock);
-    video_d3d_release(drop_srv);
-    video_d3d_release(drop_tex);
     video_slot* s = &t->slots[slot];
     hg_result r = slot_ready(t, s, width, height);
     if (r == HG_OK) r = video_gl_bind(t->gl, s->handle, s->gl_tex, fbo);

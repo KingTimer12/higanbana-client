@@ -6,7 +6,7 @@
 #include "hgui.h"
 #include <windows.h>
 
-#define HG_VIDEO_SLOTS 2
+#define HG_VIDEO_SLOTS 3 /* UI mostra, publicado, em escrita */
 
 typedef struct video_gl video_gl;
 

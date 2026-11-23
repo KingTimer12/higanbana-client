@@ -161,6 +161,9 @@ unsafe extern "system" fn count_window(_: *mut c_void, l: isize) -> i32 {
 
 enum Cmd {
     Paint(u32, u32, [f32; 3]),
+    /// Só começa o quadro (limpa com a cor) e fica dentro dele até `End`.
+    Begin(u32, u32, [f32; 3]),
+    End,
     Windows,
     Stop,
 }
@@ -194,6 +197,17 @@ impl GlThread {
                         assert_eq!(hg_video_target_begin(t, w, h, &mut fbo), OK);
                         clear_color(rgb[0], rgb[1], rgb[2], 1.0);
                         clear(GL_COLOR_BUFFER_BIT);
+                        assert_eq!(hg_video_target_end(t), OK);
+                        let _ = ctx_.send(1);
+                    }
+                    Cmd::Begin(w, h, rgb) => {
+                        let mut fbo = 0;
+                        assert_eq!(hg_video_target_begin(t, w, h, &mut fbo), OK);
+                        clear_color(rgb[0], rgb[1], rgb[2], 1.0);
+                        clear(GL_COLOR_BUFFER_BIT);
+                        let _ = ctx_.send(1);
+                    }
+                    Cmd::End => {
                         assert_eq!(hg_video_target_end(t), OK);
                         let _ = ctx_.send(1);
                     }
@@ -256,6 +270,32 @@ fn slot_que_a_ui_mostra_nao_e_reescrito() {
     assert_eq!(fresh, 1);
     draw(&f, img);
     assert_eq!(pixel(&f, 20, 20), 0x0000_ff00, "e depois pega o último");
+    drop(g);
+    unsafe { hg_video_target_destroy(t) };
+}
+
+#[test]
+fn quadro_publicado_continua_visivel_enquanto_o_proximo_e_desenhado() {
+    let f = Fixture::new();
+    let mut t = ptr::null_mut();
+    assert_eq!(unsafe { hg_video_target_create(f.ctx, &mut t) }, OK);
+    let Some(g) = GlThread::start(t) else { return };
+    let (mut img, mut fresh) = (ptr::null_mut(), 0);
+    g.ask(Cmd::Paint(64, 48, [1.0, 0.0, 0.0]));
+    assert_eq!(unsafe { hg_video_target_image(t, &mut img, &mut fresh) }, OK);
+    g.ask(Cmd::Paint(64, 48, [0.0, 0.0, 1.0]));
+    // O mpv passa quase todo o tempo dentro do quadro: a UI que olha nesse meio tempo
+    // tem que achar o último publicado (azul), não perder ele para o quadro em curso.
+    g.ask(Cmd::Begin(64, 48, [0.0, 1.0, 0.0]));
+    assert_eq!(unsafe { hg_video_target_image(t, &mut img, &mut fresh) }, OK);
+    assert_eq!(fresh, 1, "quadro publicado sumiu enquanto o próximo era desenhado");
+    draw(&f, img);
+    assert_eq!(pixel(&f, 20, 20), 0x0000_00ff, "UI mostra o azul publicado");
+    g.ask(Cmd::End);
+    assert_eq!(unsafe { hg_video_target_image(t, &mut img, &mut fresh) }, OK);
+    assert_eq!(fresh, 1);
+    draw(&f, img);
+    assert_eq!(pixel(&f, 20, 20), 0x0000_ff00, "e depois o verde");
     drop(g);
     unsafe { hg_video_target_destroy(t) };
 }
