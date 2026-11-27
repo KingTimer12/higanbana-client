@@ -3,7 +3,7 @@
 
 use super::device::Gpu;
 use super::surface::Window;
-use super::{fail, guard, images, readback, render, Res};
+use super::{fail, guard, images, readback, render, user_shader, Res};
 use crate::*;
 use std::os::raw::c_int;
 
@@ -59,7 +59,8 @@ pub unsafe extern "C" fn destroy(ctx: *mut hg_context) {
 pub unsafe extern "C" fn attach(ctx: *mut hg_context, win: *mut hg_window) -> hg_result {
     guard(|| {
         let gpu = unsafe { gpu_of(ctx)? };
-        let (w, h) = window_size(win);        let surface = Window::new(gpu, unsafe { hg__window_hwnd(win) }, w, h)?;
+        let (w, h) = window_size(win);
+        let surface = Window::new(gpu, unsafe { hg__window_hwnd(win) }, w, h)?;
         unsafe { hg__window_set_surface(win, Box::into_raw(Box::new(surface)).cast()) };
         Ok(())
     })
@@ -142,4 +143,21 @@ pub unsafe extern "C" fn read_pixel(win: *mut hg_window, x: u32, y: u32, out: *m
         unsafe { *out = px };
         Ok(())
     })
+}
+
+/// Compila o shader do usuário (1º uso). Erro do wgpu fica em `sh->error` e volta como código.
+pub unsafe extern "C" fn shader_prepare(ctx: *mut hg_context, sh: *mut hg_shader) -> hg_result {
+    let mut code = HG_OK as hg_result;
+    let r = guard(|| {
+        code = user_shader::prepare(unsafe { gpu_of(ctx)? }, sh)?;
+        Ok(())
+    });
+    if r != HG_OK as hg_result { r } else { code }
+}
+
+pub unsafe extern "C" fn shader_release(_ctx: *mut hg_context, sh: *mut hg_shader) {
+    guard(|| {
+        user_shader::release(sh);
+        Ok(())
+    });
 }

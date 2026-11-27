@@ -5,6 +5,7 @@ use super::buffers::GrowBuffer;
 use super::glyphs::Glyphs;
 use super::images::Images;
 use super::pipeline::Pipelines;
+use super::user_shader::UserShaders;
 use super::{fail, Res};
 use crate::*;
 
@@ -24,6 +25,8 @@ pub struct Gpu {
     pub quad_scratch: Vec<hg_quad>,
     pub glyphs: Glyphs,
     pub images: Images,
+    /// Shaders do usuário: layout comum + uniforms do quadro.
+    pub user_shaders: UserShaders,
     pub readback: wgpu::Buffer,
 }
 
@@ -115,6 +118,7 @@ impl Gpu {
             quad_scratch: Vec::new(),
             glyphs: Glyphs::new()?,
             images: Images::new(),
+            user_shaders: UserShaders::default(),
             readback,
         })
     }
@@ -122,6 +126,6 @@ impl Gpu {
     /// Memória de GPU estimada: buffers de instância + atlas + texturas de imagem
     /// (superfícies não contam).
     pub fn gpu_bytes(&self) -> u64 {
-        self.quads.capacity() + self.glyphs.gpu_bytes() + self.images.gpu_bytes()
+        self.quads.capacity() + self.glyphs.gpu_bytes() + self.images.gpu_bytes() + self.user_shaders.gpu_bytes()
     }
 }

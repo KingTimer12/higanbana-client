@@ -5,6 +5,7 @@
 //! `hg_context_create` do processo. Depois disso o registro do core está selado e
 //! `install` devolve `false`.
 
+mod backdrop;
 mod buffers;
 mod device;
 mod ffi;
@@ -14,6 +15,7 @@ mod pipeline;
 mod readback;
 mod render;
 mod surface;
+mod user_shader;
 
 use crate::*;
 use std::ffi::{c_void, CStr};
@@ -61,8 +63,8 @@ static VTBL: SyncVtbl = SyncVtbl(hg_backend_vtbl {
     texture_destroy: Some(ffi::texture_destroy),
     read_pixel: Some(ffi::read_pixel),
     texture_update: Some(ffi::texture_update),
-    shader_prepare: None,
-    shader_release: None,
+    shader_prepare: Some(ffi::shader_prepare),
+    shader_release: Some(ffi::shader_release),
 });
 
 /// Registra o backend WGPU no core (idempotente). Deve rodar antes do primeiro

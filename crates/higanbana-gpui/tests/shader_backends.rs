@@ -286,10 +286,10 @@ macro_rules! backend_tests {
     )*};
 }
 
-// Task 7: acrescentar `wgpu => ...`.
 backend_tests! {
     d3d11 => BackendKind::D3D11,
     d3d12 => BackendKind::D3D12,
     opengl => BackendKind::OpenGL,
     vulkan => BackendKind::Vulkan,
+    wgpu => BackendKind::Wgpu,
 }

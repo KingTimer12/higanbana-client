@@ -31,7 +31,8 @@ typedef struct hg_batch_view {
     int      has_clip;
     uint32_t quad_count;
     uint32_t image_count;
-    const void* shader; /* != NULL: lote de shader (nada mais no lote) */
+    const void* shader; /* != NULL: lote de shader (nada mais no lote); é um hg_shader* */
+    const hg_shader_draw* shader_draw; /* parâmetros do desenho do shader (NULL sem shader) */
 } hg_batch_view;
 
 /* Itera os lotes: prev = NULL começa; devolve NULL no fim. */
@@ -51,6 +52,19 @@ hg_result   hg__draw_list_prepare_images(const hg_draw_list* dl);
 const uint8_t* hg__image_pixels(const hg_image* img);
 void*          hg__image_gpu_data(const hg_image* img);
 void           hg__image_set_gpu_data(hg_image* img, void* gpu);
+
+/* ---- Shaders do usuário ---------------------------------------------- */
+/* Módulo WGSL composto (prelúdio + usuário + entradas vs_main/ps_main); NULL se ausente. */
+const char* hg__shader_wgsl(const hg_shader* sh);
+/* Objeto GPU do backend (dono: shader_prepare/shader_release). */
+void*       hg__shader_gpu_data(const hg_shader* sh);
+void        hg__shader_set_gpu_data(hg_shader* sh, void* gpu);
+/* Garante o objeto GPU (chama shader_prepare uma vez; não recompila depois de erro). */
+hg_result   hg__shader_gpu(hg_shader* sh);
+/* Grava a mensagem do compilador nativo no shader e devolve HG_ERR_DEVICE. */
+hg_result   hg__shader_set_error(hg_shader* sh, const char* msg);
+/* Monta o uniform (HG_SHADER_UNIFORM_BYTES) do desenho; layout em prelude.wgsl. */
+void        hg__shader_uniforms(const hg_shader_draw* d, float viewport_w, float viewport_h, float y_sign, float* out);
 
 /* ---- Glyphs ------------------------------------------------------------ */
 typedef struct hg_glyph_frame hg_glyph_frame;
