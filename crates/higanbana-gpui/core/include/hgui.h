@@ -220,6 +220,41 @@ typedef struct hg_image_draw {
 
 hg_result hg_draw_image(hg_draw_list* dl, hg_image* img, const hg_image_draw* draw);
 
+/* ---- Shaders do usuário ------------------------------------------------ */
+typedef struct hg_shader hg_shader;
+
+/* Código já traduzido por alvo (UTF-8 terminado em 0; qualquer um pode ser NULL).
+ * glsl_vs/glsl_fs: um fonte por estágio; wgsl: módulo completo. O core copia tudo. */
+typedef struct hg_shader_code {
+    const char*     hlsl;
+    const char*     glsl_vs;
+    const char*     glsl_fs;
+    const char*     wgsl;
+    const uint32_t* spirv;
+    size_t          spirv_words;
+} hg_shader_code;
+
+hg_result   hg_shader_create(hg_context* ctx, const hg_shader_code* code, hg_shader** out);
+void        hg_shader_destroy(hg_shader* sh);
+/* Erro do compilador nativo no backend atual; NULL = ok. */
+const char* hg_shader_error(const hg_shader* sh);
+
+#define HG_SHADER_BACKDROP 1u /* flags: o shader lê o que já foi desenhado atrás */
+#define HG_SHADER_PARAMS   16
+
+typedef struct hg_shader_draw {
+    hg_rect  rect;      /* destino em pixels */
+    float    radius[4]; /* tl, tr, br, bl */
+    float    time;      /* segundos */
+    float    scale;     /* fator de escala da janela */
+    float    opacity;
+    float    params[HG_SHADER_PARAMS][4];
+    uint32_t flags;
+} hg_shader_draw;
+
+/* Desenha o shader numa camada própria, herdando o clip atual. */
+hg_result hg_draw_shader(hg_draw_list* dl, hg_shader* sh, const hg_shader_draw* d);
+
 /* ---- Alvo de vídeo (OpenGL → textura D3D11, só no backend D3D11) ------- */
 /* Uma thread de render (mpv) desenha com OpenGL em texturas D3D11 do device da UI
  * (WGL_NV_DX_interop2); a UI desenha a última publicada como hg_image.

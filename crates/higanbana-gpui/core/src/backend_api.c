@@ -29,6 +29,7 @@ const void* hg__draw_list_next_batch(const hg_draw_list* dl, const void* prev, h
     out->has_clip = b->has_clip;
     out->quad_count = b->quad_count;
     out->image_count = b->image_count;
+    out->shader = b->shader;
     return b;
 }
 

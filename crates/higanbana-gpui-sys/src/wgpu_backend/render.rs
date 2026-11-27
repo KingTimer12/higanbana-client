@@ -54,7 +54,7 @@ pub fn draw_list(gpu: &mut Gpu, ctx: *mut hg_context, win: &mut Window, dl: *con
         let mut pass = win.begin_pass(&mut enc);
         pass.set_bind_group(0, &gpu.pipes.globals_group, &[]);
         let (mut quad_start, mut image_start, mut glyph_start, mut i) = (0u32, 0u32, 0u32, 0u32);
-        let mut view = hg_batch_view { clip: hg_rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }, has_clip: 0, quad_count: 0, image_count: 0 };
+        let mut view = hg_batch_view { clip: hg_rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }, has_clip: 0, quad_count: 0, image_count: 0, shader: std::ptr::null() };
         let mut cursor = std::ptr::null();
         loop {
             cursor = unsafe { hg__draw_list_next_batch(dl, cursor, &mut view) };

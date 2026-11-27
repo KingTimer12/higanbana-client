@@ -3,6 +3,7 @@
 #include "error.h"
 #include "text.h"
 #include "image.h"
+#include "shader.h"
 #include "window.h"
 #include <string.h>
 
@@ -45,6 +46,7 @@ hg_result hg_context_switch_backend(hg_context* ctx, hg_backend_kind kind) {
     hg_backend_info prev_info = ctx->info;
     detach_all(ctx);
     hg__images_release_gpu(ctx); /* recriadas sob demanda no backend novo */
+    hg__shaders_release_gpu(ctx);
     prev->destroy(ctx);
     if (ctx->text) hg__atlas_clear(ctx->text->atlas); /* textura do atlas morreu com o backend */
     /* HWND que já teve swapchain flip-model (DXGI/Vulkan) não mostra o SwapBuffers

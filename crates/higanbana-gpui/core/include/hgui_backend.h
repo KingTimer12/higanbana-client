@@ -31,6 +31,7 @@ typedef struct hg_batch_view {
     int      has_clip;
     uint32_t quad_count;
     uint32_t image_count;
+    const void* shader; /* != NULL: lote de shader (nada mais no lote) */
 } hg_batch_view;
 
 /* Itera os lotes: prev = NULL começa; devolve NULL no fim. */
