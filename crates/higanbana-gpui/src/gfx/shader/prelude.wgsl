@@ -47,6 +47,9 @@ fn hg_binomial(k: i32) -> f32 {
 
 // Desfoque do backdrop: 5x5 amostras com pesos binomiais (1 4 6 4 1); raio limitado a 64 px,
 // a margem que os backends copiam em volta do retângulo.
+// Limitação: as amostras ficam a r/2 uma da outra, lidas da textura cheia (sem mipmaps). Acima de
+// ~20 px de raio, detalhes finos (texto, linhas) aparecem como cópias "fantasmas"; por ora use
+// raio <= 20 px.
 fn backdrop_blur(screen_px: vec2<f32>, radius: f32) -> vec4<f32> {
     let r = clamp(radius, 0.0, 64.0);
     if (r < 0.5) {

@@ -122,7 +122,7 @@ fn lens(v: &Gallery, t: f32) -> Element<Gallery> {
 fn controls(v: &Gallery, cx: &mut RenderCx<'_, Gallery>) -> Element<Gallery> {
     let muted = cx.theme().muted_foreground;
     let refr = Slider::new("vidro-refr", v.glass_refraction).range(0.0, 60.0).step(1.0).width(260.0).on_change(|v: &mut Gallery, x, _| v.glass_refraction = x).render(cx);
-    // Desfoque até 20 px: acima disso a grade 5x5 do `backdrop_blur` fica esparsa e aparecem cópias.
+    // Desfoque até 20 px: limite recomendado do `backdrop_blur` (ver a limitação no prelude.wgsl).
     let blur = Slider::new("vidro-blur", v.glass_blur).range(0.0, 20.0).step(1.0).width(260.0).on_change(|v: &mut Gallery, x, _| v.glass_blur = x).render(cx);
     let tint = Slider::new("vidro-tinta", v.glass_tint).range(0.0, 0.6).step(0.02).width(260.0).on_change(|v: &mut Gallery, x, _| v.glass_tint = x).render(cx);
     let line = |label: &'static str, s: Element<Gallery>, value: String| {

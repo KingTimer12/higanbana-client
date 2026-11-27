@@ -8,7 +8,7 @@ use higanbana_gpui::prelude::*;
 pub struct GlassParams {
     /// Quanto a borda curva desloca o que está atrás.
     pub refraction: f32,
-    /// Raio do desfoque do fundo (o prelúdio limita a 64 px físicos).
+    /// Raio do desfoque do fundo; recomendado <= 20 px (ver a limitação do `backdrop_blur` no prelúdio).
     pub blur: f32,
     /// Largura da faixa curva junto da borda.
     pub bevel: f32,
@@ -40,7 +40,8 @@ thread_local! {
 /// Placa de vidro; o chamador define tamanho, posição e filhos.
 /// Sem a feature `shaders` vira um painel translúcido comum.
 pub fn liquid_glass<V: View>(p: GlassParams) -> Element<V> {
-    let base = div().rounded(p.radius).shadow(Color::BLACK.alpha(0.35), 24.0);
+    // Sem sombra: ela seria pintada antes do vidro e entraria no backdrop, escurecendo o que ele refrata.
+    let base = div().rounded(p.radius);
     match GLASS.with(|s| s.clone()) {
         Some(s) => base.shader(&s, params![[p.refraction, p.blur, p.bevel, p.shine], p.tint]),
         None => base.bg(p.tint.alpha(0.35)).border(1.0, Color::WHITE.alpha(0.3)),
