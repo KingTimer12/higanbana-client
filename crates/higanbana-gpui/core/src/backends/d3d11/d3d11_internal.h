@@ -5,6 +5,7 @@
 #include "window.h"
 #include "glyph_frame.h"
 #include <d3d11.h>
+#include <d3dcompiler.h>
 #include <dxgi1_2.h>
 
 /* ---- loader: d3d11.dll carregada em runtime --------------------------- */
@@ -18,6 +19,15 @@ typedef struct d3d11_loader {
 
 int  d3d11_loader_open(d3d11_loader* l);
 void d3d11_loader_close(d3d11_loader* l);
+
+/* d3dcompiler_47.dll: só carregada no 1º shader do usuário. */
+typedef struct d3d11_compiler {
+    HMODULE     lib;
+    pD3DCompile compile;
+} d3d11_compiler;
+
+int  d3d11_compiler_open(d3d11_compiler* c);
+void d3d11_compiler_close(d3d11_compiler* c);
 
 /* ---- buffers: instance buffer dinâmico que só cresce ------------------ */
 typedef struct d3d11_dynamic_buffer {
@@ -64,8 +74,18 @@ typedef struct d3d11_images {
     uint64_t             texture_bytes;
 } d3d11_images;
 
+/* ---- shaders do usuário: estado comum criado no 1º prepare -------------- */
+typedef struct d3d11_user_shaders {
+    d3d11_compiler            compiler;
+    ID3D11Buffer*             uniforms;  /* b0: HG_SHADER_UNIFORM_BYTES, Map WRITE_DISCARD por desenho */
+    ID3D11SamplerState*       sampler;   /* s2: linear, clamp */
+    ID3D11Texture2D*          empty;     /* t1 quando não há backdrop: 1x1 transparente */
+    ID3D11ShaderResourceView* empty_srv;
+} d3d11_user_shaders;
+
 struct hg_image;
 struct hg_batch;
+struct hg_shader;
 
 /* ---- device: um por contexto ------------------------------------------ */
 typedef struct d3d11_device {
@@ -77,6 +97,7 @@ typedef struct d3d11_device {
     d3d11_dynamic_buffer quads;
     d3d11_glyphs         glyphs;
     d3d11_images         images;
+    d3d11_user_shaders   user_shaders;
 } d3d11_device;
 
 hg_result d3d11_texture_create(d3d11_device* d, struct hg_image* img);
@@ -100,18 +121,43 @@ uint64_t  d3d11_gpu_bytes(const d3d11_device* d);
 hg_result d3d11_device_create(d3d11_device* d, hg_backend_info* info);
 void      d3d11_device_release(d3d11_device* d);
 
+/* ---- backdrop: cópia do alvo para os shaders com HG_SHADER_BACKDROP ----- */
+typedef struct d3d11_backdrop {
+    ID3D11Texture2D*          tex; /* tamanho da superfície; criada no 1º uso */
+    ID3D11ShaderResourceView* srv;
+    UINT                      width, height;
+} d3d11_backdrop;
+
 /* ---- swapchain: uma por janela ---------------------------------------- */
 typedef struct d3d11_surface {
     IDXGISwapChain1*        swapchain;
     ID3D11RenderTargetView* rtv;
     UINT                    width, height;
+    d3d11_backdrop          backdrop;
 } d3d11_surface;
 
 hg_result d3d11_surface_create(d3d11_device* d, HWND hwnd, UINT w, UINT h, d3d11_surface* s);
 hg_result d3d11_surface_resize(d3d11_device* d, d3d11_surface* s, UINT w, UINT h);
-hg_result d3d11_surface_present(d3d11_surface* s, int vsync);
+/* *occluded = 1 se o Present foi descartado (DXGI_STATUS_OCCLUDED). */
+hg_result d3d11_surface_present(d3d11_surface* s, int vsync, int* occluded);
 void      d3d11_surface_release(d3d11_surface* s);
 hg_result d3d11_surface_read_pixel(d3d11_device* d, d3d11_surface* s, UINT x, UINT y, uint32_t* out);
+
+/* Margem copiada em volta do retângulo (backdrop_blur do prelúdio limita o raio a 64 px). */
+#define D3D11_BACKDROP_MARGIN 64.0f
+/* Copia `r` + margem (recortado à superfície) do alvo para a textura de backdrop e religa o RTV.
+ * NULL = nada a copiar ou falha (o chamador usa a textura vazia). */
+ID3D11ShaderResourceView* d3d11_backdrop_capture(d3d11_device* d, d3d11_surface* s, const hg_rect* r);
+void      d3d11_backdrop_release(d3d11_backdrop* b);
+/* Bytes da textura de backdrop (0 sem textura), para hg_stats.gpu_bytes. */
+uint64_t  d3d11_backdrop_bytes(const d3d11_backdrop* b);
+
+/* Compila o HLSL do shader (vs_main/ps_main) e cria sh->gpu; erro do compilador vai para sh->error. */
+hg_result d3d11_user_shader_prepare(d3d11_device* d, struct hg_shader* sh);
+void      d3d11_user_shader_release(struct hg_shader* sh);
+/* Desenha o lote de shader; 1 = desenhou (o estado comum precisa ser religado), 0 = pulado. */
+int       d3d11_user_shader_draw(d3d11_device* d, d3d11_surface* s, const struct hg_batch* b);
+void      d3d11_user_shaders_release(d3d11_user_shaders* u);
 
 /* ---- render: envia draw list ------------------------------------------ */
 hg_result d3d11_render_draw_list(d3d11_device* d, hg_context* ctx, d3d11_surface* s, const hg_draw_list* dl);

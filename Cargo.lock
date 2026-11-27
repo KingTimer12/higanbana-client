@@ -1303,6 +1303,7 @@ version = "0.1.0"
 dependencies = [
  "higanbana-gpui-sys",
  "libloading",
+ "naga",
  "resvg",
  "serde_json",
  "taffy",

@@ -147,6 +147,9 @@ pub struct Style {
     pub background: Option<Color>,
     /// Gradiente pintado por cima do `background`.
     pub gradient: Option<LinearGradient>,
+    /// Shader no lugar do fundo: sombra fica atrás, borda e filhos por cima.
+    /// Em `Rc`: os 16 `vec4` não pesam em cada `Style` sem shader.
+    pub shader: Option<std::rc::Rc<crate::gfx::ShaderFill>>,
     pub border_color: Color,
     pub border_width: f32,
     /// Borda em traços (4 px, vão de 4 px) em vez de contínua.
@@ -204,6 +207,7 @@ impl Default for Style {
             overflow: Overflow::Visible,
             background: None,
             gradient: None,
+            shader: None,
             border_color: Color::TRANSPARENT,
             border_width: 0.0,
             border_dashed: false,

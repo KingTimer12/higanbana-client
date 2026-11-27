@@ -78,6 +78,15 @@ hg_result d3d11_render_draw_list(d3d11_device* d, hg_context* ctx, d3d11_surface
     /* Por lote: quads, imagens, texto por cima. */
     UINT quad_start = 0, image_start = 0, glyph_start = 0, i = 0;
     for (const hg_batch* b = dl->first; b; b = b->next, i++) {
+        if (b->shader) { /* lote só de shader: camada própria */
+            D3D11_RECT sc = scissor_for(b, s);
+            ID3D11DeviceContext_RSSetScissorRects(d->imm, 1, &sc);
+            if (d3d11_user_shader_draw(d, s, b)) {
+                ctx->stats.draw_calls++;
+                bind_common(d, s);
+            }
+            continue;
+        }
         UINT glyphs = d->glyphs.frame.count ? d->glyphs.frame.batch_counts[i] : 0;
         if (b->quad_count == 0 && b->image_count == 0 && glyphs == 0) continue;
         D3D11_RECT sc = scissor_for(b, s);
@@ -99,6 +108,6 @@ hg_result d3d11_render_draw_list(d3d11_device* d, hg_context* ctx, d3d11_surface
             glyph_start += glyphs;
         }
     }
-    ctx->stats.gpu_bytes = d3d11_gpu_bytes(d);
+    ctx->stats.gpu_bytes = d3d11_gpu_bytes(d) + d3d11_backdrop_bytes(&s->backdrop);
     return HG_OK;
 }

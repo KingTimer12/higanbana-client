@@ -57,6 +57,14 @@ hg_result gl_render_draw_list(gl_device* d, hg_context* ctx, gl_surface* s, cons
     /* Por lote: quads, imagens, texto por cima. */
     uint32_t quad_start = 0, image_start = 0, glyph_start = 0, i = 0;
     for (const hg_batch* b = dl->first; b; b = b->next, i++) {
+        if (b->shader) { /* lote só de shader: camada própria */
+            set_scissor(gl, b, s);
+            if (gl_user_shader_draw(d, s, b)) {
+                ctx->stats.draw_calls++;
+                bind_common(d, s);
+            }
+            continue;
+        }
         uint32_t glyphs = d->glyphs.frame.count ? d->glyphs.frame.batch_counts[i] : 0;
         if (b->quad_count == 0 && b->image_count == 0 && glyphs == 0) continue;
         set_scissor(gl, b, s);
@@ -80,6 +88,6 @@ hg_result gl_render_draw_list(gl_device* d, hg_context* ctx, gl_surface* s, cons
         }
     }
     gl->BindVertexArray(0);
-    ctx->stats.gpu_bytes = gl_gpu_bytes(d);
+    ctx->stats.gpu_bytes = gl_gpu_bytes(d) + gl_backdrop_bytes(&s->backdrop);
     return HG_OK;
 }

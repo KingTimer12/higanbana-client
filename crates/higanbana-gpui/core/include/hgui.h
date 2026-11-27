@@ -194,6 +194,11 @@ hg_result hg_clipboard_get_text(char* out, size_t cap, size_t* out_len);
 hg_result hg_frame_begin(hg_window* win, hg_color clear);
 hg_result hg_frame_submit(hg_window* win, const hg_draw_list* dl);
 hg_result hg_frame_end(hg_window* win, int vsync);
+/* 1 = o present do último quadro não chegou à tela (tela bloqueada, monitor desligado, janela
+ * toda coberta: DXGI_STATUS_OCCLUDED no D3D11/D3D12, Occluded no WGPU). Nesse caso o present
+ * volta na hora mesmo com vsync: quem anima deve esperar por conta própria. Zerado em
+ * hg_frame_begin. OpenGL e Vulkan não informam oclusão (sempre 0). */
+int       hg_window_occluded(const hg_window* win);
 
 /* ---- Imagens ---------------------------------------------------------- */
 typedef struct hg_image hg_image;
@@ -219,6 +224,45 @@ typedef struct hg_image_draw {
 } hg_image_draw;
 
 hg_result hg_draw_image(hg_draw_list* dl, hg_image* img, const hg_image_draw* draw);
+
+/* ---- Shaders do usuário ------------------------------------------------ */
+typedef struct hg_shader hg_shader;
+
+/* Código já traduzido por alvo (UTF-8 terminado em 0; qualquer um pode ser NULL).
+ * glsl_vs/glsl_fs: um fonte por estágio; wgsl: módulo completo. O core copia tudo. */
+typedef struct hg_shader_code {
+    const char*     hlsl;
+    const char*     glsl_vs;
+    const char*     glsl_fs;
+    const char*     wgsl;
+    const uint32_t* spirv;
+    size_t          spirv_words;
+} hg_shader_code;
+
+hg_result   hg_shader_create(hg_context* ctx, const hg_shader_code* code, hg_shader** out);
+void        hg_shader_destroy(hg_shader* sh);
+/* Erro do compilador nativo no backend atual; NULL = ok. */
+const char* hg_shader_error(const hg_shader* sh);
+
+#define HG_SHADER_BACKDROP 1u /* flags: o shader lê o que já foi desenhado atrás */
+#define HG_SHADER_PARAMS   16
+/* Tamanho do uniform HgShaderUniforms (b0 / binding 0): 4 vec4 + params[16] vec4 = 320 bytes. */
+#define HG_SHADER_UNIFORM_BYTES 320u
+
+/* Atenção: zerada (= {0}) não desenha nada, porque opacity 0 é transparente: preencha opacity
+ * (1.0 = opaco); scale = fator da janela (1.0 sem DPI). */
+typedef struct hg_shader_draw {
+    hg_rect  rect;      /* destino em pixels */
+    float    radius[4]; /* tl, tr, br, bl */
+    float    time;      /* segundos */
+    float    scale;     /* fator de escala da janela */
+    float    opacity;
+    float    params[HG_SHADER_PARAMS][4];
+    uint32_t flags;
+} hg_shader_draw;
+
+/* Desenha o shader numa camada própria, herdando o clip atual. */
+hg_result hg_draw_shader(hg_draw_list* dl, hg_shader* sh, const hg_shader_draw* d);
 
 /* ---- Alvo de vídeo (OpenGL → textura D3D11, só no backend D3D11) ------- */
 /* Uma thread de render (mpv) desenha com OpenGL em texturas D3D11 do device da UI

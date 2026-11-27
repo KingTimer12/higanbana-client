@@ -148,8 +148,8 @@ void vk_texture_destroy(vk_device* d, hg_image* img) {
     vk_textures_collect(d);
 }
 
-/* Submissão vazia com fence: sinaliza depois de todo o trabalho já submetido. */
-static VkFence submit_marker(vk_device* d) {
+/* Submissão vazia com fence (declarada em vk_internal.h). */
+VkFence vk_submit_marker(vk_device* d) {
     VkFence f = 0;
     VkFenceCreateInfo fci = { VK_STYPE_FENCE_CREATE_INFO, NULL, 0 };
     if (d->api.vkCreateFence(d->dev, &fci, NULL, &f) != VK_SUCCESS) return 0;
@@ -161,7 +161,7 @@ void vk_textures_collect(vk_device* d) {
     for (vk_texture** p = &d->images.garbage; *p;) {
         vk_texture* t = *p;
         /* Com frame gravando (pode usar t), a marca só vale depois da submissão. */
-        if (!t->retire && !d->images.recording) t->retire = submit_marker(d);
+        if (!t->retire && !d->images.recording) t->retire = vk_submit_marker(d);
         if (t->retire && d->api.vkWaitForFences(d->dev, 1, &t->retire, VK_TRUE, 0) == VK_SUCCESS) {
             *p = t->next;
             texture_free(d, t);

@@ -70,7 +70,10 @@ static hg_result d3d11_submit(hg_window* win, const hg_draw_list* dl) {
 }
 
 static hg_result d3d11_end_frame(hg_window* win, int vsync) {
-    return d3d11_surface_present(surface_of(win), vsync);
+    int occluded = 0;
+    hg_result r = d3d11_surface_present(surface_of(win), vsync, &occluded);
+    win->occluded = occluded; /* hg_window_occluded: o Rust não conta com o vsync */
+    return r;
 }
 
 static hg_result d3d11_read_pixel(hg_window* win, uint32_t x, uint32_t y, uint32_t* out) {
@@ -87,6 +90,15 @@ static hg_result d3d11_tex_update(hg_context* ctx, struct hg_image* img) {
 
 static void d3d11_tex_destroy(hg_context* ctx, struct hg_image* img) {
     d3d11_texture_destroy(device_of(ctx), img);
+}
+
+static hg_result d3d11_shader_prepare(hg_context* ctx, struct hg_shader* sh) {
+    return d3d11_user_shader_prepare(device_of(ctx), sh);
+}
+
+static void d3d11_shader_release(hg_context* ctx, struct hg_shader* sh) {
+    (void)ctx;
+    d3d11_user_shader_release(sh);
 }
 
 const hg_backend_vtbl hg__d3d11_backend = {
@@ -106,4 +118,6 @@ const hg_backend_vtbl hg__d3d11_backend = {
     .texture_destroy = d3d11_tex_destroy,
     .read_pixel = d3d11_read_pixel,
     .texture_update = d3d11_tex_update,
+    .shader_prepare = d3d11_shader_prepare,
+    .shader_release = d3d11_shader_release,
 };

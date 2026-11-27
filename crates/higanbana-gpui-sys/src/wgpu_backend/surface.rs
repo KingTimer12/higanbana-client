@@ -1,6 +1,7 @@
 //! Superfície WGPU por janela (HWND): configuração, aquisição da textura do frame,
 //! limpeza e present. Lost/Outdated reconfiguram (Lost recria a superfície).
 
+use super::backdrop::Backdrop;
 use super::device::{Gpu, SURFACE_FORMAT};
 use super::{fail, Res};
 use crate::*;
@@ -19,6 +20,10 @@ pub struct Window {
     pub clear: wgpu::Color,
     /// O frame atual já passou pelo clear (submit usa Load em vez de Clear).
     pub cleared: bool,
+    /// Fundo copiado para shaders com backdrop (vazio até o 1º uso; solto no resize).
+    pub backdrop: Backdrop,
+    /// O último `begin` achou a superfície ocluída (tela bloqueada etc.): nada vai à tela.
+    pub occluded: bool,
 }
 
 #[link(name = "user32")]
@@ -67,7 +72,7 @@ impl Window {
         config.view_formats.clear();
         let win = Window {
             hwnd, surface, config, vsync: true, frame: None, view: None,
-            clear: wgpu::Color::BLACK, cleared: true,
+            clear: wgpu::Color::BLACK, cleared: true, backdrop: Backdrop::default(), occluded: false,
         };
         if w > 0 && h > 0 { win.surface.configure(&gpu.device, &win.config) }
         Ok(win)
@@ -77,6 +82,7 @@ impl Window {
         if w == 0 || h == 0 || (w == self.config.width && h == self.config.height) { return Ok(()) }
         self.config.width = w;
         self.config.height = h;
+        self.backdrop.release();
         self.surface.configure(&gpu.device, &self.config);
         Ok(())
     }
@@ -94,9 +100,11 @@ impl Window {
     /// Adquire a textura do frame. Timeout/Occluded: frame vira no-op.
     pub fn begin(&mut self, gpu: &Gpu, w: u32, h: u32, clear: hg_color) -> Res {
         self.drop_frame();
+        self.occluded = false;
         if w != self.config.width || h != self.config.height {
             self.config.width = w;
             self.config.height = h;
+            self.backdrop.release();
             self.reconfigure(gpu);
         }
         for _ in 0..3 {
@@ -112,7 +120,12 @@ impl Window {
                     self.surface = create_surface(gpu, self.hwnd)?;
                     self.reconfigure(gpu);
                 }
-                T::Timeout | T::Occluded => return Ok(()),
+                T::Timeout => return Ok(()),
+                // Sem frame não há present para frear o laço: o core avisa o Rust.
+                T::Occluded => {
+                    self.occluded = true;
+                    return Ok(());
+                }
                 T::Validation => return fail(HG_ERR_DEVICE, c"wgpu: get_current_texture inválido"),
             }
         }

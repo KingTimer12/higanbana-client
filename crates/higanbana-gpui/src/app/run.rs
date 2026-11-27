@@ -7,7 +7,7 @@ use crate::cx::{Inbox, RenderCx, Tasks, Timers};
 use crate::error::Result;
 use crate::geometry::Size;
 use crate::gfx::{enumerate, BackendInfo, Context, DrawList, FontSpec, Window, WindowOptions, WindowState, HitRegion};
-use crate::paint::{GpuCanvas, ImageCache};
+use crate::paint::{GpuCanvas, ImageCache, ShaderCache};
 use crate::style::TextStyle;
 use crate::theme::Theme;
 use crate::tree::Tree;
@@ -28,6 +28,7 @@ pub(super) struct Runner<'c, V> {
     pub view: V,
     pub tree: Tree<V>,
     images: ImageCache<'c>,
+    pub shaders: ShaderCache<'c>,
     pool: Option<DrawList<'static>>,
     pub theme: Theme,
     backends: Vec<BackendInfo>,
@@ -36,6 +37,8 @@ pub(super) struct Runner<'c, V> {
     pub dirty: Dirty,
     show_stats: bool,
     pub vsync: bool,
+    /// O último present foi ocluído (ver `Window::occluded`): o vsync não está freando.
+    pub occluded: bool,
     animator: Animator,
     pub timers: Timers,
     /// Tarefas em segundo plano aguardando resultado.
@@ -48,6 +51,8 @@ pub(super) struct Runner<'c, V> {
     pub wake: Option<Instant>,
     /// Próxima troca do cursor piscando (só repinta).
     pub blink: Option<Instant>,
+    /// Próximo quadro de shader animado (só repinta: o `time` sai na pintura).
+    pub repaint: Option<Instant>,
     /// Maximizada/fullscreen/foco (para a `TitleBar`).
     pub window_state: WindowState,
     /// Últimas regiões publicadas (só republica se mudarem).
@@ -73,12 +78,14 @@ pub(super) fn run<V: View>(mut app: App, options: WindowOptions, view: V) -> Res
         view,
         tree: Tree::new(),
         images: ImageCache::new(&ctx),
+        shaders: ShaderCache::new(&ctx),
         pool: Some(DrawList::new()),
         theme: app.theme,
         backends: enumerate(),
         dirty: Dirty::Rebuild,
         show_stats: app.show_stats,
         vsync: app.vsync,
+        occluded: false,
         animator: Animator::default(),
         timers: Timers::default(),
         tasks: Tasks::default(),
@@ -86,6 +93,7 @@ pub(super) fn run<V: View>(mut app: App, options: WindowOptions, view: V) -> Res
         scrolls: Vec::new(),
         wake: None,
         blink: None,
+        repaint: None,
         window_state: WindowState::default(),
         regions: Vec::new(),
     };
@@ -175,7 +183,10 @@ impl<V: View> Runner<'_, V> {
         let now = Instant::now();
         let mut measurer = GpuMeasurer { ctx: self.ctx, scale: self.scale };
         match self.dirty {
-            Dirty::Rebuild => self.render(now, &mut measurer),
+            Dirty::Rebuild => {
+                self.render(now, &mut measurer);
+                self.shaders.prepare(&self.tree);
+            }
             Dirty::Relayout => self.tree.relayout(self.viewport, &mut measurer),
             _ => {}
         }
@@ -202,8 +213,8 @@ impl<V: View> Runner<'_, V> {
         self.tree.resolve_icons(self.scale);
         self.images.prepare(&self.tree);
         let mut list = self.pool.take().unwrap_or_default().recycle();
-        {
-            let mut canvas = GpuCanvas::new(&mut list, self.ctx, &self.images, self.scale);
+        let (animated, missed) = {
+            let mut canvas = GpuCanvas::new(&mut list, self.ctx, &self.images, self.scale).with_shaders(&self.shaders);
             self.tree.paint_at(&mut canvas, now);
             if self.show_stats {
                 overlay::paint(&mut canvas, self.ctx, &self.theme, self.viewport);
@@ -211,11 +222,14 @@ impl<V: View> Runner<'_, V> {
             if let Some(e) = canvas.error {
                 eprintln!("higanbana-gpui: frame: {e}");
             }
-        }
+            (canvas.animated, canvas.missed)
+        };
         if let Err(e) = self.win.present(self.theme.background, &list, self.vsync) {
             eprintln!("higanbana-gpui: present: {e}");
         }
+        self.occluded = self.win.occluded();
         self.pool = Some(list.recycle());
+        self.after_shaders(animated, missed, now);
         crate::paint::cache::end_frame();
     }
 }

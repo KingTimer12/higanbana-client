@@ -3,7 +3,7 @@
 
 use super::device::Gpu;
 use super::surface::Window;
-use super::{fail, guard, images, readback, render, Res};
+use super::{fail, guard, images, readback, render, user_shader, Res};
 use crate::*;
 use std::os::raw::c_int;
 
@@ -59,7 +59,8 @@ pub unsafe extern "C" fn destroy(ctx: *mut hg_context) {
 pub unsafe extern "C" fn attach(ctx: *mut hg_context, win: *mut hg_window) -> hg_result {
     guard(|| {
         let gpu = unsafe { gpu_of(ctx)? };
-        let (w, h) = window_size(win);        let surface = Window::new(gpu, unsafe { hg__window_hwnd(win) }, w, h)?;
+        let (w, h) = window_size(win);
+        let surface = Window::new(gpu, unsafe { hg__window_hwnd(win) }, w, h)?;
         unsafe { hg__window_set_surface(win, Box::into_raw(Box::new(surface)).cast()) };
         Ok(())
     })
@@ -86,7 +87,9 @@ pub unsafe extern "C" fn begin_frame(win: *mut hg_window, clear: hg_color) -> hg
     guard(|| {
         let (gpu, surface) = unsafe { window_of(win)? };
         let (w, h) = window_size(win);
-        surface.begin(gpu, w, h, clear)
+        surface.begin(gpu, w, h, clear)?;
+        if surface.occluded { unsafe { hg__window_set_occluded(win) } }
+        Ok(())
     })
 }
 
@@ -142,4 +145,28 @@ pub unsafe extern "C" fn read_pixel(win: *mut hg_window, x: u32, y: u32, out: *m
         unsafe { *out = px };
         Ok(())
     })
+}
+
+/// Compila o shader do usuário (1º uso). Erro do wgpu fica em `sh->error` e volta como código.
+pub unsafe extern "C" fn shader_prepare(ctx: *mut hg_context, sh: *mut hg_shader) -> hg_result {
+    let mut code = HG_OK as hg_result;
+    let r = guard(|| {
+        code = user_shader::prepare(unsafe { gpu_of(ctx)? }, sh)?;
+        Ok(())
+    });
+    if r == HG_OK as hg_result { return code }
+    // Pânico ou falha fora dos escopos de erro: grava sh->error mesmo assim, senão o core
+    // chamaria shader_prepare de novo a cada quadro.
+    if unsafe { hg__shader_gpu_data(sh) }.is_null() {
+        let msg = unsafe { std::ffi::CStr::from_ptr(hg_last_error()) }.to_string_lossy().into_owned();
+        return user_shader::set_error(sh, &msg);
+    }
+    r
+}
+
+pub unsafe extern "C" fn shader_release(_ctx: *mut hg_context, sh: *mut hg_shader) {
+    guard(|| {
+        user_shader::release(sh);
+        Ok(())
+    });
 }

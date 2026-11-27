@@ -3,7 +3,7 @@
 
 use super::device::Gpu;
 use super::surface::Window;
-use super::Res;
+use super::{user_shader, Res};
 use crate::*;
 
 /// Junta os quads de todos os lotes no rascunho e sobe para o instance buffer.
@@ -46,21 +46,34 @@ pub fn draw_list(gpu: &mut Gpu, ctx: *mut hg_context, win: &mut Window, dl: *con
     gpu.images.prepare(&gpu.device, &gpu.queue, dl)?;
     upload_quads(gpu, dl);
     upload_globals(gpu, w, h);
+    gpu.user_shaders.upload(&gpu.device, &gpu.queue, dl, w, h);
 
     let stats = unsafe { &mut *hg__ctx_stats(ctx) };
     stats.draw_calls = 0;
     let mut enc = gpu.device.create_command_encoder(&Default::default());
     {
-        let mut pass = win.begin_pass(&mut enc);
+        // Sem lifetime: o backdrop encerra o pass, copia no encoder e abre outro.
+        let mut pass = win.begin_pass(&mut enc).forget_lifetime();
         pass.set_bind_group(0, &gpu.pipes.globals_group, &[]);
-        let (mut quad_start, mut image_start, mut glyph_start, mut i) = (0u32, 0u32, 0u32, 0u32);
-        let mut view = hg_batch_view { clip: hg_rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }, has_clip: 0, quad_count: 0, image_count: 0 };
+        let (mut quad_start, mut image_start, mut glyph_start, mut i, mut shader_i) = (0u32, 0u32, 0u32, 0u32, 0usize);
+        let mut view: hg_batch_view = unsafe { std::mem::zeroed() };
         let mut cursor = std::ptr::null();
         loop {
             cursor = unsafe { hg__draw_list_next_batch(dl, cursor, &mut view) };
             if cursor.is_null() { break }
             let (quads, images, glyphs) = (view.quad_count, view.image_count, gpu.glyphs.batch_count(i));
             i += 1;
+            if !view.shader.is_null() { // lote só de shader: camada própria
+                shader_i += 1;
+                let Some(sc) = scissor(&view, w, h) else { continue };
+                let drawn;
+                (pass, drawn) = user_shader::draw(gpu, win, &mut enc, pass, shader_i - 1, sc);
+                if drawn {
+                    stats.draw_calls += 1;
+                    pass.set_bind_group(0, &gpu.pipes.globals_group, &[]);
+                }
+                continue;
+            }
             if let Some((x, y, sw, sh)) = scissor(&view, w, h).filter(|_| quads + images + glyphs > 0) {
                 pass.set_scissor_rect(x, y, sw, sh);
                 if quads > 0 {
@@ -86,6 +99,6 @@ pub fn draw_list(gpu: &mut Gpu, ctx: *mut hg_context, win: &mut Window, dl: *con
         }
     }
     gpu.queue.submit([enc.finish()]);
-    stats.gpu_bytes = gpu.gpu_bytes();
+    stats.gpu_bytes = gpu.gpu_bytes() + win.backdrop.gpu_bytes();
     Ok(())
 }

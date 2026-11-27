@@ -88,7 +88,9 @@ typedef const void* VkAlloc;
     X(vkCmdDraw, void, (VkCommandBuffer, uint32_t, uint32_t, uint32_t, uint32_t)) \
     X(vkCmdPipelineBarrier, void, (VkCommandBuffer, VkFlags, VkFlags, VkFlags, uint32_t, const void*, uint32_t, const void*, uint32_t, const VkImageMemoryBarrier*)) \
     X(vkCmdCopyBufferToImage, void, (VkCommandBuffer, VkBuffer, VkImage, uint32_t, uint32_t, const VkBufferImageCopy*)) \
-    X(vkCmdCopyImageToBuffer, void, (VkCommandBuffer, VkImage, uint32_t, VkBuffer, uint32_t, const VkBufferImageCopy*))
+    X(vkCmdCopyImageToBuffer, void, (VkCommandBuffer, VkImage, uint32_t, VkBuffer, uint32_t, const VkBufferImageCopy*)) \
+    X(vkCmdCopyImage, void, (VkCommandBuffer, VkImage, uint32_t, VkImage, uint32_t, uint32_t, const VkImageCopy*)) \
+    X(vkCmdClearColorImage, void, (VkCommandBuffer, VkImage, uint32_t, const VkClearValue*, uint32_t, const VkImageSubresourceRange*))
 
 #define HG_VK_TYPEDEF(name, ret, params) typedef ret (VKAPI_PTR* PFN_##name) params;
 typedef PFN_vkVoidFunction (VKAPI_PTR* PFN_vkGetInstanceProcAddr)(VkInstance, const char*);

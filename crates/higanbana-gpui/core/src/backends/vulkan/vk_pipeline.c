@@ -54,6 +54,30 @@ static VkResult make_layout(vk_device* d) {
 
 typedef struct shader_pair { const uint32_t* vs; size_t vs_size; const uint32_t* fs; size_t fs_size; } shader_pair;
 
+/* Estado fixo de todos os pipelines: strip, blend pré-multiplicado, viewport/scissor dinâmicos,
+ * compatível com pass_clear/pass_load. stride 0 = sem vertex buffer (shaders do usuário). */
+VkResult vk_pipeline_build(vk_device* d, const vk_pipeline_desc* desc, VkPipeline* out) {
+    VkPipelineShaderStageCreateInfo stages[2] = {
+        { VK_STYPE_PIPELINE_SHADER_STAGE, NULL, 0, VK_SHADER_STAGE_VERTEX, desc->vs, desc->vs_entry, NULL },
+        { VK_STYPE_PIPELINE_SHADER_STAGE, NULL, 0, VK_SHADER_STAGE_FRAGMENT, desc->fs, desc->fs_entry, NULL },
+    };
+    VkVertexInputBindingDescription bind = { 0, desc->stride, VK_VERTEX_INPUT_RATE_INSTANCE };
+    VkPipelineVertexInputStateCreateInfo vi = { VK_STYPE_PIPELINE_VERTEX_INPUT, NULL, 0, desc->stride ? 1u : 0u, &bind,
+                                                desc->attr_count, desc->attrs };
+    VkPipelineInputAssemblyStateCreateInfo ia = { VK_STYPE_PIPELINE_INPUT_ASSEMBLY, NULL, 0, VK_PRIMITIVE_TRIANGLE_STRIP, 0 };
+    VkPipelineViewportStateCreateInfo vp = { VK_STYPE_PIPELINE_VIEWPORT, NULL, 0, 1, NULL, 1, NULL };
+    VkPipelineRasterizationStateCreateInfo rs = { VK_STYPE_PIPELINE_RASTERIZATION, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0f };
+    VkPipelineMultisampleStateCreateInfo ms = { VK_STYPE_PIPELINE_MULTISAMPLE, NULL, 0, VK_SAMPLE_COUNT_1, 0, 0, NULL, 0, 0 };
+    VkPipelineColorBlendAttachmentState att = { 1, VK_BLEND_ONE, VK_BLEND_ONE_MINUS_SRC_ALPHA, 0,
+                                                VK_BLEND_ONE, VK_BLEND_ONE_MINUS_SRC_ALPHA, 0, 0xF };
+    VkPipelineColorBlendStateCreateInfo cb = { VK_STYPE_PIPELINE_COLOR_BLEND, NULL, 0, 0, 0, 1, &att, { 0, 0, 0, 0 } };
+    const uint32_t dyn[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo ds = { VK_STYPE_PIPELINE_DYNAMIC, NULL, 0, 2, dyn };
+    VkGraphicsPipelineCreateInfo ci = { VK_STYPE_GRAPHICS_PIPELINE_CREATE, NULL, 0, 2, stages, &vi, &ia, NULL, &vp, &rs,
+                                        &ms, NULL, &cb, &ds, desc->layout, d->pipeline.pass_clear, 0, 0, -1 };
+    return d->api.vkCreateGraphicsPipelines(d->dev, 0, 1, &ci, NULL, out);
+}
+
 static VkResult make_pipeline(vk_device* d, shader_pair sh, uint32_t stride, const VkVertexInputAttributeDescription* attrs,
                               uint32_t attr_count, VkPipeline* out) {
     VkShaderModule mod[2] = { 0, 0 };
@@ -62,24 +86,8 @@ static VkResult make_pipeline(vk_device* d, shader_pair sh, uint32_t stride, con
     VkResult r = d->api.vkCreateShaderModule(d->dev, &vci, NULL, &mod[0]);
     if (r == VK_SUCCESS) r = d->api.vkCreateShaderModule(d->dev, &fci, NULL, &mod[1]);
     if (r == VK_SUCCESS) {
-        VkPipelineShaderStageCreateInfo stages[2] = {
-            { VK_STYPE_PIPELINE_SHADER_STAGE, NULL, 0, VK_SHADER_STAGE_VERTEX, mod[0], "vs_main", NULL },
-            { VK_STYPE_PIPELINE_SHADER_STAGE, NULL, 0, VK_SHADER_STAGE_FRAGMENT, mod[1], "fs_main", NULL },
-        };
-        VkVertexInputBindingDescription bind = { 0, stride, VK_VERTEX_INPUT_RATE_INSTANCE };
-        VkPipelineVertexInputStateCreateInfo vi = { VK_STYPE_PIPELINE_VERTEX_INPUT, NULL, 0, 1, &bind, attr_count, attrs };
-        VkPipelineInputAssemblyStateCreateInfo ia = { VK_STYPE_PIPELINE_INPUT_ASSEMBLY, NULL, 0, VK_PRIMITIVE_TRIANGLE_STRIP, 0 };
-        VkPipelineViewportStateCreateInfo vp = { VK_STYPE_PIPELINE_VIEWPORT, NULL, 0, 1, NULL, 1, NULL };
-        VkPipelineRasterizationStateCreateInfo rs = { VK_STYPE_PIPELINE_RASTERIZATION, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0f };
-        VkPipelineMultisampleStateCreateInfo ms = { VK_STYPE_PIPELINE_MULTISAMPLE, NULL, 0, VK_SAMPLE_COUNT_1, 0, 0, NULL, 0, 0 };
-        VkPipelineColorBlendAttachmentState att = { 1, VK_BLEND_ONE, VK_BLEND_ONE_MINUS_SRC_ALPHA, 0,
-                                                    VK_BLEND_ONE, VK_BLEND_ONE_MINUS_SRC_ALPHA, 0, 0xF };
-        VkPipelineColorBlendStateCreateInfo cb = { VK_STYPE_PIPELINE_COLOR_BLEND, NULL, 0, 0, 0, 1, &att, { 0, 0, 0, 0 } };
-        const uint32_t dyn[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-        VkPipelineDynamicStateCreateInfo ds = { VK_STYPE_PIPELINE_DYNAMIC, NULL, 0, 2, dyn };
-        VkGraphicsPipelineCreateInfo ci = { VK_STYPE_GRAPHICS_PIPELINE_CREATE, NULL, 0, 2, stages, &vi, &ia, NULL, &vp, &rs,
-                                            &ms, NULL, &cb, &ds, d->pipeline.layout, d->pipeline.pass_clear, 0, 0, -1 };
-        r = d->api.vkCreateGraphicsPipelines(d->dev, 0, 1, &ci, NULL, out);
+        vk_pipeline_desc desc = { mod[0], "vs_main", mod[1], "fs_main", stride, attrs, attr_count, d->pipeline.layout };
+        r = vk_pipeline_build(d, &desc, out);
     }
     VK_DESTROY(d, vkDestroyShaderModule, mod[0]);
     VK_DESTROY(d, vkDestroyShaderModule, mod[1]);

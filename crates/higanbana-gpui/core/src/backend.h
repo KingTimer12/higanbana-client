@@ -31,6 +31,10 @@ typedef struct hg_backend_vtbl {
     hg_result (*read_pixel)(struct hg_window* win, uint32_t x, uint32_t y, uint32_t* out);
     /* Opcional: reenvia img->pixels para a textura existente (NULL = destroy + create lazy). */
     hg_result (*texture_update)(hg_context* ctx, struct hg_image* img);
+    /* Shaders do usuário (opcionais: NULL = lote de shader pulado). prepare cria sh->gpu;
+     * se o compilador nativo falhar grava sh->error e devolve HG_ERR_DEVICE. */
+    hg_result (*shader_prepare)(hg_context* ctx, struct hg_shader* sh);
+    void      (*shader_release)(hg_context* ctx, struct hg_shader* sh);
 } hg_backend_vtbl;
 
 /* Registro: backends compilados nesta build, em ordem de fallback. */

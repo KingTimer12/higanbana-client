@@ -40,8 +40,9 @@ static hg_result record_upload(d3d12_device* d, const hg_image* img, ID3D12Resou
 }
 
 /* Adia a soltura até a fence do último uso possível: a lista aberta (sinalizada em
- * fence_value+1) ou a última enviada. Sem memória para a fila: espera a GPU, se der. */
-static void retire(d3d12_device* d, ID3D12Resource* tex, UINT srv) {
+ * fence_value+1) ou a última enviada. Sem memória para a fila: espera a GPU, se der.
+ * Serve também para PSOs de shaders do usuário (srv 0). */
+void d3d12_retire(d3d12_device* d, IUnknown* obj, UINT srv) {
     d3d12_images* im = &d->images;
     if (im->retired_count == im->retired_cap) {
         UINT cap = im->retired_cap ? im->retired_cap * 2 : 16;
@@ -50,10 +51,10 @@ static void retire(d3d12_device* d, ID3D12Resource* tex, UINT srv) {
     }
     if (im->retired_count < im->retired_cap) {
         UINT64 last_use = d->fence_value + (d->recording ? 1 : 0);
-        im->retired[im->retired_count++] = (d3d12_retired_tex){ tex, srv, last_use };
+        im->retired[im->retired_count++] = (d3d12_retired_tex){ obj, srv, last_use };
     } else if (!d->recording) {
         d3d12_wait_idle(d);
-        D3D12_RELEASE(tex);
+        D3D12_RELEASE(obj);
         d3d12_srv_free(&d->srvs, srv);
     } /* senão: vaza o recurso — melhor que soltá-lo em uso */
 }
@@ -66,7 +67,7 @@ hg_result d3d12_texture_create(d3d12_device* d, hg_image* img) {
     if (r == HG_OK) r = create_resource(d->dev, img, &t->tex);
     if (r == HG_OK) r = record_upload(d, img, t->tex);
     if (r != HG_OK) {
-        if (t->tex) retire(d, t->tex, t->srv);
+        if (t->tex) d3d12_retire(d, (IUnknown*)t->tex, t->srv);
         else if (t->srv) d3d12_srv_free(&d->srvs, t->srv);
         free(t);
         return r;
@@ -80,7 +81,7 @@ hg_result d3d12_texture_create(d3d12_device* d, hg_image* img) {
 void d3d12_texture_destroy(d3d12_device* d, hg_image* img) {
     d3d12_texture* t = img->gpu;
     if (!t) return;
-    retire(d, t->tex, t->srv);
+    d3d12_retire(d, (IUnknown*)t->tex, t->srv);
     d->images.texture_bytes -= (uint64_t)img->width * img->height * 4;
     free(t);
     img->gpu = NULL;
@@ -92,7 +93,7 @@ void d3d12_textures_collect(d3d12_device* d, int all) {
     for (UINT i = 0; i < im->retired_count;) {
         d3d12_retired_tex* r = &im->retired[i];
         if (!all && r->fence > done) { i++; continue; }
-        D3D12_RELEASE(r->tex);
+        D3D12_RELEASE(r->obj);
         d3d12_srv_free(&d->srvs, r->srv);
         *r = im->retired[--im->retired_count];
     }

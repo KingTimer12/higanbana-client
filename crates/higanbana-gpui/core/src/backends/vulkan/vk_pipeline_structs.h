@@ -110,6 +110,7 @@ typedef struct VkDescriptorSetAllocateInfo {
     VK_HEADER; VkDescriptorPool descriptorPool; uint32_t descriptorSetCount; const VkDescriptorSetLayout* pSetLayouts;
 } VkDescriptorSetAllocateInfo;
 typedef struct VkDescriptorImageInfo { VkSampler sampler; VkImageView imageView; uint32_t imageLayout; } VkDescriptorImageInfo;
+typedef struct VkDescriptorBufferInfo { VkBuffer buffer; VkDeviceSize offset, range; } VkDescriptorBufferInfo;
 typedef struct VkWriteDescriptorSet {
     VK_HEADER; VkDescriptorSet dstSet; uint32_t dstBinding, dstArrayElement, descriptorCount, descriptorType;
     const VkDescriptorImageInfo* pImageInfo; const void* pBufferInfo; const void* pTexelBufferView;

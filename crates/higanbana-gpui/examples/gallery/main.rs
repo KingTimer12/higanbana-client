@@ -9,7 +9,7 @@ mod shell;
 
 use higanbana_gpui::components::*;
 use higanbana_gpui::prelude::*;
-use higanbana_gpui::size;
+use higanbana_gpui::{point, size, Point};
 
 /// Estado inteiro da galeria (os componentes não guardam estado; tudo mora aqui).
 pub struct Gallery {
@@ -49,6 +49,11 @@ pub struct Gallery {
     pub side: SidebarState,
     pub cmd: CommandState,
     pub side_active: usize,
+    pub glass_refraction: f32,
+    pub glass_blur: f32,
+    pub glass_tint: f32,
+    pub glass_pos: Point,
+    pub glass_grab: Point,
 }
 
 impl View for Gallery {
@@ -155,6 +160,11 @@ fn main() {
         side: SidebarState::default(),
         cmd: CommandState::new(),
         side_active: 0,
+        glass_refraction: 32.0,
+        glass_blur: 8.0,
+        glass_tint: 0.08,
+        glass_pos: point(70.0, 60.0),
+        glass_grab: Point::default(),
     };
     view.tip.visible = state == "tooltip";
     if state == "toast" {

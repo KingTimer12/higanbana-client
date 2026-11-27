@@ -68,7 +68,8 @@ hg_result d3d12_device_create(d3d12_device* d, hg_backend_info* info) {
 void d3d12_device_release(d3d12_device* d) {
     if (d->queue && d->fence && d->fence_event) d3d12_wait_idle(d);
     d3d12_glyphs_release(&d->glyphs);
-    d3d12_images_release(d); /* GPU ociosa: solta as texturas aposentadas */
+    d3d12_images_release(d); /* GPU ociosa: solta as texturas e PSOs aposentados */
+    d3d12_user_shaders_release(d);
     d3d12_srv_release(&d->srvs);
     for (int i = 0; i < D3D12_FRAMES; i++) {
         d3d12_upload_release(&d->uploads[i]);

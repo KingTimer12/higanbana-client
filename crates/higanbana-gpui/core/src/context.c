@@ -3,6 +3,7 @@
 #include "error.h"
 #include "text.h"
 #include "image.h"
+#include "shader.h"
 #include <stdlib.h>
 
 static const hg_backend_kind g_fallback[] = { HG_BACKEND_D3D11, HG_BACKEND_OPENGL, HG_BACKEND_WGPU };
@@ -40,6 +41,8 @@ void hg_context_destroy(hg_context* ctx) {
     hg__text_system_destroy(ctx->text);
     hg__images_release_gpu(ctx);
     while (ctx->images) hg_image_destroy(ctx->images); /* imagens esquecidas pelo app */
+    hg__shaders_release_gpu(ctx);
+    while (ctx->shaders) hg_shader_destroy(ctx->shaders); /* shaders esquecidos pelo app */
     if (ctx->backend) ctx->backend->destroy(ctx);
     free(ctx);
 }

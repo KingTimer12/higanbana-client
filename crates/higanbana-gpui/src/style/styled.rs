@@ -92,6 +92,11 @@ pub trait Styled: Sized {
     fn bg(self, c: Color) -> Self { self.with(|s| s.background = Some(c)) }
     /// Fundo em gradiente linear (ex.: scrim sobre vídeo).
     fn bg_gradient(self, g: super::LinearGradient) -> Self { self.with(|s| s.gradient = Some(g)) }
+    /// Fundo por shader do usuário (substitui `bg`/`bg_gradient`; sombra, borda e filhos continuam).
+    fn shader(self, s: &crate::gfx::Shader, params: crate::gfx::ShaderParams) -> Self {
+        let fill = crate::gfx::ShaderFill { shader: s.clone(), params };
+        self.with(|st| st.shader = Some(std::rc::Rc::new(fill)))
+    }
     fn border(self, width: f32, c: Color) -> Self { self.with(|s| { s.border_width = width; s.border_color = c }) }
     fn border_color(self, c: Color) -> Self { self.with(|s| s.border_color = c) }
     /// Borda tracejada (traços de 4 px, vão de 4 px); cantos retos.

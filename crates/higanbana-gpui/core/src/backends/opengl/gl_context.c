@@ -91,3 +91,8 @@ hg_result gl_context_bind(gl_wgl_context* c, HDC dc) {
     if (!c->wgl.make_current(dc, c->rc)) return hg__fail(HG_ERR_DEVICE, "opengl: wglMakeCurrent falhou");
     return HG_OK;
 }
+
+hg_result gl_context_ensure_current(gl_wgl_context* c) {
+    if (c->wgl.get_current_context() == c->rc) return HG_OK;
+    return gl_context_bind(c, c->hidden_dc);
+}

@@ -3,6 +3,7 @@
 #include "draw_list.h"
 #include "glyph_frame.h"
 #include "image.h"
+#include "shader.h"
 #include "window.h"
 #include <stdlib.h>
 #include <string.h>
@@ -29,6 +30,8 @@ const void* hg__draw_list_next_batch(const hg_draw_list* dl, const void* prev, h
     out->has_clip = b->has_clip;
     out->quad_count = b->quad_count;
     out->image_count = b->image_count;
+    out->shader = b->shader;
+    out->shader_draw = b->shader ? &b->shader_draw : NULL;
     return b;
 }
 
@@ -63,6 +66,10 @@ hg_result hg__draw_list_prepare_images(const hg_draw_list* dl) {
 const uint8_t* hg__image_pixels(const hg_image* img) { return img->pixels; }
 void* hg__image_gpu_data(const hg_image* img) { return img->gpu; }
 void  hg__image_set_gpu_data(hg_image* img, void* gpu) { img->gpu = gpu; }
+
+const char* hg__shader_wgsl(const hg_shader* sh) { return sh->wgsl; }
+void* hg__shader_gpu_data(const hg_shader* sh) { return sh->gpu; }
+void  hg__shader_set_gpu_data(hg_shader* sh, void* gpu) { sh->gpu = gpu; }
 
 uint32_t hg__glyph_atlas_size(void) { return HG_GLYPH_ATLAS_SIZE; }
 

@@ -84,7 +84,10 @@ static hg_result d3d12_submit(hg_window* win, const hg_draw_list* dl) {
 }
 
 static hg_result d3d12_end_frame(hg_window* win, int vsync) {
-    return d3d12_frame_end(device_of(win->ctx), surface_of(win), vsync);
+    int occluded = 0;
+    hg_result r = d3d12_frame_end(device_of(win->ctx), surface_of(win), vsync, &occluded);
+    win->occluded = occluded; /* hg_window_occluded: o Rust não conta com o vsync */
+    return r;
 }
 
 static hg_result d3d12_read_pixel(hg_window* win, uint32_t x, uint32_t y, uint32_t* out) {
@@ -97,6 +100,14 @@ static hg_result d3d12_tex_create(hg_context* ctx, struct hg_image* img) {
 
 static void d3d12_tex_destroy(hg_context* ctx, struct hg_image* img) {
     d3d12_texture_destroy(device_of(ctx), img);
+}
+
+static hg_result d3d12_shader_prepare(hg_context* ctx, struct hg_shader* sh) {
+    return d3d12_user_shader_prepare(device_of(ctx), sh);
+}
+
+static void d3d12_shader_release(hg_context* ctx, struct hg_shader* sh) {
+    d3d12_user_shader_release(device_of(ctx), sh);
 }
 
 const hg_backend_vtbl hg__d3d12_backend = {
@@ -115,4 +126,6 @@ const hg_backend_vtbl hg__d3d12_backend = {
     .texture_create = d3d12_tex_create,
     .texture_destroy = d3d12_tex_destroy,
     .read_pixel = d3d12_read_pixel,
+    .shader_prepare = d3d12_shader_prepare,
+    .shader_release = d3d12_shader_release,
 };

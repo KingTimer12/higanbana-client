@@ -1,7 +1,8 @@
 //! Tela de exemplo dos elementos base: cabeçalho, barra lateral rolável, cards com
 //! imagem e texto, contador clicável, troca de backend e de tema em tempo real,
-//! campo de texto, tooltip e diálogo modal (`HGUI_DEMO_OPEN=1` abre os dois).
+//! campo de texto, tooltip, diálogo modal (`HGUI_DEMO_OPEN=1` abre os dois) e um shader WGSL.
 mod extras;
+mod shader;
 
 use higanbana_gpui::prelude::*;
 
@@ -12,6 +13,7 @@ struct Showcase {
     search: TextInputState,
     tip: bool,
     dialog: bool,
+    gradient: Option<Shader>,
 }
 
 const TITLES: [&str; 6] = ["Frieren", "Dandadan", "Kusuriya", "Mushishi", "Odd Taxi", "Ping Pong"];
@@ -126,7 +128,8 @@ impl Showcase {
 impl View for Showcase {
     fn render(&mut self, cx: &mut RenderCx<'_, Self>) -> Element<Self> {
         let theme = cx.theme();
-        let cards: Vec<_> = (0..TITLES.len()).map(|i| self.card(i, theme)).collect();
+        let mut cards: Vec<_> = (0..TITLES.len()).map(|i| self.card(i, theme)).collect();
+        cards.extend(shader::card(self.gradient.as_ref(), theme));
         let counter = self.counter(cx);
         let sidebar = self.sidebar(theme);
         let (bg, fg) = (theme.background, theme.foreground);
@@ -154,6 +157,7 @@ fn main() {
         search: TextInputState::with_text(if demo { "葬送のフリーレン 😀" } else { "" }).placeholder("Buscar anime…"),
         tip: demo,
         dialog: demo,
+        gradient: shader::gradient(),
     };
     let opts = WindowOptions { title: "higanbana-gpui · elementos".into(), size: size(1100.0, 720.0), resizable: true, ..Default::default() };
     if let Err(e) = App::new().show_stats(true).run(opts, view) {

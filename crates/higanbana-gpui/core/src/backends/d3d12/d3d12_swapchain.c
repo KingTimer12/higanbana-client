@@ -50,6 +50,7 @@ hg_result d3d12_surface_resize(d3d12_device* d, d3d12_surface* s, UINT w, UINT h
     if (w == 0 || h == 0 || (s->buffers[0] && w == s->width && h == s->height)) return HG_OK;
     d3d12_wait_idle(d);
     release_buffers(s);
+    d3d12_backdrop_release(d, &s->backdrop); /* tamanho velho: recriada no próximo uso */
     if (FAILED(IDXGISwapChain3_ResizeBuffers(s->swapchain, 0, w, h, DXGI_FORMAT_UNKNOWN, 0)))
         return hg__fail(HG_ERR_DEVICE, "d3d12: ResizeBuffers falhou");
     hg_result r = create_rtvs(d, s);
@@ -72,6 +73,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE d3d12_surface_rtv(d3d12_surface* s) {
 void d3d12_surface_release(d3d12_device* d, d3d12_surface* s) {
     if (s->swapchain) d3d12_wait_idle(d);
     release_buffers(s);
+    d3d12_backdrop_release(d, &s->backdrop);
     D3D12_RELEASE(s->swapchain);
     D3D12_RELEASE(s->rtv_heap);
 }

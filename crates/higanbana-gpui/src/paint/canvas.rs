@@ -2,7 +2,7 @@
 use crate::color::Color;
 use crate::element::ImageSource;
 use crate::geometry::{Corners, Point, Rect};
-use crate::gfx::Quad;
+use crate::gfx::{Quad, ShaderFill};
 use crate::style::TextStyle;
 
 /// Superfície de desenho. A implementação de GPU escala para pixels físicos;
@@ -21,6 +21,11 @@ pub trait Canvas {
     fn pop_clip(&mut self);
     /// Tudo depois fica por cima de tudo antes.
     fn layer(&mut self);
+    /// Shader do usuário em `rect`; fecha a camada atual (o que veio antes fica atrás).
+    /// Padrão vazio: canvases de teste que não ligam para shaders.
+    fn shader(&mut self, rect: Rect, radius: Corners<f32>, fill: &ShaderFill, opacity: f32) {
+        let _ = (rect, radius, fill, opacity);
+    }
 }
 
 /// Dentro de uma camada o core desenha quads, depois imagens, depois texto.
@@ -86,6 +91,13 @@ impl<'a> Layered<'a> {
     pub fn text(&mut self, text: &str, style: &TextStyle, bounds: Rect, max_width: Option<f32>, color: Color) {
         self.inner.text(text, style, bounds.origin, max_width, color);
         grow(&mut self.text, bounds);
+    }
+
+    /// O core fecha a camada no shader e abre outra: nada emitido antes colide com o que vem depois.
+    pub fn shader(&mut self, rect: Rect, radius: Corners<f32>, fill: &ShaderFill, opacity: f32) {
+        self.inner.shader(rect, radius, fill, opacity);
+        self.text = None;
+        self.images = None;
     }
 
     /// No core, empilhar/desempilhar clip já abre um lote novo (camada).

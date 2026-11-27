@@ -52,6 +52,8 @@ uint64_t vk_gpu_bytes(const vk_device* d, const vk_surface* s) {
     for (int i = 0; i < VK_FRAMES; i++) {
         const vk_frame* f = &s->frames[i];
         bytes += f->quads.capacity + f->glyphs.capacity + f->staging.capacity + f->images.capacity;
+        bytes += f->shaders.uniforms.capacity;
     }
+    bytes += (uint64_t)s->backdrop.width * s->backdrop.height * 4; /* B8G8R8A8 */
     return bytes;
 }

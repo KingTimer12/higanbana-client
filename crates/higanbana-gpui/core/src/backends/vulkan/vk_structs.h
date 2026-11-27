@@ -93,6 +93,10 @@ typedef struct VkImageMemoryBarrier {
     VK_HEADER; VkFlags srcAccessMask, dstAccessMask; uint32_t oldLayout, newLayout;
     uint32_t srcQueueFamilyIndex, dstQueueFamilyIndex; VkImage image; VkImageSubresourceRange subresourceRange;
 } VkImageMemoryBarrier;
+typedef struct VkImageCopy {
+    VkImageSubresourceLayers srcSubresource; VkOffset3D srcOffset;
+    VkImageSubresourceLayers dstSubresource; VkOffset3D dstOffset; VkExtent3D extent;
+} VkImageCopy;
 typedef struct VkBufferImageCopy {
     VkDeviceSize bufferOffset; uint32_t bufferRowLength, bufferImageHeight;
     VkImageSubresourceLayers imageSubresource; VkOffset3D imageOffset; VkExtent3D imageExtent;

@@ -39,6 +39,8 @@ typedef struct hg_batch {
     struct hg_text_run* texts_first;
     struct hg_text_run* texts_last;
     uint32_t            text_count;
+    struct hg_shader*   shader;      /* != NULL: lote só de shader (sem quads/imagens/texto) */
+    hg_shader_draw      shader_draw;
 } hg_batch;
 
 struct hg_draw_list {

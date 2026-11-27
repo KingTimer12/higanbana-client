@@ -3,7 +3,9 @@ pub mod anim;
 pub mod basic;
 pub mod command;
 pub mod form;
+pub mod glass;
 pub mod icons;
+pub mod liquid_glass;
 pub mod overlay;
 pub mod popover;
 pub mod progress;
@@ -54,6 +56,7 @@ pub const SECTIONS: &[Section] = &[
     s("Sobreposição", "Toast", "Aviso temporário no canto da tela.", overlay::toast),
     s("Navegação", "Sidebar", "Menu lateral com grupos; recolhe para só ícones.", sidebar::sidebar),
     s("Movimento", "Animações", "Presença, molas, repetição e cores animadas.", anim::anim),
+    s("Movimento", "Vidro líquido", "Shader WGSL com backdrop: refração na borda, desfoque, tinta e reflexo animado.", glass::glass),
 ];
 
 /// Título, descrição e os exemplos da seção ativa.
