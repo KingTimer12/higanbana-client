@@ -607,6 +607,8 @@ Rules and limits:
   `p.scale`.
 - `backdrop` and `backdrop_blur` return transparent unless the shader was created with
   `.backdrop(true)`.
+- Only `rect` ± 64 physical px is copied for each draw: sampling `backdrop`/`backdrop_blur` farther
+  from the rectangle returns stale or undefined data (an older copy, or whatever the texture held).
 - `backdrop_blur` clamps its radius to 64 px, the margin the backends copy around the rectangle.
   **Known limitation:** its 25 taps are r/2 apart and read the full-resolution texture with no
   mipmaps. Above about 20 px of radius, fine detail such as text and thin lines shows up as

@@ -30,6 +30,7 @@ fn param(i: u32) -> vec4<f32> {
 }
 
 // O que já foi desenhado atrás (bilinear). Transparente sem `.backdrop(true)`.
+// Só vale até 64 px físicos fora do retângulo (a margem copiada): mais longe o dado é velho/indefinido.
 fn backdrop(screen_px: vec2<f32>) -> vec4<f32> {
     if ((u32(hg_u.time_scale_opacity_flags.w) & 1u) == 0u) {
         return vec4<f32>(0.0);
