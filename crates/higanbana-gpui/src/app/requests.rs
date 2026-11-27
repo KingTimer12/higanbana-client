@@ -2,6 +2,7 @@
 use super::run::{Dirty, Runner};
 use super::View;
 use crate::cx::EventCx;
+use crate::gfx::{Shader, WindowState};
 use std::time::{Duration, Instant};
 
 /// Intervalo de frame quando não há vsync para frear o laço.
@@ -50,7 +51,20 @@ impl<V: View> Runner<'_, V> {
 
     /// Próximo instante em que o laço precisa acordar sem evento (`None` = dormir).
     pub(super) fn deadline(&self) -> Option<Instant> {
-        [self.timers.next_deadline(), self.wake, self.blink].into_iter().flatten().min()
+        [self.timers.next_deadline(), self.wake, self.blink, self.repaint].into_iter().flatten().min()
+    }
+
+    /// Depois do `present`: agenda o próximo quadro de shader animado, cria os shaders
+    /// que faltaram no cache e passa adiante erros do compilador nativo (magenta).
+    pub(super) fn after_shaders(&mut self, animated: bool, missed: Vec<Shader>, now: Instant) {
+        self.repaint = shader_repaint_at(animated, self.window_state, self.vsync, now);
+        let mut fresh = false;
+        for s in &missed {
+            fresh |= self.shaders.add(s);
+        }
+        if fresh || (!self.shaders.is_empty() && self.shaders.collect_errors()) {
+            self.mark(Dirty::Repaint);
+        }
     }
 
     /// Roda o que venceu: timers, reconstrução pedida e piscar do cursor. `false` = encerrar.
@@ -71,10 +85,44 @@ impl<V: View> Runner<'_, V> {
             self.wake = None;
             self.mark(Dirty::Rebuild);
         }
+        if self.repaint.is_some_and(|r| r <= now) {
+            self.repaint = None;
+            self.mark(Dirty::Repaint);
+        }
         if self.blink.is_some_and(|b| b <= now) {
             self.blink = None;
             self.mark(Dirty::Repaint);
         }
         true
+    }
+}
+
+/// Quando repintar por causa de shader animado: só se foi pintado neste quadro e a janela
+/// não está minimizada. Sem foco ou coberta continua animando (como o vídeo).
+pub(super) fn shader_repaint_at(painted_animated: bool, state: WindowState, vsync: bool, now: Instant) -> Option<Instant> {
+    (painted_animated && !state.minimized).then(|| if vsync { now } else { now + FRAME })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gfx::WindowState;
+
+    #[test]
+    fn shader_animado_pintado_pede_quadro_imediato() {
+        let now = Instant::now();
+        assert_eq!(shader_repaint_at(true, WindowState::default(), true, now), Some(now));
+        assert_eq!(shader_repaint_at(true, WindowState::default(), false, now), Some(now + FRAME));
+    }
+
+    #[test]
+    fn shader_animado_sem_prazo_se_minimizada_ou_nao_pintado() {
+        let now = Instant::now();
+        let min = WindowState { minimized: true, ..Default::default() };
+        assert_eq!(shader_repaint_at(true, min, true, now), None);
+        assert_eq!(shader_repaint_at(false, WindowState::default(), true, now), None);
+        // Sem foco continua animando (como o vídeo).
+        let unfocused = WindowState { focused: false, ..Default::default() };
+        assert_eq!(shader_repaint_at(true, unfocused, true, now), Some(now));
     }
 }

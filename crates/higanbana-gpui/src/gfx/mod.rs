@@ -22,7 +22,7 @@ pub use draw::{ClipGuard, DrawList, Quad};
 pub use event::{Event, Modifiers, MouseButton, NavDirection};
 pub use font::{font_files_in, Font, FontSpec, TextMetrics};
 pub use image::Image;
-pub use shader::{GpuShader, Shader, ShaderDraw, ShaderError, ShaderParams};
+pub use shader::{GpuShader, Shader, ShaderDraw, ShaderError, ShaderFill, ShaderParams};
 pub use video_target::VideoTarget;
 pub use waker::Waker;
 pub use window::{Window, WindowOptions};

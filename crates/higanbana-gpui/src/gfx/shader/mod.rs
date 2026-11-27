@@ -5,6 +5,7 @@ mod compose;
 #[cfg(feature = "shaders")]
 mod contract;
 mod error;
+mod fill;
 mod gpu;
 mod handle;
 #[cfg(feature = "shaders")]
@@ -14,6 +15,7 @@ mod locate;
 mod translate;
 
 pub use error::ShaderError;
+pub use fill::ShaderFill;
 pub use gpu::{GpuShader, ShaderDraw};
 pub use handle::Shader;
 pub use translate::{Translations, GLSL_BACKDROP_SAMPLER, GLSL_UNIFORM_BLOCK_FS, GLSL_UNIFORM_BLOCK_VS};

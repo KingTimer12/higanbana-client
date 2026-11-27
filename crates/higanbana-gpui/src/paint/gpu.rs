@@ -1,11 +1,12 @@
 //! `Canvas` de GPU: escala para pixels físicos e grava na `DrawList`.
 use super::canvas::Canvas;
 use super::images::ImageCache;
+use super::shaders::ShaderCache;
 use crate::color::Color;
 use crate::element::ImageSource;
 use crate::error::Error;
 use crate::geometry::{Corners, Point, Rect};
-use crate::gfx::{Context, DrawList, Quad};
+use crate::gfx::{Context, DrawList, Quad, Shader, ShaderDraw, ShaderFill};
 use crate::style::TextStyle;
 
 const FULL_UV: Rect = Rect::new(0.0, 0.0, 1.0, 1.0);
@@ -14,14 +15,26 @@ pub struct GpuCanvas<'l, 'a, 'c> {
     list: &'l mut DrawList<'a>,
     ctx: &'c Context,
     images: &'a ImageCache<'c>,
+    /// `None` = sem shaders (desenhos de shader viram `missed`).
+    shaders: Option<&'a ShaderCache<'c>>,
     scale: f32,
     /// Primeiro erro do frame (o resto do frame continua sendo desenhado).
     pub error: Option<Error>,
+    /// Algum shader `animated` foi desenhado neste quadro (o laço pede o próximo).
+    pub animated: bool,
+    /// Shaders pedidos fora do cache (hover, canvas direto): o laço cria e repinta.
+    pub missed: Vec<Shader>,
 }
 
 impl<'l, 'a, 'c> GpuCanvas<'l, 'a, 'c> {
     pub fn new(list: &'l mut DrawList<'a>, ctx: &'c Context, images: &'a ImageCache<'c>, scale: f32) -> Self {
-        Self { list, ctx, images, scale, error: None }
+        Self { list, ctx, images, shaders: None, scale, error: None, animated: false, missed: Vec::new() }
+    }
+
+    /// Liga os shaders do usuário (`Canvas::shader`) a este cache.
+    pub fn with_shaders(mut self, shaders: &'a ShaderCache<'c>) -> Self {
+        self.shaders = Some(shaders);
+        self
     }
 
     fn record(&mut self, r: crate::Result<()>) {
@@ -87,5 +100,31 @@ impl<'a, 'c> Canvas for GpuCanvas<'_, 'a, 'c> {
     fn layer(&mut self) {
         let r = self.list.layer();
         self.record(r);
+    }
+
+    fn shader(&mut self, rect: Rect, radius: Corners<f32>, fill: &ShaderFill, opacity: f32) {
+        let shaders: Option<&'a ShaderCache<'c>> = self.shaders;
+        if fill.shader.has_error() {
+            // Mesmo aviso visual do pintor da árvore, para quem desenha direto no canvas.
+            let q = Quad { rect, fill: crate::color::rgb(0xff00ff).fade(opacity), radius, ..Quad::default() };
+            return self.quad(&q);
+        }
+        let Some(gpu) = shaders.and_then(|c| c.get(&fill.shader)) else {
+            if !self.missed.iter().any(|m| m.key() == fill.shader.key()) {
+                self.missed.push(fill.shader.clone());
+            }
+            return;
+        };
+        let d = ShaderDraw {
+            rect: rect.scale(self.scale),
+            radius: self.corners(radius),
+            time: fill.shader.time(),
+            scale: self.scale,
+            opacity,
+            params: fill.params,
+        };
+        let r = self.list.shader(gpu, &d);
+        self.record(r);
+        self.animated |= fill.shader.is_animated();
     }
 }

@@ -1,8 +1,8 @@
 //! Percorre a árvore posicionada e emite primitivas no `Canvas`.
 use super::canvas::{Canvas, Layered};
-use crate::color::{rgba, Color};
+use crate::color::{rgb, rgba, Color};
 use crate::geometry::{Corners, Rect};
-use crate::gfx::Quad;
+use crate::gfx::{Quad, ShaderFill};
 use crate::layout::padding_box;
 use crate::style::{Display, ObjectFit, Overflow, Style, TextStyle};
 use crate::tree::node::{children, NodeKind};
@@ -12,6 +12,8 @@ use std::time::Instant;
 /// Cor da barra de rolagem (neutra, funciona nos dois temas).
 const SCROLLBAR: Color = rgba(0x8080_8080);
 const SCROLLBAR_W: f32 = 4.0;
+/// Shader que não compilou aparece assim, para não sumir sem aviso.
+const SHADER_ERROR: Color = rgb(0xff00ff);
 
 impl<V> Tree<V> {
     /// Pinta a árvore toda. Devolve quantas camadas extras foram abertas.
@@ -73,17 +75,15 @@ impl<V> Tree<V> {
         };
         let visible = n.clip.intersects(&n.rect);
         let k = n.paint_scale;
-        if visible && style.has_box() {
-            let mut q = box_quad(style, n.rect, opacity);
-            if style.border_dashed && q.border_width > 0.0 {
-                for d in dash_quads(n.rect, q.border_width, q.border) {
-                    out.quad(&scaled(d, k));
-                }
-                q.border_width = 0.0;
+        if let Some(fill) = style.shader.as_deref() {
+            if visible {
+                paint_shader_box(out, style, fill, n.rect, opacity, k);
             }
-            out.quad(&scaled(q, k));
+        } else if visible && style.has_box() {
+            let q = box_quad(style, n.rect, opacity);
+            paint_box(out, style, q, n.rect, k);
         }
-        if let Some(g) = style.gradient.as_ref().filter(|_| visible) {
+        if let Some(g) = style.gradient.as_ref().filter(|_| visible && style.shader.is_none()) {
             out.image(&super::gradient::ramp(g), n.rect, style.radius.map(|r| r * k), Color::WHITE.fade(opacity));
         }
         let scaled_text;
@@ -151,6 +151,37 @@ impl<V> Tree<V> {
 
     fn scroll_offset_of(&self, i: usize) -> f32 {
         self.nodes[i].id.and_then(|id| self.offsets.get(&id).copied()).unwrap_or(0.0)
+    }
+}
+
+/// Quad da caixa (com a borda tracejada em quads à parte, se for o caso).
+fn paint_box(out: &mut Layered<'_>, style: &Style, mut q: Quad, rect: Rect, k: f32) {
+    if style.border_dashed && q.border_width > 0.0 {
+        for d in dash_quads(rect, q.border_width, q.border) {
+            out.quad(&scaled(d, k));
+        }
+        q.border_width = 0.0;
+    }
+    out.quad(&scaled(q, k));
+}
+
+/// Caixa com shader no lugar do fundo: sombra (entra no backdrop) → shader → borda.
+/// Shader com erro vira um quad magenta com os mesmos cantos.
+fn paint_shader_box(out: &mut Layered<'_>, style: &Style, fill: &ShaderFill, rect: Rect, opacity: f32, k: f32) {
+    let q = box_quad(style, rect, opacity);
+    if style.shadow.is_some_and(|s| !s.color.is_transparent()) {
+        let shadow = Quad { fill: Color::TRANSPARENT, border: Color::TRANSPARENT, border_width: 0.0, ..q };
+        out.quad(&scaled(shadow, k));
+    }
+    let radius = style.radius.map(|r| r * k);
+    if fill.shader.has_error() {
+        out.quad(&Quad { rect, fill: SHADER_ERROR.fade(opacity), radius, ..Quad::default() });
+    } else {
+        out.shader(rect, radius, fill, opacity);
+    }
+    if q.border_width > 0.0 && !q.border.is_transparent() {
+        let border = Quad { fill: Color::TRANSPARENT, shadow: Color::TRANSPARENT, shadow_blur: 0.0, ..q };
+        paint_box(out, style, border, rect, k);
     }
 }
 

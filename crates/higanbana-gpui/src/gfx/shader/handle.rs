@@ -54,6 +54,11 @@ impl Shader {
         self.inner.error.borrow().clone()
     }
 
+    /// Tem erro guardado? (sem clonar a mensagem; usado a cada pintura)
+    pub(crate) fn has_error(&self) -> bool {
+        self.inner.error.borrow().is_some()
+    }
+
     /// Segundos desde a criação (o `time` do `ShadeInput`).
     pub fn time(&self) -> f32 {
         self.inner.origin.elapsed().as_secs_f32()
@@ -74,8 +79,17 @@ impl Shader {
         Rc::ptr_eq(&self.inner, &other.inner)
     }
 
+    /// Chave do cache de GPU: mesma tradução + backdrop (a flag fica gravada no `GpuShader`).
+    pub(crate) fn key(&self) -> (usize, bool) {
+        (Rc::as_ptr(&self.inner) as usize, self.backdrop)
+    }
+
+    /// Quantos `Shader` dividem esta tradução (o cache solta quando só ele sobra).
+    pub(crate) fn holders(&self) -> usize {
+        Rc::strong_count(&self.inner)
+    }
+
     /// Guarda o erro do compilador nativo; devolve `true` se é novo (para avisar uma vez só).
-    #[allow(dead_code)] // usado quando os backends compilarem (tarefas seguintes)
     pub(crate) fn set_error(&self, e: ShaderError) -> bool {
         let mut slot = self.inner.error.borrow_mut();
         let new = slot.as_ref() != Some(&e);
