@@ -40,13 +40,15 @@ struct Case {
     points: Vec<(u32, u32)>,
     /// Desenha uma vez, redimensiona para este tamanho físico e lê no 2º quadro.
     resize: Option<(u32, u32)>,
+    /// Pontos lidos só no quadro após o resize (depois de `points`): fora da área original.
+    resize_points: Vec<(u32, u32)>,
     /// `native_error()` deve vir preenchido (true) ou vazio (false).
     expect_native_error: bool,
 }
 
 impl Case {
     fn new(code: Code, ops: Vec<Op>, points: Vec<(u32, u32)>) -> Self {
-        Case { code, backdrop: false, ops, points, resize: None, expect_native_error: false }
+        Case { code, backdrop: false, ops, points, resize: None, resize_points: Vec::new(), expect_native_error: false }
     }
 
     fn backdrop(mut self) -> Self {
@@ -60,9 +62,16 @@ fn broken() -> Translations {
     Translations { hlsl: junk.clone(), glsl_vs: junk.clone(), glsl_fs: junk.clone(), spirv: vec![0xdead_beef, 1, 2, 3], wgsl: junk }
 }
 
+/// Um caso por vez no processo. Contextos de backends diferentes (D3D11 e D3D12) em threads paralelas
+/// derrubam o processo de teste (access violation, já sem os shaders do D3D12); estes testes verificam o
+/// desenho de cada backend, não essa concorrência, que fica investigada à parte.
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Roda `case` no backend `kind`. `None` = backend indisponível nesta máquina (o teste pula).
 /// Devolve os pixels (0x00RRGGBB) nos `points` do último quadro.
 fn run_case(kind: Backend, case: Case) -> Option<Vec<u32>> {
+    // Um assert que falhou em outro caso envenena o lock; o estado protegido é vazio, segue.
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let ctx = Context::new(kind).ok()?;
     if ctx.backend() != kind {
         return None; // o core caiu para outro backend
@@ -84,7 +93,8 @@ fn run_case(kind: Backend, case: Case) -> Option<Vec<u32>> {
     let mut px = win.present_and_read(Color::BLACK, &list, &case.points).expect("quadro");
     if let Some((w, h)) = case.resize {
         win.inject_resize(w, h);
-        px = win.present_and_read(Color::BLACK, &list, &case.points).expect("quadro após resize");
+        let points: Vec<_> = case.points.iter().chain(&case.resize_points).copied().collect();
+        px = win.present_and_read(Color::BLACK, &list, &points).expect("quadro após resize");
     }
     assert_eq!(gpu.native_error().is_some(), case.expect_native_error, "{kind:?}: native_error = {:?}", gpu.native_error());
     Some(px)
@@ -180,13 +190,20 @@ fn case_native_error(kind: Backend) {
 }
 
 fn case_edge_and_resize(kind: Backend) {
-    let glass = Rect::new(-50.0, -50.0, 200.0, 200.0);
-    let mut case = Case::new(Code::Wgsl(INVERT), red_backdrop_ops(glass), vec![(10, 10), (200, 200)]).backdrop();
+    // Fundo vermelho já no tamanho pós-resize; o 2º vidro fica fora da janela de 320x240 (backdrop vazio,
+    // nada a copiar) e só aparece depois do resize, onde um backdrop velho de 320x240 não chega.
+    let ops = vec![
+        Op::Quad(Rect::new(0.0, 0.0, 640.0, 480.0), rgb(0xff0000)),
+        Op::Shader(shader_at(Rect::new(-50.0, -50.0, 200.0, 200.0))),
+        Op::Shader(shader_at(Rect::new(400.0, 300.0, 160.0, 120.0))),
+    ];
+    let mut case = Case::new(Code::Wgsl(INVERT), ops, vec![(10, 10), (200, 200)]).backdrop();
     let Some(px) = run_case(kind, case.clone()) else { return skip(kind) };
     assert_eq!(px, vec![CYAN, RED], "vidro saindo pela borda");
     case.resize = Some((640, 480));
+    case.resize_points = vec![(480, 360), (620, 460)];
     let px = run_case(kind, case).expect("backend sumiu entre casos");
-    assert_eq!(px, vec![CYAN, RED], "vidro após resize para 640x480");
+    assert_eq!(px, vec![CYAN, RED, CYAN, RED], "vidros após resize para 640x480 (o 2º fora da área antiga)");
 }
 
 fn case_overlap(kind: Backend) {
@@ -218,7 +235,8 @@ macro_rules! backend_tests {
     )*};
 }
 
-// Tasks 4-7: acrescentar `d3d12 => BackendKind::D3D12`, `opengl => ...`, `vulkan => ...`, `wgpu => ...`.
+// Tasks 5-7: acrescentar `opengl => ...`, `vulkan => ...`, `wgpu => ...`.
 backend_tests! {
     d3d11 => BackendKind::D3D11,
+    d3d12 => BackendKind::D3D12,
 }

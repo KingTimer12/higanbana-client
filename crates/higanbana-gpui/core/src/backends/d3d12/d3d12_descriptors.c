@@ -1,5 +1,6 @@
 /* d3d12_descriptors.c — heap SRV único visível ao shader, de tamanho fixo (D3D12_SRV_MAX).
- * Slot 0 é do atlas de glyphs; os demais saem de uma lista livre para as imagens. */
+ * Slot 0 é do atlas de glyphs; os demais saem de uma lista livre para as imagens, o backdrop
+ * de cada superfície e o descritor nulo dos shaders do usuário. */
 #include "d3d12_internal.h"
 #include "error.h"
 
@@ -34,6 +35,15 @@ D3D12_CPU_DESCRIPTOR_HANDLE d3d12_srv_cpu(const d3d12_srv_heap* h, UINT index) {
     ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(h->heap, &c);
     c.ptr += (SIZE_T)index * h->stride;
     return c;
+}
+
+void d3d12_srv_write_bgra(ID3D12Device* dev, const d3d12_srv_heap* h, UINT index, ID3D12Resource* tex) {
+    D3D12_SHADER_RESOURCE_VIEW_DESC v = { 0 };
+    v.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    v.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    v.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    v.Texture2D.MipLevels = 1;
+    ID3D12Device_CreateShaderResourceView(dev, tex, &v, d3d12_srv_cpu(h, index));
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE d3d12_srv_gpu(const d3d12_srv_heap* h, UINT index) {

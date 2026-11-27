@@ -1,4 +1,4 @@
-/* d3d12_loader.c — carrega d3d12.dll e dxgi.dll dinamicamente. */
+/* d3d12_loader.c — carrega d3d12.dll, dxgi.dll e (no 1º shader do usuário) d3dcompiler_47.dll dinamicamente. */
 #include "d3d12_internal.h"
 
 #define LOAD(lib, type, name) (type)(void*)GetProcAddress(lib, name)
@@ -24,4 +24,19 @@ void d3d12_loader_close(d3d12_loader* l) {
     l->create_device = NULL;
     l->serialize_root_signature = NULL;
     l->create_factory2 = NULL;
+}
+
+int d3d12_compiler_open(d3d12_compiler* c) {
+    if (c->compile) return 1;
+    c->lib = LoadLibraryW(L"d3dcompiler_47.dll");
+    if (!c->lib) return 0;
+    c->compile = LOAD(c->lib, pD3DCompile, "D3DCompile");
+    if (!c->compile) { d3d12_compiler_close(c); return 0; }
+    return 1;
+}
+
+void d3d12_compiler_close(d3d12_compiler* c) {
+    if (c->lib) FreeLibrary(c->lib);
+    c->lib = NULL;
+    c->compile = NULL;
 }

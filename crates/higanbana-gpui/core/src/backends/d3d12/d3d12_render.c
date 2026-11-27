@@ -64,6 +64,15 @@ hg_result d3d12_render_draw_list(d3d12_device* d, hg_context* ctx, d3d12_surface
     ID3D12GraphicsCommandList* l = d->list;
     UINT quad_start = 0, image_start = 0, glyph_start = 0, i = 0;
     for (const hg_batch* b = dl->first; b; b = b->next, i++) {
+        if (b->shader) { /* lote só de shader: camada própria */
+            D3D12_RECT sc = scissor_for(b, s);
+            ID3D12GraphicsCommandList_RSSetScissorRects(l, 1, &sc);
+            if (d3d12_user_shader_draw(d, s, b)) {
+                ctx->stats.draw_calls++;
+                bind_common(d, s);
+            }
+            continue;
+        }
         UINT glyphs = d->glyphs.frame.count ? d->glyphs.frame.batch_counts[i] : 0;
         if (b->quad_count == 0 && b->image_count == 0 && glyphs == 0) continue;
         D3D12_RECT sc = scissor_for(b, s);

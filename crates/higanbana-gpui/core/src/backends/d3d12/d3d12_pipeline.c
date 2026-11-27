@@ -69,9 +69,9 @@ static HRESULT create_root(ID3D12Device* dev, const d3d12_loader* l, D3D12_FILTE
     return hr;
 }
 
-static HRESULT create_pso(ID3D12Device* dev, ID3D12RootSignature* root, D3D12_SHADER_BYTECODE vs,
-                          D3D12_SHADER_BYTECODE ps, const D3D12_INPUT_ELEMENT_DESC* layout, UINT n,
-                          ID3D12PipelineState** out) {
+HRESULT d3d12_pso_create(ID3D12Device* dev, ID3D12RootSignature* root, D3D12_SHADER_BYTECODE vs,
+                         D3D12_SHADER_BYTECODE ps, const D3D12_INPUT_ELEMENT_DESC* layout, UINT n,
+                         ID3D12PipelineState** out) {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC d = { 0 };
     d.pRootSignature = root;
     d.VS = vs;
@@ -102,13 +102,13 @@ hg_result d3d12_pipeline_create(ID3D12Device* dev, const d3d12_loader* l, d3d12_
     HRESULT hr = create_root(dev, l, D3D12_FILTER_MIN_MAG_MIP_POINT, &p->root);
     if (SUCCEEDED(hr)) hr = create_root(dev, l, D3D12_FILTER_MIN_MAG_MIP_LINEAR, &p->image_root);
     if (SUCCEEDED(hr))
-        hr = create_pso(dev, p->root, BYTECODE(hg_quad_vs), BYTECODE(hg_quad_ps), k_quad_layout,
+        hr = d3d12_pso_create(dev, p->root, BYTECODE(hg_quad_vs), BYTECODE(hg_quad_ps), k_quad_layout,
                         ARRAYSIZE(k_quad_layout), &p->quad);
     if (SUCCEEDED(hr))
-        hr = create_pso(dev, p->root, BYTECODE(hg_glyph_vs), BYTECODE(hg_glyph_ps), k_glyph_layout,
+        hr = d3d12_pso_create(dev, p->root, BYTECODE(hg_glyph_vs), BYTECODE(hg_glyph_ps), k_glyph_layout,
                         ARRAYSIZE(k_glyph_layout), &p->glyph);
     if (SUCCEEDED(hr))
-        hr = create_pso(dev, p->image_root, BYTECODE(hg_image_vs), BYTECODE(hg_image_ps), k_image_layout,
+        hr = d3d12_pso_create(dev, p->image_root, BYTECODE(hg_image_vs), BYTECODE(hg_image_ps), k_image_layout,
                         ARRAYSIZE(k_image_layout), &p->image);
     if (FAILED(hr)) {
         d3d12_pipeline_release(p);
