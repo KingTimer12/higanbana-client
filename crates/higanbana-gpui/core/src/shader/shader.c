@@ -63,13 +63,26 @@ const char* hg_shader_error(const hg_shader* sh) { return sh ? sh->error : NULL;
 
 hg_result hg__shader_gpu(hg_shader* sh) {
     if (sh->gpu) return HG_OK;
+    /* Já falhou neste backend: não recompila a cada quadro. */
+    if (sh->error) return hg__fail(HG_ERR_DEVICE, sh->error);
     const hg_backend_vtbl* vt = sh->ctx->backend;
     if (!vt || !vt->shader_prepare) return HG_OK;
     return vt->shader_prepare(sh->ctx, sh);
 }
 
 void hg__shaders_release_gpu(hg_context* ctx) {
-    if (!ctx->backend || !ctx->backend->shader_release) return;
-    for (hg_shader* s = ctx->shaders; s; s = s->next)
-        if (s->gpu) ctx->backend->shader_release(ctx, s);
+    const hg_backend_vtbl* vt = ctx->backend;
+    for (hg_shader* s = ctx->shaders; s; s = s->next) {
+        if (s->gpu && vt && vt->shader_release) vt->shader_release(ctx, s);
+        s->gpu = NULL;
+        /* O erro era do compilador deste backend: o próximo tenta de novo. */
+        free(s->error);
+        s->error = NULL;
+    }
+}
+
+hg_result hg__shader_set_error(hg_shader* sh, const char* msg) {
+    free(sh->error);
+    sh->error = dup_str(msg && *msg ? msg : "shader: erro do compilador nativo");
+    return hg__fail(HG_ERR_DEVICE, sh->error ? sh->error : "shader: sem memória para o erro");
 }

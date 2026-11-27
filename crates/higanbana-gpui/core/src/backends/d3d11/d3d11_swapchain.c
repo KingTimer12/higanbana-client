@@ -34,6 +34,7 @@ hg_result d3d11_surface_resize(d3d11_device* d, d3d11_surface* s, UINT w, UINT h
     if (w == 0 || h == 0 || (s->rtv && w == s->width && h == s->height)) return HG_OK;
     ID3D11DeviceContext_OMSetRenderTargets(d->imm, 0, NULL, NULL);
     D3D11_RELEASE(s->rtv);
+    d3d11_backdrop_release(&s->backdrop); /* tamanho velho: recriada no próximo uso */
     if (FAILED(IDXGISwapChain1_ResizeBuffers(s->swapchain, 0, w, h, DXGI_FORMAT_UNKNOWN, 0)))
         return hg__fail(HG_ERR_DEVICE, "d3d11: ResizeBuffers falhou");
     hg_result r = create_rtv(d, s);
@@ -49,6 +50,7 @@ hg_result d3d11_surface_present(d3d11_surface* s, int vsync) {
 }
 
 void d3d11_surface_release(d3d11_surface* s) {
+    d3d11_backdrop_release(&s->backdrop);
     D3D11_RELEASE(s->rtv);
     D3D11_RELEASE(s->swapchain);
 }

@@ -27,6 +27,10 @@ serde_json.workspace = true
 naga = { version = "=30.0.1", optional = true, default-features = false, features = ["wgsl-in", "hlsl-out", "glsl-out", "spv-out"] }
 
 [[test]]
+name = "shader_backends"
+required-features = ["shaders"]
+
+[[test]]
 name = "video"
 required-features = ["video"]
 

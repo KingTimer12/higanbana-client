@@ -9,3 +9,4 @@
 -Isrc/text
 -Isrc/render
 -Isrc/image
+-Isrc/shader

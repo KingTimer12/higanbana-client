@@ -175,6 +175,12 @@ impl<'c> Window<'c> {
         self.present_with(clear, list, vsync, |_| Ok(()))
     }
 
+    /// Gancho de teste: aplica um novo tamanho físico como se o sistema tivesse redimensionado.
+    #[doc(hidden)]
+    pub fn inject_resize(&self, width: u32, height: u32) {
+        unsafe { sys::hg__window_inject_resize(self.raw.as_ptr(), width, height) };
+    }
+
     /// Gancho de teste: desenha e lê pixels físicos (0x00RRGGBB) antes de apresentar.
     #[doc(hidden)]
     pub fn present_and_read(&self, clear: Color, list: &DrawList<'_>, points: &[(u32, u32)]) -> Result<Vec<u32>> {

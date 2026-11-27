@@ -1,5 +1,6 @@
 //! `GpuShader`: o `hg_shader` do core, criado pelo `Context` a partir de um `Shader`.
 use super::handle::Shader;
+use super::translate::Translations;
 use super::ShaderParams;
 use crate::error::{check, Error, Result};
 use crate::geometry::{Corners, Rect};
@@ -42,7 +43,12 @@ fn cstring(s: &str) -> Result<CString> {
 impl Context {
     /// Envia as traduções de `s` ao core.
     pub fn shader(&self, s: &Shader) -> Result<GpuShader<'_>> {
-        let t = s.translations();
+        self.shader_from_translations(s.translations(), s.is_backdrop())
+    }
+
+    /// Gancho de teste: envia fontes nativos prontos (ex.: código inválido para o compilador do backend).
+    #[doc(hidden)]
+    pub fn shader_from_translations(&self, t: &Translations, backdrop: bool) -> Result<GpuShader<'_>> {
         let (hlsl, glsl_vs, glsl_fs, wgsl) = (cstring(&t.hlsl)?, cstring(&t.glsl_vs)?, cstring(&t.glsl_fs)?, cstring(&t.wgsl)?);
         let code = sys::hg_shader_code {
             hlsl: hlsl.as_ptr(),
@@ -55,7 +61,7 @@ impl Context {
         let mut raw = std::ptr::null_mut();
         check(unsafe { sys::hg_shader_create(self.raw(), &code, &mut raw) })?;
         let raw = NonNull::new(raw).ok_or_else(|| Error::invalid("hg_shader_create devolveu nulo"))?;
-        Ok(GpuShader { raw, backdrop: s.is_backdrop(), _ctx: PhantomData })
+        Ok(GpuShader { raw, backdrop, _ctx: PhantomData })
     }
 }
 

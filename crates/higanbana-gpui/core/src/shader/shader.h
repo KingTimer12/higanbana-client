@@ -21,4 +21,12 @@ struct hg_shader {
 hg_result hg__shader_gpu(hg_shader* sh);
 /* Libera o objeto GPU de todos os shaders no backend atual (troca de backend / destroy). */
 void      hg__shaders_release_gpu(hg_context* ctx);
+/* Backends: grava a mensagem do compilador nativo em sh->error e devolve HG_ERR_DEVICE. */
+hg_result hg__shader_set_error(hg_shader* sh, const char* msg);
+
+/* Uniform do shader (HG_SHADER_UNIFORM_BYTES = 80 floats, layout de prelude.wgsl).
+ * viewport_w/h: tamanho do alvo em pixels; y_sign: 1, ou -1 para inverter o v do backdrop (GL). */
+#define HG_SHADER_UNIFORM_FLOATS (HG_SHADER_UNIFORM_BYTES / 4u)
+void      hg__shader_uniforms(const hg_shader_draw* d, float viewport_w, float viewport_h, float y_sign,
+                              float out[HG_SHADER_UNIFORM_FLOATS]);
 #endif

@@ -89,6 +89,15 @@ static void d3d11_tex_destroy(hg_context* ctx, struct hg_image* img) {
     d3d11_texture_destroy(device_of(ctx), img);
 }
 
+static hg_result d3d11_shader_prepare(hg_context* ctx, struct hg_shader* sh) {
+    return d3d11_user_shader_prepare(device_of(ctx), sh);
+}
+
+static void d3d11_shader_release(hg_context* ctx, struct hg_shader* sh) {
+    (void)ctx;
+    d3d11_user_shader_release(sh);
+}
+
 const hg_backend_vtbl hg__d3d11_backend = {
     .kind = HG_BACKEND_D3D11,
     .name = "Direct3D 11",
@@ -106,4 +115,6 @@ const hg_backend_vtbl hg__d3d11_backend = {
     .texture_destroy = d3d11_tex_destroy,
     .read_pixel = d3d11_read_pixel,
     .texture_update = d3d11_tex_update,
+    .shader_prepare = d3d11_shader_prepare,
+    .shader_release = d3d11_shader_release,
 };
