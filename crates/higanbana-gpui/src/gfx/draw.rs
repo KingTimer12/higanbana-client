@@ -1,6 +1,7 @@
 //! Draw list segura. Coordenadas aqui são físicas (o chamador já multiplicou pela escala).
 use super::font::Font;
 use super::image::Image;
+use super::shader::{GpuShader, ShaderDraw};
 use crate::color::Color;
 use crate::error::{check, Result};
 use crate::geometry::{Corners, Rect};
@@ -72,6 +73,20 @@ impl<'a> DrawList<'a> {
     pub fn image(&mut self, image: &'a Image<'_>, dest: Rect, uv: Rect, tint: Color, radius: Corners<f32>) -> Result<()> {
         let d = sys::hg_image_draw { rect: rect(dest), uv: rect(uv), tint: tint.to_hg(), radius: radius.to_array() };
         check(unsafe { sys::hg_draw_image(self.raw.as_ptr(), image.raw(), &d) })
+    }
+
+    /// Shader do usuário numa camada própria (o que veio antes fica atrás), herdando o clip.
+    pub fn shader(&mut self, gpu: &'a GpuShader<'_>, d: &ShaderDraw) -> Result<()> {
+        let raw = sys::hg_shader_draw {
+            rect: rect(d.rect),
+            radius: d.radius.to_array(),
+            time: d.time,
+            scale: d.scale,
+            opacity: d.opacity,
+            params: d.params,
+            flags: gpu.flags(),
+        };
+        check(unsafe { sys::hg_draw_shader(self.raw.as_ptr(), gpu.raw(), &raw) })
     }
 
     /// Texto com canto superior esquerdo em (x, y); `max_width <= 0` não quebra linha.

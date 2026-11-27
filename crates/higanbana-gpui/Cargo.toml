@@ -5,11 +5,13 @@ authors.workspace = true
 edition.workspace = true
 
 [features]
-default = ["wgpu"]
+default = ["wgpu", "shaders"]
 # Registra o backend WGPU (Rust) no core.
 wgpu = ["higanbana-gpui-sys/wgpu"]
 # Player de vídeo (libmpv carregada em runtime).
 video = ["dep:libloading"]
+# Shaders WGSL do usuário traduzidos pelo naga em tempo de execução.
+shaders = ["dep:naga"]
 
 [dependencies]
 higanbana-gpui-sys.workspace = true
@@ -21,6 +23,8 @@ unicode-segmentation = "1.13.3"
 resvg = { version = "0.45", default-features = false }
 libloading = { workspace = true, optional = true }
 serde_json.workspace = true
+# Mesma versão do build do -sys (=30.0.1): WGSL -> HLSL/GLSL/SPIR-V dos shaders do usuário.
+naga = { version = "=30.0.1", optional = true, default-features = false, features = ["wgsl-in", "hlsl-out", "glsl-out", "spv-out"] }
 
 [[test]]
 name = "video"

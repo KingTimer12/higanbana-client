@@ -24,6 +24,13 @@ pub const fn rgba(hex: u32) -> Color {
     }
 }
 
+/// Para `params!` e uniforms: `[r, g, b, a]` em alfa reto.
+impl From<Color> for [f32; 4] {
+    fn from(c: Color) -> Self {
+        [c.r, c.g, c.b, c.a]
+    }
+}
+
 impl Color {
     pub const TRANSPARENT: Color = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
     pub const WHITE: Color = Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
