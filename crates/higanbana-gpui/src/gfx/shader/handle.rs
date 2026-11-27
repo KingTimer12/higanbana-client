@@ -54,6 +54,11 @@ impl Shader {
         self.inner.error.borrow().clone()
     }
 
+    /// Esquece o erro (troca de backend: o próximo backend compila de novo e avisa de novo).
+    pub(crate) fn clear_error(&self) {
+        self.inner.error.borrow_mut().take();
+    }
+
     /// Tem erro guardado? (sem clonar a mensagem; usado a cada pintura)
     pub(crate) fn has_error(&self) -> bool {
         self.inner.error.borrow().is_some()

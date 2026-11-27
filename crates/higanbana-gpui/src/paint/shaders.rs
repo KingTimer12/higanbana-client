@@ -47,6 +47,25 @@ impl<'c> ShaderCache<'c> {
         true
     }
 
+    /// Depois de uma troca de backend bem-sucedida: erros valem por backend. Limpa os erros
+    /// e recria as entradas cuja criação falhou (o core recompila as outras sob demanda).
+    pub fn reset_errors(&mut self) {
+        let ctx = self.ctx;
+        for e in self.map.values_mut() {
+            e.shader.clear_error();
+            if e.gpu.is_none() {
+                e.gpu = ctx.shader(&e.shader).map_err(|err| report(&e.shader, ShaderError::Native(err.to_string()))).ok();
+            }
+        }
+    }
+
+    /// Gancho de teste: entrada cuja criação falhou com `e`.
+    #[cfg(test)]
+    pub(crate) fn insert_failed(&mut self, s: &Shader, e: ShaderError) {
+        s.set_error(e);
+        self.map.insert(s.key(), Entry { shader: s.clone(), gpu: None });
+    }
+
     /// `None` = não preparado ou falhou na criação.
     pub fn get(&self, s: &Shader) -> Option<&GpuShader<'c>> {
         self.map.get(&s.key()).and_then(|e| e.gpu.as_ref())

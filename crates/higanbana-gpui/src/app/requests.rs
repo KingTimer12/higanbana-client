@@ -18,10 +18,17 @@ impl<V: View> Runner<'_, V> {
         if let Some(theme) = cx.theme.take() {
             self.theme = theme;
         }
-        if let Some(kind) = cx.switch_to
-            && let Err(e) = self.ctx.switch_backend(kind) {
-                eprintln!("higanbana-gpui: troca para {} falhou: {e}", kind.label());
+        if let Some(kind) = cx.switch_to {
+            match self.ctx.switch_backend(kind) {
+                Err(e) => eprintln!("higanbana-gpui: troca para {} falhou: {e}", kind.label()),
+                Ok(()) if !self.shaders.is_empty() => {
+                    // Shader que falhou no backend anterior tenta de novo neste (sai do magenta).
+                    self.shaders.reset_errors();
+                    self.mark(Dirty::Repaint);
+                }
+                Ok(()) => {}
             }
+        }
         for c in cx.window_commands.drain(..) {
             self.win.command(c);
         }

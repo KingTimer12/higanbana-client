@@ -102,3 +102,18 @@ fn texto_depois_do_shader_nao_abre_camada_extra() {
     let ops = paint(el);
     assert!(!ops.contains(&Op::Layer), "{ops:?}");
 }
+
+#[test]
+fn troca_de_backend_tenta_de_novo_o_shader_com_erro() {
+    let Some(s) = shader() else { return };
+    // Sem GPU utilizável não há cache de verdade para checar.
+    let Ok(ctx) = crate::Context::new(crate::BackendKind::Auto) else { return };
+    let mut cache = super::ShaderCache::new(&ctx);
+    cache.insert_failed(&s, ShaderError::Native("falhou no backend anterior".into()));
+    assert!(cache.get(&s).is_none() && s.last_error().is_some());
+    cache.reset_errors();
+    assert_eq!(s.last_error(), None, "erro é por backend");
+    assert!(cache.get(&s).is_some(), "recriado no backend novo");
+    let ops = paint(div().w(30.0).h(20.0).shader(&s, params![]));
+    assert!(matches!(ops.as_slice(), [Op::Shader(..)]), "não é mais magenta: {ops:?}");
+}
