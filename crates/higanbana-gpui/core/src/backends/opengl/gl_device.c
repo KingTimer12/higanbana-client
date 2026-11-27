@@ -18,6 +18,7 @@ void gl_device_release(gl_device* d) {
         gl_glyphs_release(gl, &d->glyphs);
         gl_buffer_release(gl, &d->quads);
         gl_images_release(gl, &d->images);
+        gl_user_shaders_release(gl, &d->user_shaders);
         gl_pipeline_release(gl, &d->pipeline);
     } else {
         hg__glyph_frame_free(&d->glyphs.frame); /* objetos GL morrem com o contexto */

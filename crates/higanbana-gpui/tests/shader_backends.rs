@@ -13,6 +13,8 @@ const BLACK: u32 = 0x000000;
 const RED: u32 = 0xff0000;
 const CYAN: u32 = 0x00ffff;
 const WHITE: u32 = 0xffffff;
+const BLUE: u32 = 0x0000ff;
+const YELLOW: u32 = 0xffff00;
 
 /// Uma operação na draw list, na ordem de desenho.
 #[allow(clippy::large_enum_variant)] // só em teste
@@ -92,12 +94,45 @@ fn run_case(kind: Backend, case: Case) -> Option<Vec<u32>> {
     }
     let mut px = win.present_and_read(Color::BLACK, &list, &case.points).expect("quadro");
     if let Some((w, h)) = case.resize {
+        resize_native(&win, w, h);
         win.inject_resize(w, h);
         let points: Vec<_> = case.points.iter().chain(&case.resize_points).copied().collect();
         px = win.present_and_read(Color::BLACK, &list, &points).expect("quadro após resize");
     }
     assert_eq!(gpu.native_error().is_some(), case.expect_native_error, "{kind:?}: native_error = {:?}", gpu.native_error());
     Some(px)
+}
+
+/// Redimensiona a HWND de verdade para a área cliente `w`x`h` (físico). O OpenGL desenha no
+/// framebuffer padrão, que segue a janela real: só o `inject_resize` (tamanho lógico) deixaria o
+/// back buffer em 320x240. Nos D3D o WM_SIZE resultante leva ao mesmo resize do swapchain.
+fn resize_native(win: &Window<'_>, w: u32, h: u32) {
+    #[repr(C)]
+    #[derive(Default)]
+    struct WinRect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetWindowRect(hwnd: isize, rect: *mut WinRect) -> i32;
+        fn GetClientRect(hwnd: isize, rect: *mut WinRect) -> i32;
+        fn SetWindowPos(hwnd: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+    }
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOZORDER: u32 = 0x0004;
+    const SWP_NOACTIVATE: u32 = 0x0010;
+    let hwnd = win.native_handle() as isize;
+    let (mut outer, mut client) = (WinRect::default(), WinRect::default());
+    unsafe {
+        assert!(GetWindowRect(hwnd, &mut outer) != 0 && GetClientRect(hwnd, &mut client) != 0, "rects da janela");
+        // Borda/título = diferença entre a janela e a área cliente (vale para qualquer estilo).
+        let cx = w as i32 + (outer.right - outer.left) - client.right;
+        let cy = h as i32 + (outer.bottom - outer.top) - client.bottom;
+        assert!(SetWindowPos(hwnd, 0, 0, 0, cx, cy, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != 0, "SetWindowPos");
+    }
 }
 
 fn skip(kind: Backend) {
@@ -159,6 +194,21 @@ fn case_backdrop(kind: Backend) {
     let case = Case::new(Code::Wgsl(INVERT), red_backdrop_ops(BOX), vec![(140, 120), (20, 20)]).backdrop();
     let Some(px) = run_case(kind, case) else { return skip(kind) };
     assert_eq!(px, vec![CYAN, RED]);
+}
+
+fn case_backdrop_asymmetric(kind: Backend) {
+    // Fundo vermelho em cima (y < 50) e azul embaixo; vidro baixo e fora do centro (a margem de 64 px
+    // não cobre a janela toda). Um backdrop lido ou copiado de cabeça para baixo (origem embaixo do GL)
+    // troca as cores ou lê linhas que nunca foram copiadas.
+    let ops = vec![
+        Op::Quad(Rect::new(0.0, 0.0, 320.0, 50.0), rgb(0xff0000)),
+        Op::Quad(Rect::new(0.0, 50.0, 320.0, 190.0), rgb(0x0000ff)),
+        Op::Shader(shader_at(Rect::new(40.0, 20.0, 200.0, 60.0))),
+    ];
+    let points = vec![(140, 30), (140, 70), (20, 10), (20, 100)];
+    let case = Case::new(Code::Wgsl(INVERT), ops, points).backdrop();
+    let Some(px) = run_case(kind, case) else { return skip(kind) };
+    assert_eq!(px, vec![CYAN, YELLOW, RED, BLUE], "vermelho em cima vira ciano, azul embaixo vira amarelo");
 }
 
 fn case_backdrop_off(kind: Backend) {
@@ -225,6 +275,7 @@ macro_rules! backend_tests {
             #[test] fn cantos() { case_corners($kind) }
             #[test] fn ordem() { case_order($kind) }
             #[test] fn backdrop() { case_backdrop($kind) }
+            #[test] fn backdrop_assimetrico() { case_backdrop_asymmetric($kind) }
             #[test] fn backdrop_desligado() { case_backdrop_off($kind) }
             #[test] fn opacidade() { case_opacity($kind) }
             #[test] fn params() { case_params($kind) }
@@ -235,8 +286,9 @@ macro_rules! backend_tests {
     )*};
 }
 
-// Tasks 5-7: acrescentar `opengl => ...`, `vulkan => ...`, `wgpu => ...`.
+// Tasks 6-7: acrescentar `vulkan => ...`, `wgpu => ...`.
 backend_tests! {
     d3d11 => BackendKind::D3D11,
     d3d12 => BackendKind::D3D12,
+    opengl => BackendKind::OpenGL,
 }

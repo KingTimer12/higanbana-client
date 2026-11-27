@@ -94,6 +94,14 @@ static void opengl_tex_destroy(hg_context* ctx, struct hg_image* img) {
     gl_texture_destroy(device_of(ctx), img);
 }
 
+static hg_result opengl_shader_prepare(hg_context* ctx, struct hg_shader* sh) {
+    return gl_user_shader_prepare(device_of(ctx), sh);
+}
+
+static void opengl_shader_release(hg_context* ctx, struct hg_shader* sh) {
+    gl_user_shader_release(device_of(ctx), sh);
+}
+
 const hg_backend_vtbl hg__opengl_backend = {
     .kind = HG_BACKEND_OPENGL,
     .name = "OpenGL",
@@ -111,4 +119,6 @@ const hg_backend_vtbl hg__opengl_backend = {
     .texture_update = opengl_tex_update,
     .texture_destroy = opengl_tex_destroy,
     .read_pixel = opengl_read_pixel,
+    .shader_prepare = opengl_shader_prepare,
+    .shader_release = opengl_shader_release,
 };

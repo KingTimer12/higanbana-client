@@ -19,6 +19,9 @@ typedef ptrdiff_t GLintptr;
 #define GL_TEXTURE0        0x84C0
 #define GL_CLAMP_TO_EDGE   0x812F
 #define GL_R8              0x8229
+#define GL_INFO_LOG_LENGTH 0x8B84
+#define GL_UNIFORM_BUFFER  0x8A11
+#define GL_INVALID_INDEX   0xFFFFFFFFu
 #ifndef GL_BGRA
 #define GL_BGRA            0x80E1
 #endif
@@ -93,7 +96,14 @@ typedef struct gl_wgl {
     X(UseProgram, void, (GLuint)) \
     X(GetUniformLocation, GLint, (GLuint, const GLchar*)) \
     X(Uniform1i, void, (GLint, GLint)) \
-    X(Uniform2f, void, (GLint, GLfloat, GLfloat))
+    X(Uniform2f, void, (GLint, GLfloat, GLfloat)) \
+    X(GetShaderInfoLog, void, (GLuint, GLsizei, GLsizei*, GLchar*)) \
+    X(GetProgramInfoLog, void, (GLuint, GLsizei, GLsizei*, GLchar*)) \
+    X(GetUniformBlockIndex, GLuint, (GLuint, const GLchar*)) \
+    X(UniformBlockBinding, void, (GLuint, GLuint, GLuint)) \
+    X(BindBufferBase, void, (GLenum, GLuint, GLuint)) \
+    X(DrawArrays, void, (GLenum, GLint, GLsizei)) \
+    X(CopyTexSubImage2D, void, (GLenum, GLint, GLint, GLint, GLint, GLint, GLsizei, GLsizei))
 
 #define HG_GL_TYPEDEF(name, ret, args) typedef ret(APIENTRY* hg_gl_##name##_fn) args;
 HG_GL_FUNCS(HG_GL_TYPEDEF)

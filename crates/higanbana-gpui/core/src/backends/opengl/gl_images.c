@@ -14,9 +14,7 @@ static const size_t k_offsets[] = {
 
 /* create/destroy podem vir fora de um frame (troca de backend, destroy). */
 static hg_result ensure_current(gl_device* d) {
-    gl_wgl_context* c = &d->ctx;
-    if (c->wgl.get_current_context() == c->rc) return HG_OK;
-    return gl_context_bind(c, c->hidden_dc);
+    return gl_context_ensure_current(&d->ctx);
 }
 
 hg_result gl_texture_create(gl_device* d, hg_image* img) {
