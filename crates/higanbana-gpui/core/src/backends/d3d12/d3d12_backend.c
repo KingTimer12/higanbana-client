@@ -84,7 +84,10 @@ static hg_result d3d12_submit(hg_window* win, const hg_draw_list* dl) {
 }
 
 static hg_result d3d12_end_frame(hg_window* win, int vsync) {
-    return d3d12_frame_end(device_of(win->ctx), surface_of(win), vsync);
+    int occluded = 0;
+    hg_result r = d3d12_frame_end(device_of(win->ctx), surface_of(win), vsync, &occluded);
+    win->occluded = occluded; /* hg_window_occluded: o Rust não conta com o vsync */
+    return r;
 }
 
 static hg_result d3d12_read_pixel(hg_window* win, uint32_t x, uint32_t y, uint32_t* out) {

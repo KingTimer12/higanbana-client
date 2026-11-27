@@ -108,6 +108,6 @@ hg_result d3d11_render_draw_list(d3d11_device* d, hg_context* ctx, d3d11_surface
             glyph_start += glyphs;
         }
     }
-    ctx->stats.gpu_bytes = d3d11_gpu_bytes(d);
+    ctx->stats.gpu_bytes = d3d11_gpu_bytes(d) + d3d11_backdrop_bytes(&s->backdrop);
     return HG_OK;
 }

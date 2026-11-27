@@ -12,6 +12,7 @@ struct hg_window {
     uint32_t       width, height; /* pixels físicos da área cliente */
     float          dpi_scale;
     int            skip_frame;    /* frame atual vira no-op (minimizada) */
+    int            occluded;      /* present do último quadro não chegou à tela (ocluído) */
     hg_cursor      cursor;        /* calloc = HG_CURSOR_ARROW */
     void*          surface;       /* dono: backend->attach/detach */
     hg_window*     next;          /* lista de janelas do contexto */

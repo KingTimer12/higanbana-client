@@ -99,6 +99,6 @@ pub fn draw_list(gpu: &mut Gpu, ctx: *mut hg_context, win: &mut Window, dl: *con
         }
     }
     gpu.queue.submit([enc.finish()]);
-    stats.gpu_bytes = gpu.gpu_bytes();
+    stats.gpu_bytes = gpu.gpu_bytes() + win.backdrop.gpu_bytes();
     Ok(())
 }

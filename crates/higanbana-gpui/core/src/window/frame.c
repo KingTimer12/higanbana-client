@@ -5,6 +5,7 @@
 
 hg_result hg_frame_begin(hg_window* win, hg_color clear) {
     if (!win) return hg__fail(HG_ERR_INVALID, "hg_frame_begin: janela nula");
+    win->occluded = 0;
     win->skip_frame = win->width == 0 || win->height == 0 || IsIconic(win->hwnd);
     if (win->skip_frame) return HG_OK;
     return win->ctx->backend->begin_frame(win, clear);
@@ -24,4 +25,10 @@ hg_result hg_frame_end(hg_window* win, int vsync) {
     win->ctx->frame_index++;
     hg__stats_frame_end(win->ctx);
     return r;
+}
+
+int hg_window_occluded(const hg_window* win) { return win ? win->occluded : 0; }
+
+void hg__window_set_occluded(hg_window* win) {
+    if (win) win->occluded = 1;
 }

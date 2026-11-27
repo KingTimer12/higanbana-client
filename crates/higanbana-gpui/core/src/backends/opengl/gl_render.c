@@ -88,6 +88,6 @@ hg_result gl_render_draw_list(gl_device* d, hg_context* ctx, gl_surface* s, cons
         }
     }
     gl->BindVertexArray(0);
-    ctx->stats.gpu_bytes = gl_gpu_bytes(d);
+    ctx->stats.gpu_bytes = gl_gpu_bytes(d) + gl_backdrop_bytes(&s->backdrop);
     return HG_OK;
 }

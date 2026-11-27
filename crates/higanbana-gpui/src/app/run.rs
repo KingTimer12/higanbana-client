@@ -37,6 +37,8 @@ pub(super) struct Runner<'c, V> {
     pub dirty: Dirty,
     show_stats: bool,
     pub vsync: bool,
+    /// O último present foi ocluído (ver `Window::occluded`): o vsync não está freando.
+    pub occluded: bool,
     animator: Animator,
     pub timers: Timers,
     /// Tarefas em segundo plano aguardando resultado.
@@ -83,6 +85,7 @@ pub(super) fn run<V: View>(mut app: App, options: WindowOptions, view: V) -> Res
         dirty: Dirty::Rebuild,
         show_stats: app.show_stats,
         vsync: app.vsync,
+        occluded: false,
         animator: Animator::default(),
         timers: Timers::default(),
         tasks: Tasks::default(),
@@ -224,6 +227,7 @@ impl<V: View> Runner<'_, V> {
         if let Err(e) = self.win.present(self.theme.background, &list, self.vsync) {
             eprintln!("higanbana-gpui: present: {e}");
         }
+        self.occluded = self.win.occluded();
         self.pool = Some(list.recycle());
         self.after_shaders(animated, missed, now);
         crate::paint::cache::end_frame();

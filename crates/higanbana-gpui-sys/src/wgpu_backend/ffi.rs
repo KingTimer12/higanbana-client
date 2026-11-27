@@ -87,7 +87,9 @@ pub unsafe extern "C" fn begin_frame(win: *mut hg_window, clear: hg_color) -> hg
     guard(|| {
         let (gpu, surface) = unsafe { window_of(win)? };
         let (w, h) = window_size(win);
-        surface.begin(gpu, w, h, clear)
+        surface.begin(gpu, w, h, clear)?;
+        if surface.occluded { unsafe { hg__window_set_occluded(win) } }
+        Ok(())
     })
 }
 

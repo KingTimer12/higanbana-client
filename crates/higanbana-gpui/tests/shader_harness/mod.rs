@@ -270,6 +270,64 @@ pub fn case_overlap(kind: Backend) {
     assert_eq!(px, vec![CYAN, RED, CYAN], "o de cima inverte o resultado do de baixo");
 }
 
+/// Contexto em `kind` com a janela de teste; `None` = backend indisponível (o teste pula).
+fn open_ctx(kind: Backend) -> Option<Context> {
+    let ctx = Context::new(kind).ok()?;
+    (ctx.backend() == kind).then_some(ctx)
+}
+
+fn test_window(ctx: &Context) -> Window<'_> {
+    let opts = WindowOptions { title: "shader".into(), size: size(320.0, 240.0), resizable: false, ..Default::default() };
+    Window::new(ctx, &opts).expect("janela")
+}
+
+/// Fundo vermelho + vidro INVERT em `BOX` com o shader `gpu`; devolve (centro do vidro, fora dele).
+fn draw_red_glass(win: &Window<'_>, gpu: &higanbana_gpui::GpuShader<'_>) -> Vec<u32> {
+    let mut list = DrawList::new();
+    list.quad(&Quad { rect: Rect::new(0.0, 0.0, 320.0, 240.0), fill: rgb(0xff0000), ..Default::default() }).expect("quad");
+    list.shader(gpu, &shader_at(BOX)).expect("draw shader");
+    win.present_and_read(Color::BLACK, &list, &[(140, 120), (20, 20)]).expect("quadro")
+}
+
+/// A textura de backdrop entra em `Stats::gpu_bytes` (largura x altura x 4).
+pub fn case_backdrop_gpu_bytes(kind: Backend) {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(ctx) = open_ctx(kind) else { return skip(kind) };
+    let win = test_window(&ctx);
+    let plain = ctx.shader(&Shader::wgsl(INVERT).expect("wgsl")).expect("shader");
+    let glass = ctx.shader(&Shader::wgsl(INVERT).expect("wgsl").backdrop(true)).expect("shader");
+    // Aquece buffers por quadro (Vulkan tem vários) com o mesmo desenho, sem backdrop.
+    for _ in 0..4 {
+        draw_red_glass(&win, &plain);
+    }
+    let before = ctx.stats().gpu_bytes;
+    assert_eq!(draw_red_glass(&win, &glass), vec![CYAN, RED], "{kind:?}: vidro com backdrop");
+    let after = ctx.stats().gpu_bytes;
+    let texture = 320 * 240 * 4;
+    assert!(after >= before + texture, "{kind:?}: gpu_bytes {before} -> {after}, faltam os {texture} do backdrop");
+}
+
+/// Troca de backend em tempo de execução com um vidro de backdrop na tela: em cada backend de
+/// `route` o mesmo shader (handle criado no 1º) volta a desenhar e a ler o fundo certo.
+/// Backends indisponíveis da rota são pulados; o de partida indisponível pula o teste.
+pub fn case_backend_switch(start: Backend, route: &[Backend]) {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(ctx) = open_ctx(start) else { return skip(start) };
+    let win = test_window(&ctx);
+    let glass = ctx.shader(&Shader::wgsl(INVERT).expect("wgsl").backdrop(true)).expect("shader");
+    assert_eq!(draw_red_glass(&win, &glass), vec![CYAN, RED], "{start:?}: antes da troca");
+    let mut from = start;
+    for &kind in route {
+        if ctx.switch_backend(kind).is_err() || ctx.backend() != kind {
+            eprintln!("{kind:?} indisponível: trecho {from:?} -> {kind:?} pulado");
+            continue;
+        }
+        assert_eq!(draw_red_glass(&win, &glass), vec![CYAN, RED], "{from:?} -> {kind:?}: vidro após a troca");
+        assert_eq!(glass.native_error(), None, "{kind:?}");
+        from = kind;
+    }
+}
+
 #[macro_export]
 macro_rules! backend_tests {
     ($($name:ident => $kind:expr),* $(,)?) => {$(
@@ -286,6 +344,7 @@ macro_rules! backend_tests {
             #[test] fn erro_nativo() { case_native_error($kind) }
             #[test] fn borda_e_resize() { case_edge_and_resize($kind) }
             #[test] fn sobreposicao() { case_overlap($kind) }
+            #[test] fn backdrop_conta_gpu_bytes() { case_backdrop_gpu_bytes($kind) }
         }
     )*};
 }

@@ -54,6 +54,10 @@ ID3D11ShaderResourceView* d3d11_backdrop_capture(d3d11_device* d, d3d11_surface*
     return s->backdrop.srv;
 }
 
+uint64_t d3d11_backdrop_bytes(const d3d11_backdrop* b) {
+    return b->tex ? (uint64_t)b->width * b->height * 4 : 0; /* B8G8R8A8 */
+}
+
 void d3d11_backdrop_release(d3d11_backdrop* b) {
     D3D11_RELEASE(b->srv);
     D3D11_RELEASE(b->tex);

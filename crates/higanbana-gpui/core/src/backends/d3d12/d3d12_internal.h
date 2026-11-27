@@ -168,6 +168,7 @@ static inline d3d12_upload* d3d12_ring(d3d12_device* d) { return &d->uploads[d->
 typedef struct d3d12_backdrop {
     ID3D12Resource* tex; /* tamanho da superfície; criada no 1º uso, fica em PIXEL_SHADER_RESOURCE */
     UINT            srv; /* 0 = sem SRV */
+    UINT            width, height; /* da textura (0 sem textura) */
 } d3d12_backdrop;
 
 /* ---- swapchain: uma por janela ---------------------------------------- */
@@ -189,7 +190,8 @@ hg_result d3d12_surface_read_pixel(d3d12_device* d, d3d12_surface* s, UINT x, UI
 
 /* ---- frame: começo/fim (barreiras, clear, present) -------------------- */
 hg_result d3d12_frame_begin(d3d12_device* d, d3d12_surface* s, hg_color clear);
-hg_result d3d12_frame_end(d3d12_device* d, d3d12_surface* s, int vsync);
+/* *occluded = 1 se o Present foi descartado (DXGI_STATUS_OCCLUDED). */
+hg_result d3d12_frame_end(d3d12_device* d, d3d12_surface* s, int vsync, int* occluded);
 void      d3d12_frame_bind_target(d3d12_device* d, d3d12_surface* s);
 
 /* ---- glyphs e render -------------------------------------------------- */
@@ -220,6 +222,8 @@ hg_result d3d12_render_draw_list(d3d12_device* d, hg_context* ctx, d3d12_surface
 UINT      d3d12_backdrop_capture(d3d12_device* d, d3d12_surface* s, const hg_rect* r);
 /* Só com a GPU ociosa (resize/release da superfície já esperam). */
 void      d3d12_backdrop_release(d3d12_device* d, d3d12_backdrop* b);
+/* Bytes da textura de backdrop (0 sem textura), para hg_stats.gpu_bytes. */
+uint64_t  d3d12_backdrop_bytes(const d3d12_backdrop* b);
 
 /* Compila o HLSL (vs_main/ps_main) e cria o PSO em sh->gpu; erro do compilador vai para sh->error. */
 hg_result d3d12_user_shader_prepare(d3d12_device* d, struct hg_shader* sh);

@@ -138,6 +138,8 @@ uint32_t gl_images_draw(gl_device* d, const gl_surface* s, const struct hg_batch
 GLuint gl_backdrop_capture(gl_device* d, gl_surface* s, const hg_rect* r);
 /* Contexto precisa estar corrente. */
 void   gl_backdrop_release(const gl_api* gl, gl_backdrop* b);
+/* Bytes da textura de backdrop (0 sem textura), para hg_stats.gpu_bytes. */
+uint64_t gl_backdrop_bytes(const gl_backdrop* b);
 
 /* ---- shaders do usuário ----------------------------------------------- */
 struct hg_shader;

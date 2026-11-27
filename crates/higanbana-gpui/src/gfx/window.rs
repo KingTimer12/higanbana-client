@@ -102,6 +102,12 @@ impl<'c> Window<'c> {
         unsafe { sys::hg_window_command(self.raw.as_ptr(), c) };
     }
 
+    /// O último `present` não chegou à tela (tela bloqueada, monitor desligado; só D3D11/D3D12/
+    /// WGPU informam). Aí o present volta na hora mesmo com vsync e não freia o laço.
+    pub fn occluded(&self) -> bool {
+        unsafe { sys::hg_window_occluded(self.raw.as_ptr()) != 0 }
+    }
+
     pub fn state(&self) -> WindowState {
         WindowState::from_flags(unsafe { sys::hg_window_state(self.raw.as_ptr()) })
     }

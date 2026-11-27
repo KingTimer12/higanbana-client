@@ -194,6 +194,11 @@ hg_result hg_clipboard_get_text(char* out, size_t cap, size_t* out_len);
 hg_result hg_frame_begin(hg_window* win, hg_color clear);
 hg_result hg_frame_submit(hg_window* win, const hg_draw_list* dl);
 hg_result hg_frame_end(hg_window* win, int vsync);
+/* 1 = o present do último quadro não chegou à tela (tela bloqueada, monitor desligado, janela
+ * toda coberta: DXGI_STATUS_OCCLUDED no D3D11/D3D12, Occluded no WGPU). Nesse caso o present
+ * volta na hora mesmo com vsync: quem anima deve esperar por conta própria. Zerado em
+ * hg_frame_begin. OpenGL e Vulkan não informam oclusão (sempre 0). */
+int       hg_window_occluded(const hg_window* win);
 
 /* ---- Imagens ---------------------------------------------------------- */
 typedef struct hg_image hg_image;
@@ -244,6 +249,8 @@ const char* hg_shader_error(const hg_shader* sh);
 /* Tamanho do uniform HgShaderUniforms (b0 / binding 0): 4 vec4 + params[16] vec4 = 320 bytes. */
 #define HG_SHADER_UNIFORM_BYTES 320u
 
+/* Atenção: zerada (= {0}) não desenha nada, porque opacity 0 é transparente: preencha opacity
+ * (1.0 = opaco); scale = fator da janela (1.0 sem DPI). */
 typedef struct hg_shader_draw {
     hg_rect  rect;      /* destino em pixels */
     float    radius[4]; /* tl, tr, br, bl */

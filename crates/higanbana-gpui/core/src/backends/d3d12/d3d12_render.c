@@ -95,6 +95,6 @@ hg_result d3d12_render_draw_list(d3d12_device* d, hg_context* ctx, d3d12_surface
             glyph_start += glyphs;
         }
     }
-    ctx->stats.gpu_bytes = d3d12_gpu_bytes(d);
+    ctx->stats.gpu_bytes = d3d12_gpu_bytes(d) + d3d12_backdrop_bytes(&s->backdrop);
     return HG_OK;
 }

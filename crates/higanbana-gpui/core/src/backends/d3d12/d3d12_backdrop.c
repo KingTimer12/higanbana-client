@@ -26,6 +26,8 @@ static int ensure_texture(d3d12_device* d, d3d12_surface* s) {
     }
     d3d12_srv_write_bgra(d->dev, &d->srvs, srv, b->tex);
     b->srv = srv;
+    b->width = s->width;
+    b->height = s->height;
     return 1;
 }
 
@@ -74,8 +76,13 @@ UINT d3d12_backdrop_capture(d3d12_device* d, d3d12_surface* s, const hg_rect* r)
     return s->backdrop.srv;
 }
 
+uint64_t d3d12_backdrop_bytes(const d3d12_backdrop* b) {
+    return b->tex ? (uint64_t)b->width * b->height * 4 : 0; /* B8G8R8A8 */
+}
+
 void d3d12_backdrop_release(d3d12_device* d, d3d12_backdrop* b) {
     D3D12_RELEASE(b->tex);
     if (b->srv) d3d12_srv_free(&d->srvs, b->srv);
     b->srv = 0;
+    b->width = b->height = 0;
 }

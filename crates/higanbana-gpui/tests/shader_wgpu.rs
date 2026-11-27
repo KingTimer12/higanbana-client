@@ -8,3 +8,11 @@ use shader_harness::*;
 backend_tests! {
     wgpu => BackendKind::Wgpu,
 }
+
+/// Troca em tempo de execução com vidro de backdrop na tela: WGPU <-> D3D11/D3D12/OpenGL (sem
+/// Vulkan, que fica em `shader_backends`).
+#[test]
+fn troca_de_backend_com_backdrop() {
+    use BackendKind::*;
+    case_backend_switch(Wgpu, &[D3D11, Wgpu, D3D12, Wgpu, OpenGL, Wgpu]);
+}

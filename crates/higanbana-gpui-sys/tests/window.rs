@@ -76,3 +76,17 @@ fn stats_after_frame_have_draw_calls() {
     assert!(s.gpu_bytes > 0);
     assert!(s.atlas_entries > 0);
 }
+
+#[test]
+fn occluded_flag_marked_by_backend_and_reset_on_frame_begin() {
+    let f = Fixture::new();
+    unsafe {
+        assert_eq!(hg_window_occluded(f.win), 0, "janela nova não está ocluída");
+        // O backend marca quando o Present devolve DXGI_STATUS_OCCLUDED (ou o WGPU, Occluded).
+        hg__window_set_occluded(f.win);
+        assert_eq!(hg_window_occluded(f.win), 1);
+    }
+    // Janela visível de teste: o present chega à tela e o próximo quadro limpa a marca.
+    assert_eq!(f.frame(), [OK, OK, OK]);
+    assert_eq!(unsafe { hg_window_occluded(f.win) }, 0, "hg_frame_begin zera a marca");
+}

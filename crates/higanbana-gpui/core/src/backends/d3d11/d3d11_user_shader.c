@@ -144,6 +144,10 @@ int d3d11_user_shader_draw(d3d11_device* d, d3d11_surface* s, const hg_batch* b)
     ID3D11DeviceContext_PSSetShaderResources(c, 1, 1, &backdrop);
     ID3D11DeviceContext_PSSetSamplers(c, 2, 1, &u->sampler);
     ID3D11DeviceContext_Draw(c, 4, 0);
+    /* Desliga t1: o contexto não segura a textura de backdrop (do tamanho da janela) depois
+     * de um resize, e o próximo CopySubresourceRegion não a encontra ligada como SRV. */
+    ID3D11ShaderResourceView* none = NULL;
+    ID3D11DeviceContext_PSSetShaderResources(c, 1, 1, &none);
     return 1;
 }
 

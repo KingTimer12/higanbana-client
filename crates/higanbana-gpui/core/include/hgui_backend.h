@@ -24,6 +24,8 @@ void*       hg__window_hwnd(hg_window* win);
 void        hg__window_size(hg_window* win, uint32_t* width, uint32_t* height);
 void*       hg__window_surface(hg_window* win);
 void        hg__window_set_surface(hg_window* win, void* surface);
+/* O present deste quadro foi descartado por oclusão (ver hg_window_occluded). */
+void        hg__window_set_occluded(hg_window* win);
 
 /* ---- Draw list --------------------------------------------------------- */
 typedef struct hg_batch_view {

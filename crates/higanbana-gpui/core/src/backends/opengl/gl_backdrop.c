@@ -50,6 +50,10 @@ GLuint gl_backdrop_capture(gl_device* d, gl_surface* s, const hg_rect* r) {
     return s->backdrop.tex;
 }
 
+uint64_t gl_backdrop_bytes(const gl_backdrop* b) {
+    return b->tex ? (uint64_t)b->width * b->height * 4 : 0; /* RGBA8 */
+}
+
 void gl_backdrop_release(const gl_api* gl, gl_backdrop* b) {
     if (b->tex) gl->DeleteTextures(1, &b->tex);
     b->tex = 0;

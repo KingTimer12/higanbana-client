@@ -138,7 +138,8 @@ typedef struct d3d11_surface {
 
 hg_result d3d11_surface_create(d3d11_device* d, HWND hwnd, UINT w, UINT h, d3d11_surface* s);
 hg_result d3d11_surface_resize(d3d11_device* d, d3d11_surface* s, UINT w, UINT h);
-hg_result d3d11_surface_present(d3d11_surface* s, int vsync);
+/* *occluded = 1 se o Present foi descartado (DXGI_STATUS_OCCLUDED). */
+hg_result d3d11_surface_present(d3d11_surface* s, int vsync, int* occluded);
 void      d3d11_surface_release(d3d11_surface* s);
 hg_result d3d11_surface_read_pixel(d3d11_device* d, d3d11_surface* s, UINT x, UINT y, uint32_t* out);
 
@@ -148,6 +149,8 @@ hg_result d3d11_surface_read_pixel(d3d11_device* d, d3d11_surface* s, UINT x, UI
  * NULL = nada a copiar ou falha (o chamador usa a textura vazia). */
 ID3D11ShaderResourceView* d3d11_backdrop_capture(d3d11_device* d, d3d11_surface* s, const hg_rect* r);
 void      d3d11_backdrop_release(d3d11_backdrop* b);
+/* Bytes da textura de backdrop (0 sem textura), para hg_stats.gpu_bytes. */
+uint64_t  d3d11_backdrop_bytes(const d3d11_backdrop* b);
 
 /* Compila o HLSL do shader (vs_main/ps_main) e cria sh->gpu; erro do compilador vai para sh->error. */
 hg_result d3d11_user_shader_prepare(d3d11_device* d, struct hg_shader* sh);

@@ -32,6 +32,11 @@ impl Backdrop {
         self.texture = None;
     }
 
+    /// Bytes da textura (0 sem textura), para `hg_stats.gpu_bytes`.
+    pub fn gpu_bytes(&self) -> u64 {
+        self.texture.as_ref().map_or(0, |(t, _)| t.width() as u64 * t.height() as u64 * 4) // Bgra8
+    }
+
     /// Mesmo formato da superfície (`Bgra8Unorm`, não sRGB): a cópia exige formatos iguais.
     fn ensure(&mut self, device: &wgpu::Device, (w, h): (u32, u32)) {
         if self.texture.as_ref().is_some_and(|(t, _)| t.width() == w && t.height() == h) { return }
