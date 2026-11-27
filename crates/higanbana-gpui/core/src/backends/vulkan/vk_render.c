@@ -53,6 +53,16 @@ static void record_batches(vk_device* d, hg_context* ctx, vk_surface* s, vk_fram
     const hg_glyph_frame* gf = &d->glyphs.frame;
     uint32_t quad_start = 0, image_start = 0, glyph_start = 0, i = 0;
     for (const hg_batch* b = dl->first; b; b = b->next, i++) {
+        if (b->shader) { /* lote só de shader: camada própria */
+            VkRect2D sc;
+            if (!scissor_for(b, s, &sc)) continue;
+            d->api.vkCmdSetScissor(cmd, 0, 1, &sc);
+            if (vk_user_shader_draw(d, s, f, b, &sc)) {
+                ctx->stats.draw_calls++;
+                bind_common(d, cmd, s);
+            }
+            continue;
+        }
         uint32_t glyphs = gf->count ? gf->batch_counts[i] : 0;
         VkRect2D sc;
         if ((b->quad_count == 0 && b->image_count == 0 && glyphs == 0) || !scissor_for(b, s, &sc)) {
@@ -89,6 +99,7 @@ hg_result vk_render_draw_list(vk_device* d, hg_context* ctx, vk_surface* s, cons
     if (r == HG_OK) r = vk_images_prepare(d, f, dl);
     if (r == HG_OK && dl->quad_count > 0) r = upload_quads(d, f, dl);
     if (r != HG_OK) return r;
+    vk_shader_frame_prepare(d, s, f, dl); /* uniforms/sets/backdrop: fora do render pass */
 
     ctx->stats.draw_calls = 0;
     vk_frame_pass_begin(d, s);

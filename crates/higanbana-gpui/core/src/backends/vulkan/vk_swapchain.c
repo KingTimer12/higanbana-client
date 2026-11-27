@@ -67,6 +67,7 @@ hg_result vk_swapchain_build(vk_device* d, vk_surface* s, uint32_t w, uint32_t h
 
     a->vkDeviceWaitIdle(d->dev);
     release_images(d, s);
+    vk_backdrop_release(d, s); /* recriado no novo tamanho no próximo shader com backdrop */
     uint32_t count = caps.minImageCount + 1;
     if (caps.maxImageCount && count > caps.maxImageCount) count = caps.maxImageCount;
     VkFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT | (caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC);
@@ -84,6 +85,7 @@ hg_result vk_swapchain_build(vk_device* d, vk_surface* s, uint32_t w, uint32_t h
     }
     s->width = w;
     s->height = h;
+    s->transfer_src = (usage & VK_IMAGE_USAGE_TRANSFER_SRC) != 0;
     s->dirty = 0;
     return create_views(d, s);
 }
@@ -105,6 +107,7 @@ void vk_surface_release(vk_device* d, vk_surface* s) {
     if (d->dev) d->api.vkDeviceWaitIdle(d->dev);
     vk_frames_release(d, s);
     release_images(d, s);
+    vk_backdrop_release(d, s);
     VK_DESTROY(d, vkDestroySwapchainKHR, s->swapchain);
     if (s->surface) d->api.vkDestroySurfaceKHR(d->instance, s->surface, NULL);
     s->surface = 0;

@@ -32,6 +32,7 @@ void vk_frames_release(vk_device* d, vk_surface* s) {
         vk_buffer_release(d, &f->glyphs);
         vk_buffer_release(d, &f->staging);
         vk_buffer_release(d, &f->images);
+        vk_shader_frame_release(d, f);
     }
 }
 
