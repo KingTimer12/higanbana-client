@@ -152,7 +152,14 @@ pub unsafe extern "C" fn shader_prepare(ctx: *mut hg_context, sh: *mut hg_shader
         code = user_shader::prepare(unsafe { gpu_of(ctx)? }, sh)?;
         Ok(())
     });
-    if r != HG_OK as hg_result { r } else { code }
+    if r == HG_OK as hg_result { return code }
+    // Pânico ou falha fora dos escopos de erro: grava sh->error mesmo assim, senão o core
+    // chamaria shader_prepare de novo a cada quadro.
+    if unsafe { hg__shader_gpu_data(sh) }.is_null() {
+        let msg = unsafe { std::ffi::CStr::from_ptr(hg_last_error()) }.to_string_lossy().into_owned();
+        return user_shader::set_error(sh, &msg);
+    }
+    r
 }
 
 pub unsafe extern "C" fn shader_release(_ctx: *mut hg_context, sh: *mut hg_shader) {

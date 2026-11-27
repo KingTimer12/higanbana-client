@@ -112,7 +112,7 @@ fn error_text(e: wgpu::Error) -> String {
 }
 
 /// Erro do wgpu → `sh->error` (via core). Devolve o código que o core gravou.
-fn set_error(sh: *mut hg_shader, msg: &str) -> hg_result {
+pub(super) fn set_error(sh: *mut hg_shader, msg: &str) -> hg_result {
     let msg = CString::new(msg.replace('\0', " ")).unwrap_or_default();
     unsafe { hg__shader_set_error(sh, msg.as_ptr()) }
 }
@@ -125,8 +125,13 @@ pub fn prepare(gpu: &mut Gpu, sh: *mut hg_shader) -> Res<hg_result> {
     let src = unsafe { std::ffi::CStr::from_ptr(src) }.to_string_lossy();
     let common = gpu.user_shaders.common.get_or_insert_with(|| create_common(&gpu.device, &gpu.queue));
 
-    // Sem o escopo, o handler padrão do wgpu entra em pânico no erro de validação.
-    let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+    // Sem escopo, o handler padrão do wgpu entra em pânico. Validation = WGSL/pipeline inválido;
+    // Internal = tradução naga→HLSL/SPIR-V ou FXC/DXC do driver; OutOfMemory. Aninhados, pop LIFO.
+    #[cfg(test)]
+    hooks::enter();
+    let oom = gpu.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+    let internal = gpu.device.push_error_scope(wgpu::ErrorFilter::Internal);
+    let validation = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
     let module = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("user shader"), source: wgpu::ShaderSource::Wgsl(src),
     });
@@ -150,7 +155,8 @@ pub fn prepare(gpu: &mut Gpu, sh: *mut hg_shader) -> Res<hg_result> {
         multiview_mask: None,
         cache: None,
     });
-    if let Some(e) = pollster::block_on(scope.pop()) {
+    let errors = [validation.pop(), internal.pop(), oom.pop()].map(pollster::block_on);
+    if let Some(e) = errors.into_iter().flatten().next() {
         return Ok(set_error(sh, &format!("wgpu: {}", error_text(e))));
     }
     let gpu_obj = Box::new(UserShader { pipeline });
@@ -249,4 +255,18 @@ pub fn draw(gpu: &mut Gpu, win: &mut Window, enc: &mut wgpu::CommandEncoder, mut
     pass.set_bind_group(0, group, &[d.offset]);
     pass.draw(0..4, 0..1);
     (pass, true)
+}
+
+/// Testes: conta as chamadas de `prepare` e simula o pânico do handler padrão do wgpu
+/// (erro fora dos escopos).
+#[cfg(test)]
+pub(super) mod hooks {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    pub static CALLS: AtomicUsize = AtomicUsize::new(0);
+    pub static PANIC: AtomicBool = AtomicBool::new(false);
+
+    pub fn enter() {
+        CALLS.fetch_add(1, Ordering::SeqCst);
+        if PANIC.swap(false, Ordering::SeqCst) { panic!("wgpu: erro interno simulado") }
+    }
 }

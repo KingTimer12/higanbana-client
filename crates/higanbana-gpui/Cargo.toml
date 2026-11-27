@@ -30,6 +30,11 @@ naga = { version = "=30.0.1", optional = true, default-features = false, feature
 name = "shader_backends"
 required-features = ["shaders"]
 
+# WGPU em processo próprio: junto do Vulkan, vkCreateSwapchainKHR falha de forma intermitente.
+[[test]]
+name = "shader_wgpu"
+required-features = ["shaders", "wgpu"]
+
 [[test]]
 name = "video"
 required-features = ["video"]

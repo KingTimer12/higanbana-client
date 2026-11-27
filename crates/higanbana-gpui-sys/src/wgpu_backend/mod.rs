@@ -16,6 +16,8 @@ mod readback;
 mod render;
 mod surface;
 mod user_shader;
+#[cfg(test)]
+mod user_shader_tests;
 
 use crate::*;
 use std::ffi::{c_void, CStr};
