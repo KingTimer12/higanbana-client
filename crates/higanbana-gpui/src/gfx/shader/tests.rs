@@ -127,4 +127,15 @@ mod com_naga {
         let d = ShaderDraw { rect: crate::Rect::new(10., 10., 100., 50.), params: crate::params![[1., 2., 3., 4.]], ..Default::default() };
         dl.shader(&gpu, &d).expect("hg_draw_shader");
     }
+
+    #[test]
+    fn shader_uniform_tem_320_bytes() {
+        let (full, _) = compose::compose(RED);
+        let module = naga::front::wgsl::parse_str(&full).unwrap();
+        let mut layouter = naga::proc::Layouter::default();
+        layouter.update(module.to_ctx()).unwrap();
+        let (ty, _) = module.types.iter().find(|(_, t)| t.name.as_deref() == Some("HgShaderUniforms")).unwrap();
+        assert_eq!(layouter[ty].size, 320);
+        assert_eq!(higanbana_gpui_sys::HG_SHADER_UNIFORM_BYTES, 320);
+    }
 }

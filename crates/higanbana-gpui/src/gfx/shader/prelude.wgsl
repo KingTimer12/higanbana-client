@@ -1,12 +1,13 @@
 // prelude.wgsl — vem antes do código do usuário (ver compose.rs). Prefixo `hg_` é reservado.
 // Bindings fixos em todos os backends (ver translate.rs para HLSL/GLSL).
 
+// Layout (std140/cbuffer, só vec4): total 320 bytes = HG_SHADER_UNIFORM_BYTES (hgui.h).
 struct HgShaderUniforms {
-    rect: vec4<f32>,                     // x, y, w, h em pixels (origem no topo-esquerda)
-    radius: vec4<f32>,                   // cantos tl, tr, br, bl em pixels
-    time_scale_opacity_flags: vec4<f32>, // tempo (s), escala, opacidade, flags (HG_SHADER_* como f32)
-    viewport: vec4<f32>,                 // largura, altura, 0, sinal do Y do backdrop (< 0 = inverter, OpenGL)
-    params: array<vec4<f32>, 16>,
+    rect: vec4<f32>,                     // offset   0: x, y, w, h em pixels (origem no topo-esquerda)
+    radius: vec4<f32>,                   // offset  16: cantos tl, tr, br, bl em pixels
+    time_scale_opacity_flags: vec4<f32>, // offset  32: tempo (s), escala, opacidade, flags (HG_SHADER_* como f32)
+    viewport: vec4<f32>,                 // offset  48: largura, altura, 0, sinal do Y do backdrop (< 0 = inverter, OpenGL)
+    params: array<vec4<f32>, 16>,        // offset  64: 16 vec4 (stride 16, 256 bytes)
 }
 
 @group(0) @binding(0) var<uniform> hg_u: HgShaderUniforms;

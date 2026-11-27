@@ -241,6 +241,8 @@ const char* hg_shader_error(const hg_shader* sh);
 
 #define HG_SHADER_BACKDROP 1u /* flags: o shader lê o que já foi desenhado atrás */
 #define HG_SHADER_PARAMS   16
+/* Tamanho do uniform HgShaderUniforms (b0 / binding 0): 4 vec4 + params[16] vec4 = 320 bytes. */
+#define HG_SHADER_UNIFORM_BYTES 320u
 
 typedef struct hg_shader_draw {
     hg_rect  rect;      /* destino em pixels */
